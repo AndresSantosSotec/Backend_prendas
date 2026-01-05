@@ -108,6 +108,30 @@ class ClienteController extends Controller
     }
 
     /**
+     * Obtener solo clientes activos (para selects en frontend)
+     */
+    public function activos(): JsonResponse
+    {
+        $clientes = Cliente::where('eliminado', false)
+            ->where('estado', 'activo')
+            ->orderBy('nombres', 'asc')
+            ->orderBy('apellidos', 'asc')
+            ->get(['id', 'nombres', 'apellidos', 'dpi']);
+
+        return response()->json([
+            'success' => true,
+            'data' => $clientes->map(function ($cliente) {
+                return [
+                    'id' => (string) $cliente->id,
+                    'nombres' => $cliente->nombres,
+                    'apellidos' => $cliente->apellidos,
+                    'dpi' => $cliente->dpi,
+                ];
+            })
+        ]);
+    }
+
+    /**
      * Obtener un cliente por ID
      */
     public function show(string $id): JsonResponse

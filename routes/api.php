@@ -7,6 +7,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\SucursalController;
 use App\Http\Controllers\GeoNamesController;
+use App\Http\Controllers\CategoriaProductoController;
 
 /*
 |--------------------------------------------------------------------------
@@ -49,6 +50,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/usuarios/{id}/cambiar-password', [UserController::class, 'changePassword']);
         
         // Clientes
+        Route::get('/clientes/activos', [ClienteController::class, 'activos']);
         Route::get('/clientes', [ClienteController::class, 'index']);
         Route::get('/clientes/{id}', [ClienteController::class, 'show']);
         Route::post('/clientes', [ClienteController::class, 'store']);
@@ -64,6 +66,15 @@ Route::prefix('v1')->group(function () {
         Route::put('/sucursales/{id}', [SucursalController::class, 'update']);
         Route::delete('/sucursales/{id}', [SucursalController::class, 'destroy']);
         Route::post('/sucursales/{id}/toggle-activa', [SucursalController::class, 'toggleActiva']);
+        
+        // Categorías de Productos
+        Route::get('/categorias-productos', [CategoriaProductoController::class, 'index']);
+        Route::get('/categorias-productos/activas', [CategoriaProductoController::class, 'getActivas']);
+        Route::get('/categorias-productos/{id}', [CategoriaProductoController::class, 'show']);
+        Route::post('/categorias-productos', [CategoriaProductoController::class, 'store']);
+        Route::put('/categorias-productos/{id}', [CategoriaProductoController::class, 'update']);
+        Route::delete('/categorias-productos/{id}', [CategoriaProductoController::class, 'destroy']);
+        Route::post('/categorias-productos/{id}/toggle-activa', [CategoriaProductoController::class, 'toggleActiva']);
         
         // GeoNames (Guatemala)
         Route::get('/geonames/departamentos', [GeoNamesController::class, 'obtenerDepartamentos']);

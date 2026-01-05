@@ -40,6 +40,7 @@ class Permission extends Model
         'historial' => ['ver'],
         'reportes' => ['generar', 'exportar'],
         'usuarios' => ['ver', 'crear', 'editar', 'eliminar', 'asignar_permisos'],
+        'categorias_productos' => ['ver', 'crear', 'editar', 'eliminar', 'toggle_activa'],
     ];
 
     /**
@@ -80,6 +81,7 @@ class Permission extends Model
             'reportes' => ['generar', 'exportar'],
             'caja' => ['ver_movimientos'],
             'historial' => ['ver'],
+            'categorias_productos' => ['ver', 'crear', 'editar'],
         ],
     ];
 }

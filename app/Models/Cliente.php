@@ -11,6 +11,7 @@ class Cliente extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
+        'codigo_cliente',
         'nombres',
         'apellidos',
         'dpi',
@@ -78,6 +79,63 @@ class Cliente extends Model
         }
 
         return asset('storage/' . $this->fotografia);
+    }
+
+    /**
+     * Boot del modelo - generar código automáticamente
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        // Generar código de cliente al crear
+        static::creating(function ($cliente) {
+            if (empty($cliente->codigo_cliente)) {
+                $cliente->codigo_cliente = static::generarCodigoCliente();
+            }
+        });
+    }
+
+    /**
+     * Generar código único de cliente
+     * Formato: CLI-YYYYMMDD-XXXXXX
+     *
+     * @return string
+     */
+    public static function generarCodigoCliente(): string
+    {
+        $fecha = date('Ymd'); // 20260102
+
+        // Obtener el último ID + 1
+        $ultimoCliente = static::withTrashed()->latest('id')->first();
+        $siguienteId = $ultimoCliente ? $ultimoCliente->id + 1 : 1;
+
+        $numero = str_pad($siguienteId, 6, '0', STR_PAD_LEFT); // 000001
+
+        $codigo = "CLI-{$fecha}-{$numero}";
+
+        // Verificar que no exista (por si acaso)
+        $contador = 1;
+        while (static::where('codigo_cliente', $codigo)->exists()) {
+            $numero = str_pad($siguienteId + $contador, 6, '0', STR_PAD_LEFT);
+            $codigo = "CLI-{$fecha}-{$numero}";
+            $contador++;
+        }
+
+        return $codigo;
+    }
+
+    /**
+     * Relaciones
+     */
+    public function creditosPrendarios()
+    {
+        return $this->hasMany(CreditoPrendario::class, 'cliente_id');
+    }
+
+    public function prendasCompradas()
+    {
+        return $this->hasMany(Prenda::class, 'comprador_id');
     }
 }
 
