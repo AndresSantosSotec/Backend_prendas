@@ -24,6 +24,7 @@ class CreditoPrendario extends Model
         'fecha_analisis',
         'fecha_aprobacion',
         'fecha_desembolso',
+        'fecha_primer_pago',
         'fecha_vencimiento',
         'fecha_cancelacion',
         'fecha_ultimo_pago',
@@ -61,6 +62,7 @@ class CreditoPrendario extends Model
         'fecha_analisis' => 'date',
         'fecha_aprobacion' => 'date',
         'fecha_desembolso' => 'date',
+        'fecha_primer_pago' => 'date',
         'fecha_vencimiento' => 'date',
         'fecha_cancelacion' => 'date',
         'fecha_ultimo_pago' => 'date',
@@ -166,6 +168,103 @@ class CreditoPrendario extends Model
     public function calcularSaldoTotal()
     {
         return $this->capital_pendiente + $this->interes_generado - $this->interes_pagado + $this->mora_generada - $this->mora_pagada;
+    }
+
+    /**
+     * Recalcular saldos desde el kardex (fuente única de verdad)
+     * Este método calcula los saldos desde credito_movimientos, excluyendo movimientos anulados
+     */
+    public function recalcularSaldosDesdeKardex(): void
+    {
+        // Obtener todos los movimientos activos (no anulados ni reversados)
+        // El modelo usa 'estado' = 'activo' para movimientos válidos
+        $movimientosActivos = $this->movimientos()
+            ->where('estado', 'activo')
+            ->get();
+
+        // Calcular capital pagado (suma de capital de pagos)
+        $capitalPagado = $movimientosActivos
+            ->whereIn('tipo_movimiento', ['pago_cuota', 'pago_parcial', 'pago', 'rescate', 'pago_total'])
+            ->sum('capital');
+
+        // Calcular interés pagado
+        $interesPagado = $movimientosActivos
+            ->whereIn('tipo_movimiento', ['pago_cuota', 'pago_parcial', 'pago', 'rescate', 'pago_total'])
+            ->sum('interes');
+
+        // Calcular mora pagada
+        $moraPagada = $movimientosActivos
+            ->whereIn('tipo_movimiento', ['pago_cuota', 'pago_parcial', 'pago', 'rescate', 'pago_total', 'pago_mora'])
+            ->sum('mora');
+
+        // Calcular capital pendiente
+        $capitalPendiente = $this->monto_aprobado - $capitalPagado;
+
+        // Calcular interés generado (suma de interés de todas las cuotas proyectadas)
+        $interesGenerado = $this->planPagos()
+            ->sum('interes_proyectado');
+
+        // Calcular mora generada (suma de mora proyectada de cuotas vencidas)
+        $moraGenerada = $this->planPagos()
+            ->where('dias_mora', '>', 0)
+            ->sum('mora_proyectada');
+
+        // Actualizar campos de cache (se actualizan por jobs, pero aquí se recalcula)
+        $this->update([
+            'capital_pagado' => $capitalPagado,
+            'capital_pendiente' => $capitalPendiente,
+            'interes_pagado' => $interesPagado,
+            'mora_pagada' => $moraPagada,
+            'interes_generado' => $interesGenerado,
+            'mora_generada' => $moraGenerada,
+        ]);
+    }
+
+    /**
+     * Obtener saldo actual calculado desde kardex (sin guardar)
+     */
+    public function getSaldoDesdeKardex(): array
+    {
+        $movimientosActivos = $this->movimientos()
+            ->where('estado', 'activo')
+            ->get();
+
+        $capitalPagado = $movimientosActivos
+            ->whereIn('tipo_movimiento', ['pago_cuota', 'pago_parcial', 'pago', 'rescate', 'pago_total'])
+            ->sum('capital');
+
+        $interesPagado = $movimientosActivos
+            ->whereIn('tipo_movimiento', ['pago_cuota', 'pago_parcial', 'pago', 'rescate', 'pago_total'])
+            ->sum('interes');
+
+        $moraPagada = $movimientosActivos
+            ->whereIn('tipo_movimiento', ['pago_cuota', 'pago_parcial', 'pago', 'rescate', 'pago_total', 'pago_mora'])
+            ->sum('mora');
+
+        $capitalPendiente = $this->monto_aprobado - $capitalPagado;
+
+        $interesGenerado = $this->planPagos()
+            ->sum('interes_proyectado');
+
+        $moraGenerada = $this->planPagos()
+            ->where('dias_mora', '>', 0)
+            ->sum('mora_proyectada');
+
+        $interesPendiente = $interesGenerado - $interesPagado;
+        $moraPendiente = $moraGenerada - $moraPagada;
+        $saldoTotal = $capitalPendiente + $interesPendiente + $moraPendiente;
+
+        return [
+            'capital_pagado' => (float) $capitalPagado,
+            'capital_pendiente' => (float) $capitalPendiente,
+            'interes_pagado' => (float) $interesPagado,
+            'interes_generado' => (float) $interesGenerado,
+            'interes_pendiente' => (float) $interesPendiente,
+            'mora_pagada' => (float) $moraPagada,
+            'mora_generada' => (float) $moraGenerada,
+            'mora_pendiente' => (float) $moraPendiente,
+            'saldo_total' => (float) $saldoTotal,
+        ];
     }
 
     public function estaVencido()

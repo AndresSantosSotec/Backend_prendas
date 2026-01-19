@@ -18,7 +18,7 @@ return new class extends Migration
             $table->id();
 
             // Relaciones
-            $table->foreignId('credito_prendario_id')->constrained('creditos_prendarios')->comment('Crédito al que pertenece');
+            $table->foreignId('credito_prendario_id')->constrained('creditos_prendarios')->onDelete('cascade')->comment('Crédito al que pertenece');
             $table->foreignId('usuario_id')->constrained('users')->comment('Usuario que registra el movimiento');
             $table->foreignId('sucursal_id')->constrained('sucursales')->comment('Sucursal donde se realiza');
             $table->foreignId('cuota_id')->nullable()->constrained('credito_plan_pagos', 'id')->comment('Cuota pagada si aplica');
