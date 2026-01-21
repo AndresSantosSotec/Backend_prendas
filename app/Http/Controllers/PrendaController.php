@@ -12,9 +12,102 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PrendaController extends Controller
 {
+    /**
+     * Display a listing of the resource.
+     */
+    public function reporte(Request $request) {
+        try {
+            $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente']);
+
+            // Búsqueda
+            if ($request->has('busqueda') && !empty($request->busqueda)) {
+                $busqueda = $request->busqueda;
+                $query->where(function ($q) use ($busqueda) {
+                    $q->where('descripcion', 'like', "%{$busqueda}%")
+                      ->orWhere('codigo_prenda', 'like', "%{$busqueda}%")
+                      ->orWhere('marca', 'like', "%{$busqueda}%")
+                      ->orWhere('modelo', 'like', "%{$busqueda}%");
+                });
+            }
+
+            // Filtro por estado
+            if ($request->has('estado') && !empty($request->estado) && $request->estado !== 'todos') {
+                $query->where('estado', $request->estado);
+            }
+
+             // Filtro por categoría
+            if ($request->has('categoria') && !empty($request->categoria) && $request->categoria !== 'todos') {
+                $query->where('categoria_producto_id', $request->categoria);
+            }
+
+            // Filtro por sucursal
+            if ($request->has('sucursal') && !empty($request->sucursal) && $request->sucursal !== 'todos') {
+                $query->whereHas('creditoPrendario', function ($q) use ($request) {
+                    $q->where('sucursal_id', $request->sucursal);
+                });
+            }
+
+            // Filtro por rango de fechas
+            if ($request->has('fecha_desde') && !empty($request->fecha_desde)) {
+                $query->where('fecha_ingreso', '>=', $request->fecha_desde);
+            }
+
+            if ($request->has('fecha_hasta') && !empty($request->fecha_hasta)) {
+                $query->where('fecha_ingreso', '<=', $request->fecha_hasta);
+            }
+
+            // Ordenamiento
+            $query->orderBy('fecha_ingreso', 'desc');
+
+            $prendas = $query->get();
+            $format = $request->input('format', 'pdf');
+
+            if ($format === 'csv' || $format === 'excel') {
+                 $headers = [
+                    'Content-Type' => 'text/csv',
+                    'Content-Disposition' => 'attachment; filename="reporte_prendas_' . date('Y-m-d') . '.csv"',
+                ];
+
+                $callback = function() use ($prendas) {
+                    $file = fopen('php://output', 'w');
+                    fputs($file, "\xEF\xBB\xBF"); // BOM
+                    fputcsv($file, ['ID', 'Código', 'Categoría', 'Descripción', 'Estado', 'Marca', 'Modelo', 'Tasación', 'Val. Prestamo', 'Val. Venta', 'Ubicación', 'Fecha Ingreso']);
+
+                    foreach ($prendas as $prenda) {
+                        fputcsv($file, [
+                            $prenda->id,
+                            $prenda->codigo_prenda,
+                            $prenda->categoriaProducto?->nombre ?? 'N/A',
+                            $prenda->descripcion,
+                            $prenda->estado,
+                            $prenda->marca,
+                            $prenda->modelo,
+                            $prenda->valor_tasacion,
+                            $prenda->valor_prestamo,
+                            $prenda->valor_venta,
+                            $prenda->ubicacion_fisica,
+                            $prenda->fecha_ingreso,
+                        ]);
+                    }
+                    fclose($file);
+                };
+
+                return response()->stream($callback, 200, $headers);
+            }
+
+            $pdf = Pdf::loadView('reports.prendas', compact('prendas'));
+            return $pdf->download('reporte_prendas_' . date('Y-m-d') . '.pdf');
+        } catch (\Exception $e) {
+            Log::error('Error generating reporte: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            return response()->json(['error' => 'Error al generar el reporte', 'message' => $e->getMessage()], 500);
+        }
+    }
+
     /**
      * Display a listing of the resource.
      */

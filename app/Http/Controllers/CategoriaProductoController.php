@@ -35,7 +35,7 @@ class CategoriaProductoController extends Controller
         $orderBy = $request->get('order_by', 'orden');
         $orderDir = $request->get('order_dir', 'asc');
         $allowedOrderFields = ['codigo', 'nombre', 'orden', 'activa', 'created_at'];
-        
+
         if (in_array($orderBy, $allowedOrderFields)) {
             $query->orderBy($orderBy, $orderDir === 'asc' ? 'asc' : 'desc');
         } else {
@@ -81,11 +81,28 @@ class CategoriaProductoController extends Controller
         $categorias = CategoriaProducto::where('activa', true)
             ->orderBy('orden', 'asc')
             ->orderBy('nombre', 'asc')
-            ->get(['id', 'codigo', 'nombre', 'color', 'icono']);
+            ->get();
 
         return response()->json([
             'success' => true,
-            'data' => $categorias
+            'data' => $categorias->map(function ($categoria) {
+                return [
+                    'id' => (string) $categoria->id,
+                    'codigo' => $categoria->codigo,
+                    'nombre' => $categoria->nombre,
+                    'color' => $categoria->color,
+                    'icono' => $categoria->icono,
+                    'tasa_interes_default' => $categoria->tasa_interes_default ? (float) $categoria->tasa_interes_default : null,
+                    'tasa_mora_default' => $categoria->tasa_mora_default ? (float) $categoria->tasa_mora_default : null,
+                    'plazo_maximo_dias' => $categoria->plazo_maximo_dias,
+                    'porcentaje_prestamo_maximo' => $categoria->porcentaje_prestamo_maximo ? (float) $categoria->porcentaje_prestamo_maximo : null,
+                    'metodo_calculo_default' => $categoria->metodo_calculo_default ?? 'francesa',
+                    'afecta_interes_mensual' => $categoria->afecta_interes_mensual ?? false,
+                    'permite_pago_capital_diferente' => $categoria->permite_pago_capital_diferente ?? false,
+                    'campos_formulario' => $categoria->campos_formulario,
+                    'campos_adicionales' => $categoria->campos_adicionales,
+                ];
+            })
         ]);
     }
 
@@ -135,7 +152,7 @@ class CategoriaProductoController extends Controller
         $data = $validator->validated();
         $data['activa'] = $data['activa'] ?? true;
         $data['orden'] = $data['orden'] ?? 0;
-        
+
         // Auto-generar código si no se proporciona
         if (empty($data['codigo'])) {
             $ultimaCategoria = CategoriaProducto::withTrashed()->orderBy('id', 'desc')->first();
@@ -261,6 +278,13 @@ class CategoriaProductoController extends Controller
             'icono' => $categoria->icono,
             'orden' => $categoria->orden,
             'activa' => $categoria->activa,
+            'tasa_interes_default' => $categoria->tasa_interes_default ? (float) $categoria->tasa_interes_default : null,
+            'tasa_mora_default' => $categoria->tasa_mora_default ? (float) $categoria->tasa_mora_default : null,
+            'plazo_maximo_dias' => $categoria->plazo_maximo_dias,
+            'porcentaje_prestamo_maximo' => $categoria->porcentaje_prestamo_maximo ? (float) $categoria->porcentaje_prestamo_maximo : null,
+            'metodo_calculo_default' => $categoria->metodo_calculo_default ?? 'francesa',
+            'afecta_interes_mensual' => $categoria->afecta_interes_mensual ?? false,
+            'permite_pago_capital_diferente' => $categoria->permite_pago_capital_diferente ?? false,
             'creadoEn' => $categoria->created_at->toISOString(),
             'actualizadoEn' => $categoria->updated_at->toISOString(),
         ];

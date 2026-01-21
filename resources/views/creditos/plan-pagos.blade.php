@@ -122,9 +122,9 @@
         }
         .text-right { text-align: right; }
         .text-center { text-align: center; }
-        
+
         tr:nth-child(even) { background-color: #f8fafc; }
-        
+
         .status-badge {
             padding: 2px 6px;
             border-radius: 4px;
@@ -142,7 +142,7 @@
             color: #1e293b;
             border-top: 2px solid #cbd5e1;
         }
-        
+
         .disclaimer {
             margin-top: 30px;
             font-size: 8px;
@@ -174,10 +174,15 @@
                 <span class="info-label">Cliente</span>
                 <span class="info-value">{{ $cliente->nombres ?? '' }} {{ $cliente->apellidos ?? '' }}</span>
             </div>
-            @if($cliente->dpi)
+            @if(isset($cliente->dpi) && $cliente->dpi)
             <div class="info-item">
                 <span class="info-label">Documento ID (DPI)</span>
                 <span class="info-value">{{ $cliente->dpi }}</span>
+            </div>
+            @elseif(isset($cliente->numero_documento) && $cliente->numero_documento)
+            <div class="info-item">
+                <span class="info-label">Documento ID</span>
+                <span class="info-value">{{ $cliente->numero_documento }}</span>
             </div>
             @endif
         </div>
@@ -230,7 +235,7 @@
                     $interes = $cuota->interes_proyectado ?? 0;
                     $mora = $cuota->mora_proyectada ?? 0;
                     $totalCuota = $cuota->monto_cuota_proyectado ?? ($capital + $interes + $mora);
-                    
+
                     $totalCapital += $capital;
                     $totalInteres += $interes;
                     $totalMora += $mora;
@@ -268,7 +273,7 @@
     </table>
 
     <div class="disclaimer">
-        Nota: Este documento es un plan de pagos proyectado. Los montos de mora pueden variar dependiendo de la fecha real de pago. 
+        Nota: Este documento es un plan de pagos proyectado. Los montos de mora pueden variar dependiendo de la fecha real de pago.
         El pago puntual evita recargos adicionales y mantiene su buen historial crediticio.
     </div>
 </body>

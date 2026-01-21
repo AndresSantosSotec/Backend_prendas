@@ -4,12 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Models\CreditoPrendario;
 use App\Models\Prenda;
+use App\Models\PrendaDatoAdicional;
+use App\Models\PrendaImagen;
 use App\Models\Tasacion;
 use App\Models\Cliente;
 use App\Models\CreditoMovimiento;
 use App\Models\CreditoPlanPago;
 use App\Models\IdempotencyKey;
 use App\Models\AuditoriaCredito;
+use App\Models\CodigoPrereservado;
 use App\Enums\EstadoCredito;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -19,6 +22,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Picqer\Barcode\BarcodeGeneratorPNG;
 
 /**
  * Controlador para gestión de créditos prendarios
@@ -32,7 +36,13 @@ class CreditoPrendarioController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = CreditoPrendario::with(['cliente', 'sucursal', 'prendas']);
+        $query = CreditoPrendario::with([
+            'cliente',
+            'sucursal',
+            'prendas.imagenesNormalizadas',
+            'prendas.datosAdicionalesNormalizados',
+            'prendas.categoriaProducto'
+        ]);
 
         // Filtros
         if ($request->has('busqueda') && $request->busqueda !== '') {
@@ -146,7 +156,10 @@ class CreditoPrendarioController extends Controller
             'valor_tasacion' => 'nullable|numeric|min:0',
             'tasa_interes' => 'nullable|numeric|min:0|max:100',
             'tasa_mora' => 'nullable|numeric|min:0|max:10',
-            'tipo_interes' => 'nullable|in:diario,semanal,quincenal,mensual',
+            'tipo_interes' => 'nullable|in:diario,semanal,catorcenal,quincenal,cada_28_dias,mensual',
+            'metodo_calculo' => 'nullable|in:francesa,flat',
+            'afecta_interes_mensual' => 'nullable|boolean',
+            'permite_pago_capital_diferente' => 'nullable|boolean',
             'plazo_dias' => 'nullable|integer|min:1',
             'dias_gracia' => 'nullable|integer|min:0',
             'numero_cuotas' => 'nullable|integer|min:1',
@@ -155,6 +168,10 @@ class CreditoPrendarioController extends Controller
             'fecha_primer_pago' => 'nullable|date',
             'observaciones' => 'nullable|string|max:1000',
             'tasador_id' => 'nullable|exists:users,id',
+            // Códigos pre-reservados del wizard
+            'numero_credito' => 'nullable|string|max:30',
+            'codigo_prenda' => 'nullable|string|max:50',
+            'session_token' => 'nullable|string|max:100',
             'prendas' => 'required|array|min:1',
             'prendas.*.categoria_producto_id' => 'required|exists:categoria_productos,id',
             'prendas.*.descripcion_general' => 'required|string|max:500',
@@ -163,6 +180,7 @@ class CreditoPrendarioController extends Controller
             'prendas.*.numero_serie' => 'nullable|string|max:100',
             'prendas.*.condicion_fisica' => 'nullable|in:excelente,bueno,regular,deteriorado',
             'prendas.*.fotos' => 'nullable|array',
+            'prendas.*.datos_adicionales' => 'nullable|array',
         ], [
             'cliente_id.required' => 'El ID del cliente es requerido',
             'cliente_id.exists' => 'El cliente no existe en la base de datos',
@@ -192,21 +210,26 @@ class CreditoPrendarioController extends Controller
         try {
             DB::beginTransaction();
 
-            // Generar número de crédito único
-            $ultimoCredito = CreditoPrendario::withTrashed()
-                ->whereNotNull('numero_credito')
-                ->orderBy('id', 'desc')
-                ->first();
+            // Usar código pre-reservado si se proporciona, sino generar uno nuevo
+            $numeroCredito = $request->numero_credito;
 
-            if ($ultimoCredito && $ultimoCredito->numero_credito) {
-                // Extraer número del formato CR-XXXXXX
-                $ultimoNumero = (int) substr($ultimoCredito->numero_credito, 3);
-                $numero = $ultimoNumero + 1;
-            } else {
-                $numero = 1;
+            if (!$numeroCredito) {
+                // Generar número de crédito único
+                $ultimoCredito = CreditoPrendario::withTrashed()
+                    ->whereNotNull('numero_credito')
+                    ->orderBy('id', 'desc')
+                    ->first();
+
+                if ($ultimoCredito && $ultimoCredito->numero_credito) {
+                    // Extraer número del formato CR-XXXXXX
+                    $ultimoNumero = (int) substr($ultimoCredito->numero_credito, 3);
+                    $numero = $ultimoNumero + 1;
+                } else {
+                    $numero = 1;
+                }
+
+                $numeroCredito = 'CR-' . str_pad($numero, 6, '0', STR_PAD_LEFT);
             }
-
-            $numeroCredito = 'CR-' . str_pad($numero, 6, '0', STR_PAD_LEFT);
 
             // Calcular fecha de vencimiento si hay plazo
             $fechaVencimiento = null;
@@ -220,6 +243,13 @@ class CreditoPrendarioController extends Controller
                 $montoCuota = $request->monto_aprobado / $request->numero_cuotas;
             }
 
+            // Obtener parámetros de la categoría si no se proporcionan
+            $categoriaId = $request->prendas[0]['categoria_producto_id'] ?? null;
+            $categoria = null;
+            if ($categoriaId) {
+                $categoria = \App\Models\CategoriaProducto::find($categoriaId);
+            }
+
             // Crear crédito prendario con todos los campos
             $datosCredito = [
                 'numero_credito' => $numeroCredito,
@@ -229,17 +259,24 @@ class CreditoPrendarioController extends Controller
                 'monto_solicitado' => $request->monto_solicitado,
                 'monto_aprobado' => $request->monto_aprobado ?? $request->monto_solicitado,
                 'valor_tasacion' => $request->valor_tasacion,
-                'tasa_interes' => $request->tasa_interes ?? 0,
-                'tasa_mora' => $request->tasa_mora ?? 0,
+                'tasa_interes' => $request->tasa_interes ?? ($categoria?->tasa_interes_default ?? 0),
+                'tasa_mora' => $request->tasa_mora ?? ($categoria?->tasa_mora_default ?? 0),
                 'tipo_interes' => $request->tipo_interes ?? 'mensual',
+                'metodo_calculo' => 'flat', // Siempre 'flat' para créditos prendarios
+                'afecta_interes_mensual' => $request->afecta_interes_mensual ?? ($categoria?->afecta_interes_mensual ?? false),
+                'permite_pago_capital_diferente' => $request->permite_pago_capital_diferente ?? ($categoria?->permite_pago_capital_diferente ?? false),
                 'plazo_dias' => $request->plazo_dias,
                 'dias_gracia' => $request->dias_gracia ?? 0,
                 'numero_cuotas' => $request->numero_cuotas ?? 1,
                 'monto_cuota' => $montoCuota,
                 'fecha_desembolso' => $request->fecha_desembolso ? Carbon::parse($request->fecha_desembolso) : null,
                 'observaciones' => $request->observaciones,
-                'estado' => 'solicitado',
+                // Estado inicial: vigente (el crédito se aprueba y desembolsa al crearse desde el wizard)
+                'estado' => 'vigente',
                 'fecha_solicitud' => now(),
+                'fecha_aprobacion' => now(),
+                'fecha_desembolso' => $request->fecha_desembolso ? Carbon::parse($request->fecha_desembolso) : now(),
+                'monto_desembolsado' => $request->monto_aprobado ?? $request->monto_solicitado,
                 'fecha_vencimiento' => $fechaVencimiento,
                 // Inicializar campos de capital e intereses
                 'capital_pendiente' => $request->monto_aprobado ?? $request->monto_solicitado,
@@ -283,8 +320,14 @@ class CreditoPrendarioController extends Controller
             // Crear prendas y tasaciones
             $primeraPrendaId = null;
             foreach ($request->prendas as $index => $prendaData) {
-                $numeroPrenda = $numeroPrendaBase + $index + 1;
-                $codigoPrenda = 'PRN-' . str_pad($numeroPrenda, 6, '0', STR_PAD_LEFT);
+                // Usar código pre-reservado para la primera prenda si se proporciona
+                $codigoPrenda = null;
+                if ($index === 0 && $request->codigo_prenda) {
+                    $codigoPrenda = $request->codigo_prenda;
+                } else {
+                    $numeroPrenda = $numeroPrendaBase + $index + 1;
+                    $codigoPrenda = 'PRN-' . str_pad($numeroPrenda, 6, '0', STR_PAD_LEFT);
+                }
 
                 // Mapear condición física del frontend al formato de BD
                 $condicionMap = [
@@ -326,7 +369,82 @@ class CreditoPrendarioController extends Controller
                     'valor_tasacion' => $prendaData['valor_tasacion'] ?? $request->valor_tasacion,
                     'valor_prestamo' => $prendaData['valor_prestamo'] ?? $request->monto_aprobado,
                     'porcentaje_prestamo' => $prendaData['porcentaje_prestamo'] ?? null,
+                    // Datos adicionales dinámicos según la categoría
+                    'datos_adicionales' => $prendaData['datos_adicionales'] ?? null,
                 ]);
+
+                // Guardar datos adicionales en tabla normalizada (EAV)
+                if (!empty($prendaData['datos_adicionales']) && is_array($prendaData['datos_adicionales'])) {
+                    $orden = 0;
+                    foreach ($prendaData['datos_adicionales'] as $campoNombre => $campoValor) {
+                        if ($campoValor !== null && $campoValor !== '') {
+                            // Determinar el tipo de campo basado en el valor
+                            $campoTipo = 'text';
+                            if (is_numeric($campoValor)) {
+                                $campoTipo = 'number';
+                            } elseif (is_bool($campoValor)) {
+                                $campoTipo = 'checkbox';
+                            }
+
+                            // Crear etiqueta legible desde el nombre del campo (snake_case a Title Case)
+                            $campoLabel = ucwords(str_replace('_', ' ', $campoNombre));
+
+                            PrendaDatoAdicional::create([
+                                'prenda_id' => $prenda->id,
+                                'campo_nombre' => $campoNombre,
+                                'campo_valor' => is_array($campoValor) ? json_encode($campoValor) : (string) $campoValor,
+                                'campo_tipo' => $campoTipo,
+                                'campo_label' => $campoLabel,
+                                'orden' => $orden++,
+                            ]);
+                        }
+                    }
+                }
+
+                // Guardar imágenes en tabla normalizada
+                if (!empty($fotos) && is_array($fotos)) {
+                    foreach ($fotos as $ordenFoto => $foto) {
+                        $tipoImagen = 'general';
+                        $base64Data = null;
+                        $urlExterna = null;
+
+                        // Determinar si es base64 o URL
+                        if (is_string($foto)) {
+                            if (strpos($foto, 'data:image') === 0) {
+                                $base64Data = $foto;
+                            } else {
+                                $urlExterna = $foto;
+                            }
+                        } elseif (is_array($foto)) {
+                            $base64Data = $foto['data'] ?? $foto['base64'] ?? null;
+                            $urlExterna = $foto['url'] ?? null;
+                            $tipoImagen = $foto['tipo'] ?? $foto['tipo_imagen'] ?? 'general';
+                        }
+
+                        if ($base64Data) {
+                            // Guardar imagen desde base64
+                            PrendaImagen::crearDesdeBase64(
+                                $prenda->id,
+                                $base64Data,
+                                $tipoImagen,
+                                Auth::id(),
+                                $ordenFoto
+                            );
+                        } elseif ($urlExterna) {
+                            // Guardar referencia a URL externa
+                            PrendaImagen::create([
+                                'prenda_id' => $prenda->id,
+                                'nombre_archivo' => basename(parse_url($urlExterna, PHP_URL_PATH) ?: 'imagen_' . $ordenFoto),
+                                'ruta_almacenamiento' => $urlExterna,
+                                'url_publica' => $urlExterna,
+                                'tipo_imagen' => $tipoImagen,
+                                'es_principal' => $ordenFoto === 0,
+                                'orden' => $ordenFoto,
+                                'subida_por' => Auth::id(),
+                            ]);
+                        }
+                    }
+                }
 
                 if ($index === 0) {
                     $primeraPrendaId = $prenda->id;
@@ -400,6 +518,20 @@ class CreditoPrendarioController extends Controller
                 $this->generarPlanPagos($credito, $fechaPrimerPagoRequest);
             }
 
+            // Marcar códigos pre-reservados como usados si se proporcionó session_token
+            if ($request->session_token) {
+                try {
+                    CodigoPrereservado::where('session_token', $request->session_token)
+                        ->where('estado', 'reservado')
+                        ->update([
+                            'estado' => 'usado'
+                        ]);
+                } catch (\Exception $e) {
+                    // Log del error pero no fallar la transacción
+                    Log::warning('Error al marcar códigos como usados: ' . $e->getMessage());
+                }
+            }
+
             DB::commit();
 
             return response()->json([
@@ -431,8 +563,17 @@ class CreditoPrendarioController extends Controller
      */
     public function show(string $id): JsonResponse
     {
-        $credito = CreditoPrendario::with(['cliente', 'sucursal', 'prendas', 'tasaciones', 'movimientos', 'planPagos'])
-            ->find($id);
+        $credito = CreditoPrendario::with([
+            'cliente',
+            'sucursal',
+            'prendas.imagenesNormalizadas',
+            'prendas.imagenPrincipal',
+            'prendas.datosAdicionalesNormalizados',
+            'prendas.categoriaProducto',
+            'tasaciones',
+            'movimientos',
+            'planPagos'
+        ])->find($id);
 
         if (!$credito) {
             return response()->json([
@@ -548,6 +689,35 @@ class CreditoPrendarioController extends Controller
                     'estado' => $prenda->estado,
                     'condicion_fisica' => $prenda->condicion_fisica,
                     'fotos' => is_array($prenda->fotos) ? $prenda->fotos : (is_string($prenda->fotos) ? json_decode($prenda->fotos, true) ?? [] : []),
+                    // Imágenes normalizadas
+                    'imagenes' => $prenda->imagenesNormalizadas->map(function ($img) {
+                        return [
+                            'id' => (string) $img->id,
+                            'url' => $img->url,
+                            'thumbnail_url' => $img->thumbnail_url,
+                            'tipo' => $img->tipo_imagen,
+                            'etiqueta' => $img->etiqueta,
+                            'descripcion' => $img->descripcion,
+                            'es_principal' => $img->es_principal,
+                            'orden' => $img->orden,
+                            'dimensiones' => $img->dimensiones,
+                            'tamano' => $img->tamano_formateado,
+                        ];
+                    }),
+                    'imagen_principal' => $prenda->imagenPrincipal ? [
+                        'id' => (string) $prenda->imagenPrincipal->id,
+                        'url' => $prenda->imagenPrincipal->url,
+                        'thumbnail_url' => $prenda->imagenPrincipal->thumbnail_url,
+                    ] : null,
+                    // Datos adicionales normalizados
+                    'datos_adicionales_normalizados' => $prenda->datosAdicionalesNormalizados->map(function ($dato) {
+                        return [
+                            'campo' => $dato->campo_nombre,
+                            'valor' => $dato->campo_valor,
+                            'tipo' => $dato->campo_tipo,
+                            'label' => $dato->campo_label,
+                        ];
+                    }),
                 ];
             }),
             'plan_pagos' => $credito->planPagos ? $credito->planPagos->sortBy('numero_cuota')->map(function ($cuota) {
@@ -581,7 +751,7 @@ class CreditoPrendarioController extends Controller
 
     /**
      * Generar plan de pagos automáticamente al crear un crédito
-     * Usa amortización francesa (igual que el frontend) para consistencia
+     * Soporta dos métodos: francesa (amortización) y flat (interés fijo)
      *
      * @param CreditoPrendario $credito El crédito para el cual generar el plan
      * @param Carbon|null $fechaPrimerPagoRequest La fecha del primer pago del request (opcional)
@@ -594,6 +764,10 @@ class CreditoPrendarioController extends Controller
         $tipoInteres = $credito->tipo_interes ?? 'mensual';
         $diasGracia = $credito->dias_gracia ?? 0;
         $tasaMora = $credito->tasa_mora ?? 0;
+        // Método de cálculo siempre es 'flat' para créditos prendarios
+        $metodoCalculo = 'flat';
+        $afectaInteresMensual = $credito->afecta_interes_mensual ?? false;
+        $permitePagoCapitalDiferente = $credito->permite_pago_capital_diferente ?? false;
 
         // Calcular fecha de inicio (fecha de desembolso o fecha del primer pago si está definida)
         $fechaDesembolso = $credito->fecha_desembolso ? Carbon::parse($credito->fecha_desembolso) : now();
@@ -607,25 +781,55 @@ class CreditoPrendarioController extends Controller
         // Calcular días entre cuotas según tipo de interés
         $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);
 
-        // Calcular tasa de interés por período (igual que frontend)
+        // Calcular tasa de interés por período
         $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres);
 
-        // Calcular cuota usando amortización francesa (igual que frontend)
-        $cuotaExacta = 0;
-        if ($tasaPorPeriodo > 0 && $numeroCuotas > 0) {
-            // Fórmula de amortización francesa: Cuota = Monto * (tasa * (1+tasa)^n) / ((1+tasa)^n - 1)
-            $base = 1 + $tasaPorPeriodo;
-            $baseElevado = pow($base, $numeroCuotas);
-            $cuotaExacta = ($montoAprobado * $tasaPorPeriodo * $baseElevado) / ($baseElevado - 1);
+        // Calcular según método de cálculo
+        if ($metodoCalculo === 'flat') {
+            // MÉTODO FLAT: Interés fijo sobre monto total en cada cuota, capital fijo
+            // Para créditos prendarios la tasa ya viene como MENSUAL (ej: 15% = 0.15 por mes)
+            //
+            // Fórmulas para método FLAT:
+            //   Interés_por_cuota = Monto × Tasa_mensual (interés constante cada cuota)
+            //   Capital_por_cuota = Monto / Número_cuotas
+            //   Cuota = Capital_por_cuota + Interés_por_cuota
+            //
+            // Ejemplo: Q 700 al 15% mensual en 4 cuotas
+            //   Interés_por_cuota = 700 × 0.15 = Q 105
+            //   Capital_por_cuota = 700 / 4 = Q 175
+            //   Cuota = 175 + 105 = Q 280
+
+            // La tasa ya es mensual, convertir de porcentaje a decimal
+            $tasaMensual = $tasaInteres / 100;
+
+            // Interés por cuota = Monto × Tasa_mensual (interés fijo cada mes sobre el capital original)
+            $interesPorCuota = $montoAprobado * $tasaMensual;
+
+            // Capital por cuota = Monto / Número_cuotas
+            $capitalPorCuota = $montoAprobado / $numeroCuotas;
+
+            // Cuota total = Capital_por_cuota + Interés_por_cuota
+            $cuotaPeriodo = round($capitalPorCuota + $interesPorCuota, 2);
+
+            $saldoCapital = $montoAprobado;
         } else {
-            // Sin interés, solo capital
-            $cuotaExacta = $montoAprobado / $numeroCuotas;
+            // MÉTODO FRANCESA: Amortización francesa (método original)
+            $cuotaExacta = 0;
+            if ($tasaPorPeriodo > 0 && $numeroCuotas > 0) {
+                // Fórmula de amortización francesa: Cuota = Monto * (tasa * (1+tasa)^n) / ((1+tasa)^n - 1)
+                $base = 1 + $tasaPorPeriodo;
+                $baseElevado = pow($base, $numeroCuotas);
+                $cuotaExacta = ($montoAprobado * $tasaPorPeriodo * $baseElevado) / ($baseElevado - 1);
+            } else {
+                // Sin interés, solo capital
+                $cuotaExacta = $montoAprobado / $numeroCuotas;
+            }
+
+            // Redondear cuota a 2 decimales
+            $cuotaPeriodo = round($cuotaExacta, 2);
+            $saldoCapital = $montoAprobado;
         }
 
-        // Redondear cuota a 2 decimales
-        $cuotaPeriodo = round($cuotaExacta, 2);
-
-        $saldoCapital = $montoAprobado;
         $totalCapital = 0;
         $totalInteres = 0;
 
@@ -633,36 +837,54 @@ class CreditoPrendarioController extends Controller
         for ($numeroCuota = 1; $numeroCuota <= $numeroCuotas; $numeroCuota++) {
             // Calcular fecha de vencimiento
             if ($fechaPrimerPago) {
-                // Si hay fecha_primer_pago, la primera cuota usa esa fecha exacta
-                // Las siguientes se calculan desde ahí
                 if ($numeroCuota === 1) {
-                    // Primera cuota: usar la fecha del primer pago exacta
                     $fechaVencimiento = $fechaPrimerPago->copy();
                 } else {
-                    // Cuotas siguientes: calcular desde la fecha del primer pago
                     $fechaVencimiento = $fechaPrimerPago->copy()->addDays(($numeroCuota - 1) * $diasEntreCuotas);
                 }
             } else {
-                // Si no hay fecha_primer_pago, calcular desde fecha_desembolso
                 $fechaVencimiento = $fechaDesembolso->copy()->addDays(($numeroCuota - 1) * $diasEntreCuotas);
             }
 
-            // Si hay días de gracia en la primera cuota, agregarlos (solo si no hay fecha_primer_pago)
-            // porque si hay fecha_primer_pago, esa fecha ya incluye el período de gracia
+            // Si hay días de gracia en la primera cuota, agregarlos
             if ($numeroCuota === 1 && $diasGracia > 0 && !$fechaPrimerPago) {
                 $fechaVencimiento->addDays($diasGracia);
             }
 
-            // Calcular interés y capital para esta cuota usando amortización francesa
-            $interesProyectado = round($saldoCapital * $tasaPorPeriodo, 2);
+            // Calcular interés y capital según método
+            if ($metodoCalculo === 'flat') {
+                // Método FLAT: Interés constante, capital fijo
+                // Fórmula: Interés_total = Monto × Tasa
+                //          Capital_por_cuota = Monto / Número_periodos
+                //          Cuota = Capital_por_cuota + (Interés_total / Número_periodos)
 
-            // Si es la última cuota, ajustar para evitar desfases por redondeo
-            if ($numeroCuota === $numeroCuotas) {
-                $capitalProyectado = round($saldoCapital, 2);
+                // Interés por cuota es constante (Interés_total / Número_cuotas)
+                $interesProyectado = round($interesPorCuota, 2);
+
+                // Capital por cuota es constante (Monto / Número_cuotas)
+                $capitalProyectado = round($capitalPorCuota, 2);
+
+                // Si es la última cuota, ajustar para evitar desfases por redondeo
+                if ($numeroCuota === $numeroCuotas) {
+                    $capitalProyectado = round($saldoCapital, 2);
+                    // Mantener el interés por cuota constante
+                    // No recalcular para mantener consistencia con la fórmula flat
+                }
+
+                // Cuota = Capital_por_cuota + Interés_por_cuota
                 $montoCuotaProyectado = round($capitalProyectado + $interesProyectado, 2);
             } else {
-                $capitalProyectado = round($cuotaPeriodo - $interesProyectado, 2);
-                $montoCuotaProyectado = $cuotaPeriodo;
+                // Método FRANCESA: Amortización
+                $interesProyectado = round($saldoCapital * $tasaPorPeriodo, 2);
+
+                // Si es la última cuota, ajustar para evitar desfases por redondeo
+                if ($numeroCuota === $numeroCuotas) {
+                    $capitalProyectado = round($saldoCapital, 2);
+                    $montoCuotaProyectado = round($capitalProyectado + $interesProyectado, 2);
+                } else {
+                    $capitalProyectado = round($cuotaPeriodo - $interesProyectado, 2);
+                    $montoCuotaProyectado = $cuotaPeriodo;
+                }
             }
 
             // Determinar si es cuota de gracia (solo interés, sin capital)
@@ -706,7 +928,7 @@ class CreditoPrendarioController extends Controller
                 'tasa_mora_aplicada' => $tasaMora,
                 'dias_cuota' => $diasCuota,
                 'es_cuota_gracia' => $esCuotaGracia,
-                'permite_pago_parcial' => true,
+                'permite_pago_parcial' => $permitePagoCapitalDiferente || true,
                 'tipo_modificacion' => 'original',
             ]);
 
@@ -727,8 +949,12 @@ class CreditoPrendarioController extends Controller
                 return 1;
             case 'semanal':
                 return 7;
+            case 'catorcenal':
+                return 14;
             case 'quincenal':
                 return 15;
+            case 'cada_28_dias':
+                return 28;
             case 'mensual':
             default:
                 return 30;
@@ -765,8 +991,12 @@ class CreditoPrendarioController extends Controller
                 return $tasaAnual / 100 / 365;
             case 'semanal':
                 return $tasaAnual / 100 / 52;
+            case 'catorcenal':
+                return $tasaAnual / 100 / 26; // 26 catorcenas al año
             case 'quincenal':
                 return $tasaAnual / 100 / 24;
+            case 'cada_28_dias':
+                return $tasaAnual / 100 / 13; // 13 períodos de 28 días al año
             case 'mensual':
             default:
                 return $tasaAnual / 100 / 12;
@@ -1876,6 +2106,558 @@ class CreditoPrendarioController extends Controller
     }
 
     /**
+     * Generar recibo preliminar desde datos del wizard (antes de crear el crédito)
+     */
+    public function generarReciboPreliminar(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'cliente' => 'required|array',
+                'cliente.id' => 'required',
+                'cliente.nombres' => 'required|string',
+                'cliente.apellidos' => 'required|string',
+                'cliente.dpi' => 'nullable|string',
+                'cliente.telefono' => 'nullable|string',
+                'prenda' => 'required|array',
+                'prenda.descripcion_general' => 'required|string',
+                'prenda.marca' => 'nullable|string',
+                'prenda.modelo' => 'nullable|string',
+                'prenda.codigo_prenda' => 'nullable|string',
+                'credito' => 'required|array',
+                'credito.numero_credito' => 'required|string',
+                'credito.monto_aprobado' => 'required|numeric',
+                'credito.tasa_interes' => 'required|numeric',
+                'credito.tipo_interes' => 'required|string',
+                'credito.plazo_dias' => 'nullable|integer',
+                'credito.numero_cuotas' => 'nullable|integer',
+                'credito.fecha_desembolso' => 'nullable|date',
+                'credito.fecha_vencimiento' => 'nullable|date',
+                'tasacion' => 'nullable|array',
+                'tasacion.valor_mercado' => 'nullable|numeric',
+                'sucursal' => 'nullable|array',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error de validación',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Obtener sucursal
+            $sucursalId = $request->sucursal['id'] ?? '1';
+            $sucursal = \App\Models\Sucursal::find($sucursalId);
+
+            // Generar código de barras del número de crédito
+            $numeroCredito = $request->credito['numero_credito'];
+            $generator = new BarcodeGeneratorPNG();
+            $barcodeData = $generator->getBarcode(
+                $numeroCredito,
+                $generator::TYPE_CODE_128,
+                2,
+                60
+            );
+            $barcodeImage = base64_encode($barcodeData);
+
+            // Preparar datos para la vista
+            // Preparar prenda con todas las propiedades necesarias para la vista
+            $prendaData = array_merge($request->prenda, [
+                'descripcion' => $request->prenda['descripcion_general'], // Alias para la vista
+                'valor_tasacion' => $request->tasacion['valor_mercado'] ?? $request->credito['monto_aprobado'],
+            ]);
+
+            $data = [
+                'credito' => (object) array_merge($request->credito, [
+                    'numero_credito' => $numeroCredito,
+                    'codigo_credito' => $numeroCredito, // Alias para compatibilidad
+                    'valor_tasacion' => $request->tasacion['valor_mercado'] ?? $request->credito['monto_aprobado'],
+                ]),
+                'cliente' => (object) $request->cliente,
+                'sucursal' => $sucursal,
+                'prendas' => [(object) $prendaData],
+                'barcodeImage' => $barcodeImage,
+                'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
+            ];
+
+            $pdf = Pdf::loadView('creditos.recibo', $data);
+            $pdf->setPaper('letter', 'portrait');
+
+            $nombreArchivo = 'Recibo_Preliminar_' . $numeroCredito . '_' . date('Ymd') . '.pdf';
+
+            return $pdf->download($nombreArchivo);
+
+        } catch (\Exception $e) {
+            Log::error('Error al generar recibo preliminar: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el recibo preliminar',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
+        }
+    }
+
+    /**
+     * Generar contrato preliminar desde datos del wizard (antes de crear el crédito)
+     */
+    public function generarContratoPreliminar(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'cliente' => 'required|array',
+                'cliente.id' => 'required',
+                'cliente.nombres' => 'required|string',
+                'cliente.apellidos' => 'required|string',
+                'cliente.dpi' => 'nullable|string',
+                'cliente.telefono' => 'nullable|string',
+                'cliente.direccion' => 'nullable|string',
+                'prenda' => 'required|array',
+                'prenda.descripcion_general' => 'required|string',
+                'prenda.marca' => 'nullable|string',
+                'prenda.modelo' => 'nullable|string',
+                'credito' => 'required|array',
+                'credito.numero_credito' => 'required|string',
+                'credito.monto_aprobado' => 'required|numeric',
+                'credito.tasa_interes' => 'required|numeric',
+                'credito.tipo_interes' => 'required|string',
+                'credito.plazo_dias' => 'nullable|integer',
+                'credito.numero_cuotas' => 'nullable|integer',
+                'credito.fecha_vencimiento' => 'nullable|date',
+                'credito.dias_gracia' => 'nullable|integer',
+                'tasacion' => 'nullable|array',
+                'tasacion.valor_mercado' => 'nullable|numeric',
+                'sucursal' => 'nullable|array',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error de validación',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Obtener sucursal
+            $sucursalId = $request->sucursal['id'] ?? '1';
+            $sucursal = \App\Models\Sucursal::find($sucursalId);
+
+            // Formatear fecha en español
+            Carbon::setLocale('es');
+            $fechaContrato = Carbon::now();
+            $meses = [
+                1 => 'enero', 2 => 'febrero', 3 => 'marzo', 4 => 'abril',
+                5 => 'mayo', 6 => 'junio', 7 => 'julio', 8 => 'agosto',
+                9 => 'septiembre', 10 => 'octubre', 11 => 'noviembre', 12 => 'diciembre'
+            ];
+            $fechaFormateada = $fechaContrato->day . ' de ' . $meses[$fechaContrato->month] . ' de ' . $fechaContrato->year;
+
+            // Preparar datos para la vista
+            $numeroCredito = $request->credito['numero_credito'];
+
+            // Preparar prenda con todas las propiedades necesarias para la vista
+            $prendaData = array_merge($request->prenda, [
+                'descripcion' => $request->prenda['descripcion_general'], // Alias para la vista
+                'valor_tasacion' => $request->tasacion['valor_mercado'] ?? $request->credito['monto_aprobado'] ?? 0,
+            ]);
+
+            // Preparar crédito con todas las propiedades necesarias
+            $creditoData = array_merge($request->credito, [
+                'codigo_credito' => $numeroCredito, // Alias para compatibilidad con la vista
+                'fecha_vencimiento' => $request->credito['fecha_vencimiento'] ?? Carbon::now()->addDays($request->credito['plazo_dias'] ?? 30)->format('Y-m-d'),
+                'dias_gracia' => $request->credito['dias_gracia'] ?? 0,
+            ]);
+
+            $data = [
+                'credito' => (object) $creditoData,
+                'cliente' => (object) $request->cliente,
+                'sucursal' => $sucursal,
+                'prendas' => [(object) $prendaData],
+                'planPagos' => collect([]), // Sin plan de pagos en preliminar
+                'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
+                'fechaContrato' => $fechaFormateada,
+            ];
+
+            $pdf = Pdf::loadView('creditos.contrato', $data);
+            $pdf->setPaper('letter', 'portrait');
+
+            $nombreArchivo = 'Contrato_Preliminar_' . $request->credito['numero_credito'] . '_' . date('Ymd') . '.pdf';
+
+            return $pdf->download($nombreArchivo);
+
+        } catch (\Exception $e) {
+            Log::error('Error al generar contrato preliminar: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el contrato preliminar',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
+        }
+    }
+
+    /**
+     * Generar plan de pagos preliminar desde datos del wizard (antes de crear el crédito)
+     */
+    /**
+     * Simular plan de pagos (Retorna JSON)
+     */
+    public function simularPlan(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'monto' => 'required|numeric|min:0',
+                'tasa_interes' => 'required|numeric|min:0',
+                'tipo_interes' => 'required|string',
+                'numero_cuotas' => 'required|integer|min:1',
+                'plazo_dias' => 'nullable|integer',
+                // fecha_desembolso opcional, default now
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error de validación',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $montoAprobado = $request->monto;
+            $numeroCuotas = $request->numero_cuotas;
+            $tasaInteres = $request->tasa_interes;
+            $tipoInteres = $request->tipo_interes;
+            $diasGracia = $request->dias_gracia ?? 0;
+            $fechaDesembolso = isset($request->fecha_desembolso) ? Carbon::parse($request->fecha_desembolso) : Carbon::now();
+            $fechaPrimerPago = isset($request->fecha_primer_pago) ? Carbon::parse($request->fecha_primer_pago) : null;
+
+            // Cálculo tipo "flat"
+            $tasaMensual = $tasaInteres / 100;
+            $interesPorCuota = round($montoAprobado * $tasaMensual, 2);
+            $capitalPorCuota = round($montoAprobado / $numeroCuotas, 2);
+
+            $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);
+
+            $planPagos = [];
+            $saldoCapital = $montoAprobado;
+
+            for ($i = 1; $i <= $numeroCuotas; $i++) {
+                if ($fechaPrimerPago) {
+                    if ($i === 1) {
+                         $fechaVencimiento = $fechaPrimerPago->copy();
+                    } else {
+                         $fechaVencimiento = $fechaPrimerPago->copy()->addDays(($i - 1) * $diasEntreCuotas);
+                    }
+                } else {
+                    $fechaVencimiento = $fechaDesembolso->copy()->addDays(($i - 1) * $diasEntreCuotas);
+                }
+
+                if ($i === 1 && $diasGracia > 0 && !$fechaPrimerPago) {
+                    $fechaVencimiento->addDays($diasGracia);
+                }
+
+                $abonoCapital = $capitalPorCuota;
+                if ($i === $numeroCuotas) {
+                    $abonoCapital = $saldoCapital;
+                }
+
+                $totalCuota = $abonoCapital + $interesPorCuota;
+
+                $planPagos[] = [
+                    'numero_cuota' => $i,
+                    'fecha_vencimiento' => $fechaVencimiento->format('Y-m-d'),
+                    'capital' => $abonoCapital,
+                    'interes' => $interesPorCuota,
+                    'otros' => 0,
+                    'cuota' => $totalCuota,
+                    'saldo' => max(0, $saldoCapital - $abonoCapital)
+                ];
+
+                $saldoCapital -= $abonoCapital;
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $planPagos
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error en simulación: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al simular plan',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Generar plan de pagos preliminar desde datos del wizard (antes de crear el crédito)
+     */
+    public function generarPlanPagosPreliminar(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'cliente' => 'nullable|array', // Allow nullable for simulation download
+                'credito' => 'required|array',
+                'credito.numero_credito' => 'required|string',
+                'credito.monto_aprobado' => 'required|numeric',
+                'credito.tasa_interes' => 'required|numeric',
+                'credito.tipo_interes' => 'required|string',
+                'credito.numero_cuotas' => 'required|integer|min:1',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error de validación',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Datos del crédito
+            $datosCredito = $request->credito;
+            $montoAprobado = $datosCredito['monto_aprobado'];
+            $numeroCuotas = $datosCredito['numero_cuotas'];
+            $tasaInteres = $datosCredito['tasa_interes'];
+            $tipoInteres = $datosCredito['tipo_interes'];
+            $diasGracia = $datosCredito['dias_gracia'] ?? 0;
+            $fechaDesembolso = isset($datosCredito['fecha_desembolso']) ? Carbon::parse($datosCredito['fecha_desembolso']) : Carbon::now();
+            $fechaPrimerPago = isset($datosCredito['fecha_primer_pago']) ? Carbon::parse($datosCredito['fecha_primer_pago']) : null;
+
+            // Cálculo tipo "flat"
+            $tasaMensual = $tasaInteres / 100;
+            $interesPorCuota = round($montoAprobado * $tasaMensual, 2);
+            $capitalPorCuota = round($montoAprobado / $numeroCuotas, 2);
+
+            $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);
+
+            $planPagos = collect([]);
+            $saldoCapital = $montoAprobado;
+
+             for ($i = 1; $i <= $numeroCuotas; $i++) {
+                if ($fechaPrimerPago) {
+                    if ($i === 1) {
+                         $fechaVencimiento = $fechaPrimerPago->copy();
+                    } else {
+                         $fechaVencimiento = $fechaPrimerPago->copy()->addDays(($i - 1) * $diasEntreCuotas);
+                    }
+                } else {
+                    $fechaVencimiento = $fechaDesembolso->copy()->addDays(($i - 1) * $diasEntreCuotas);
+                }
+
+                if ($i === 1 && $diasGracia > 0 && !$fechaPrimerPago) {
+                    $fechaVencimiento->addDays($diasGracia);
+                }
+
+                $abonoCapital = $capitalPorCuota;
+                if ($i === $numeroCuotas) {
+                    $abonoCapital = $saldoCapital;
+                }
+
+                $totalCuota = $abonoCapital + $interesPorCuota;
+
+                $cuota = (object)[
+                    'numero_cuota' => $i,
+                    'fecha_vencimiento' => $fechaVencimiento->format('Y-m-d'),
+                    'capital_proyectado' => $abonoCapital,
+                    'interes_proyectado' => $interesPorCuota,
+                    'mora_proyectada' => 0,
+                    'monto_cuota_proyectado' => $totalCuota,
+                    'estado' => 'pendiente'
+                ];
+
+                $planPagos->push($cuota);
+                $saldoCapital -= $abonoCapital;
+            }
+
+            // Preparar objeto crédito fake para la vista
+             $creditoObj = (object) array_merge($datosCredito, [
+                'codigo_credito' => $datosCredito['numero_credito'],
+                'monto_aprobado' => $montoAprobado,
+                'tasa_interes' => $tasaInteres,
+                'tipo_interes' => $tipoInteres,
+                'numero_cuotas' => $numeroCuotas,
+                'fecha_desembolso' => $fechaDesembolso->format('Y-m-d')
+            ]);
+
+            // Obtener sucursal
+            $sucursalId = $request->sucursal['id'] ?? '1';
+            $sucursal = \App\Models\Sucursal::find($sucursalId);
+
+            // Preparar objeto cliente (puede ser dummy para simulación)
+            $clienteData = $request->cliente ?? [];
+            $clienteObj = (object) [
+                'nombres' => $clienteData['nombres'] ?? 'Consumidor',
+                'apellidos' => $clienteData['apellidos'] ?? 'Final',
+                'dpi' => $clienteData['dpi'] ?? $clienteData['numero_documento'] ?? 'CF',
+                'numero_documento' => $clienteData['numero_documento'] ?? $clienteData['dpi'] ?? 'CF',
+                'telefono' => $clienteData['telefono'] ?? null,
+                'direccion' => $clienteData['direccion'] ?? null,
+            ];
+
+            $data = [
+                'credito' => $creditoObj,
+                'cliente' => $clienteObj,
+                'sucursal' => $sucursal,
+                'planPagos' => $planPagos,
+                'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
+                'esPreliminar' => true,
+            ];
+
+            $pdf = Pdf::loadView('creditos.plan-pagos', $data);
+            $pdf->setPaper('letter', 'portrait');
+
+            $nombreArchivo = 'Plan_Pagos_Simulacion_' . ($datosCredito['numero_credito'] ?? 'SIM') . '.pdf';
+
+            return $pdf->download($nombreArchivo);
+
+        } catch (\Exception $e) {
+            Log::error('Error al generar plan de pagos preliminar: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el plan de pagos preliminar',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
+        }
+    }
+
+    /**
+     * Generar y descargar recibo de crédito prendario en PDF con código de barras
+     */
+    public function descargarRecibo(string $id)
+    {
+        try {
+            $credito = CreditoPrendario::with([
+                'cliente',
+                'sucursal',
+                'prendas.categoriaProducto'
+            ])->findOrFail($id);
+
+            // Generar código de barras
+            $generator = new BarcodeGeneratorPNG();
+            $barcodeData = $generator->getBarcode(
+                $credito->numero_credito,
+                $generator::TYPE_CODE_128,
+                2,
+                60
+            );
+            $barcodeImage = base64_encode($barcodeData);
+
+            $data = [
+                'credito' => $credito,
+                'cliente' => $credito->cliente,
+                'sucursal' => $credito->sucursal,
+                'prendas' => $credito->prendas,
+                'barcodeImage' => $barcodeImage,
+                'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
+            ];
+
+            $pdf = Pdf::loadView('creditos.recibo', $data);
+            $pdf->setPaper('letter', 'portrait');
+
+            $nombreArchivo = 'Recibo_Credito_' . ($credito->numero_credito) . '_' . date('Ymd') . '.pdf';
+
+            return $pdf->download($nombreArchivo);
+
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            Log::error('Crédito no encontrado para recibo PDF: ' . $id);
+            return response()->json([
+                'success' => false,
+                'message' => 'Crédito no encontrado'
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Error al generar recibo PDF: ' . $e->getMessage(), [
+                'credito_id' => $id,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el recibo',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
+        }
+    }
+
+    /**
+     * Generar y descargar historial de pagos en PDF
+     */
+    public function descargarHistorialPagos(string $id)
+    {
+        try {
+            $credito = CreditoPrendario::with([
+                'cliente',
+                'sucursal',
+                'movimientos' => function($query) {
+                    $query->orderBy('fecha_movimiento', 'desc')
+                          ->orderBy('created_at', 'desc');
+                },
+                'movimientos.usuario'
+            ])->findOrFail($id);
+
+            $movimientos = $credito->movimientos;
+
+            // Calcular totales
+            $totales = [
+                'total_pagado' => 0,
+                'capital_pagado' => 0,
+                'interes_pagado' => 0,
+                'mora_pagada' => 0,
+                'total_desembolsado' => 0,
+            ];
+
+            foreach ($movimientos as $mov) {
+                if ($mov->estado === 'activo') {
+                    if ($mov->tipo_movimiento !== 'desembolso') {
+                        $totales['total_pagado'] += (float) $mov->monto_total;
+                        $totales['capital_pagado'] += (float) $mov->capital;
+                        $totales['interes_pagado'] += (float) $mov->interes;
+                        $totales['mora_pagada'] += (float) $mov->mora;
+                    } else {
+                        $totales['total_desembolsado'] += (float) $mov->monto_total;
+                    }
+                }
+            }
+
+            $data = [
+                'credito' => $credito,
+                'cliente' => $credito->cliente,
+                'sucursal' => $credito->sucursal,
+                'movimientos' => $movimientos,
+                'totales' => $totales,
+                'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
+            ];
+
+            $pdf = Pdf::loadView('creditos.historial-pagos', $data);
+            $pdf->setPaper('letter', 'portrait');
+
+            $nombreArchivo = 'Historial_Pagos_' . ($credito->codigo_credito ?? $credito->numero_credito) . '_' . date('Ymd') . '.pdf';
+
+            return $pdf->download($nombreArchivo);
+
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            Log::error('Crédito no encontrado para historial de pagos PDF: ' . $id);
+            return response()->json([
+                'success' => false,
+                'message' => 'Crédito no encontrado'
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Error al generar historial de pagos PDF: ' . $e->getMessage(), [
+                'credito_id' => $id,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el historial de pagos',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
+        }
+    }
+
+    /**
      * Reactivar un crédito (cambiar de vencido/anulado a vigente)
      * Extiende el plazo y recalcula fechas de vencimiento
      */
@@ -1917,7 +2699,7 @@ class CreditoPrendarioController extends Controller
 
             // Calcular nuevo plazo si se proporciona, sino usar el plazo original
             $nuevoPlazoDias = $request->nuevo_plazo_dias ?? $credito->plazo_dias ?? 30;
-            
+
             // Calcular nueva fecha de vencimiento
             $fechaBase = $credito->fecha_vencimiento ? Carbon::parse($credito->fecha_vencimiento) : now();
             $nuevaFechaVencimiento = $fechaBase->copy()->addDays($nuevoPlazoDias);
@@ -1928,7 +2710,7 @@ class CreditoPrendarioController extends Controller
                 'estado' => EstadoCredito::VIGENTE->value,
                 'plazo_dias' => $nuevoPlazoDias,
                 'fecha_vencimiento' => $nuevaFechaVencimiento,
-                'observaciones' => $request->observaciones 
+                'observaciones' => $request->observaciones
                     ? ($credito->observaciones ? $credito->observaciones . "\n\nReactivado: " . $request->observaciones : "Reactivado: " . $request->observaciones)
                     : $credito->observaciones,
             ]);
@@ -1936,21 +2718,21 @@ class CreditoPrendarioController extends Controller
             // Si se solicita extender el plan de pagos, recalcular las fechas
             if ($request->extender_plan_pagos && $credito->planPagos) {
                 $planPagos = $credito->planPagos()->where('estado', '!=', 'pagada')->orderBy('numero_cuota')->get();
-                
+
                 if ($planPagos->isNotEmpty()) {
                     // Obtener la última cuota pagada para calcular desde ahí
                     $ultimaCuotaPagada = $credito->planPagos()
                         ->where('estado', 'pagada')
                         ->orderBy('numero_cuota', 'desc')
                         ->first();
-                    
+
                     $fechaInicio = $ultimaCuotaPagada && $ultimaCuotaPagada->fecha_vencimiento
                         ? Carbon::parse($ultimaCuotaPagada->fecha_vencimiento)
                         : now();
-                    
+
                     // Calcular días entre cuotas según tipo de interés
                     $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($credito->tipo_interes ?? 'mensual');
-                    
+
                     foreach ($planPagos as $index => $cuota) {
                         $nuevaFechaVencimiento = $fechaInicio->copy()->addDays(($index + 1) * $diasEntreCuotas);
                         $cuota->update([
@@ -1980,7 +2762,7 @@ class CreditoPrendarioController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            
+
             Log::error('Error al reactivar crédito: ' . $e->getMessage(), [
                 'credito_id' => $id,
                 'trace' => $e->getTraceAsString(),

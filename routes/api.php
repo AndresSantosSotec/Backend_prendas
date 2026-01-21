@@ -55,6 +55,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/clientes/activos', [ClienteController::class, 'activos']);
         Route::get('/clientes', [ClienteController::class, 'index']);
         Route::get('/clientes/{id}', [ClienteController::class, 'show']);
+        Route::get('/clientes/{id}/creditos-prendarios', [ClienteController::class, 'creditosPrendarios']);
         Route::post('/clientes', [ClienteController::class, 'store']);
         Route::put('/clientes/{id}', [ClienteController::class, 'update']);
         Route::delete('/clientes/{id}', [ClienteController::class, 'destroy']);
@@ -83,6 +84,12 @@ Route::prefix('v1')->group(function () {
         Route::get('/geonames/municipios/{geonameId}', [GeoNamesController::class, 'obtenerMunicipios']);
         Route::get('/geonames/guatemala-completo', [GeoNamesController::class, 'obtenerGuatemalaCompleto']);
 
+        // Códigos Pre-reservados (para wizard de créditos)
+        Route::get('/codigos-prereservados/token', [\App\Http\Controllers\CodigoPrereservadoController::class, 'generarToken']);
+        Route::post('/codigos-prereservados/reservar', [\App\Http\Controllers\CodigoPrereservadoController::class, 'reservar']);
+        Route::get('/codigos-prereservados/obtener', [\App\Http\Controllers\CodigoPrereservadoController::class, 'obtener']);
+        Route::post('/codigos-prereservados/liberar', [\App\Http\Controllers\CodigoPrereservadoController::class, 'liberar']);
+
         // Créditos Prendarios
         Route::get('/creditos-prendarios', [CreditoPrendarioController::class, 'index']);
         Route::get('/creditos-prendarios/estadisticas', [CreditoPrendarioController::class, 'getEstadisticas']);
@@ -91,7 +98,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/creditos-prendarios/{id}/movimientos', [CreditoPrendarioController::class, 'getMovimientos']);
         Route::get('/creditos-prendarios/{id}/saldo', [CreditoPrendarioController::class, 'getSaldo']);
         Route::post('/creditos-prendarios', [CreditoPrendarioController::class, 'store']);
-        Route::post('/creditos-prendarios/{id}/desembolsar', [CreditoPrendarioController::class, 'desembolsar']);
+        Route::post('/credigos-prendarios/{id}/desembolsar', [CreditoPrendarioController::class, 'desembolsar']);
         Route::post('/creditos-prendarios/{id}/pagar', [CreditoPrendarioController::class, 'pagar']);
         Route::post('/creditos-prendarios/{id}/aprobar', [CreditoPrendarioController::class, 'aprobar']);
         Route::post('/creditos-prendarios/{id}/rechazar', [CreditoPrendarioController::class, 'rechazar']);
@@ -99,15 +106,22 @@ Route::prefix('v1')->group(function () {
         Route::get('/creditos-prendarios/{id}/auditoria', [CreditoPrendarioController::class, 'getAuditoria']);
         Route::get('/creditos-prendarios/{id}/plan-pagos/pdf', [CreditoPrendarioController::class, 'descargarPlanPagos']);
         Route::get('/creditos-prendarios/{id}/contrato/pdf', [CreditoPrendarioController::class, 'descargarContrato']);
+        Route::get('/creditos-prendarios/{id}/recibo/pdf', [CreditoPrendarioController::class, 'descargarRecibo']);
+        Route::get('/creditos-prendarios/{id}/historial-pagos/pdf', [CreditoPrendarioController::class, 'descargarHistorialPagos']);
+        Route::post('/creditos-prendarios/preliminar/recibo', [CreditoPrendarioController::class, 'generarReciboPreliminar']);
+        Route::post('/creditos-prendarios/preliminar/contrato', [CreditoPrendarioController::class, 'generarContratoPreliminar']);
+        Route::post('/creditos-prendarios/preliminar/plan-pagos', [CreditoPrendarioController::class, 'generarPlanPagosPreliminar']);
+        Route::post('/creditos-prendarios/simular-plan', [CreditoPrendarioController::class, 'simularPlan']);
         Route::post('/creditos-prendarios/{id}/movimientos/{movimiento_id}/anular', [CreditoPrendarioController::class, 'anularMovimiento']);
         Route::delete('/creditos-prendarios/{id}', [CreditoPrendarioController::class, 'destroy']);
-        
+
         // Pagos y Ledger
         Route::get('/creditos-prendarios/{id}/calculo-pago', [\App\Http\Controllers\PagoController::class, 'calcularPago']);
         Route::post('/creditos-prendarios/{id}/pagos', [\App\Http\Controllers\PagoController::class, 'ejecutarPago']);
         Route::post('/creditos-prendarios/{id}/reactivar', [CreditoPrendarioController::class, 'reactivar']);
 
         // Prendas
+        Route::get('/prendas/reporte', [PrendaController::class, 'reporte']);
         Route::get('/prendas', [PrendaController::class, 'index']);
         Route::get('/prendas/estadisticas', [PrendaController::class, 'getEstadisticas']);
         Route::get('/prendas/en-venta', [PrendaController::class, 'getEnVenta']);
@@ -119,6 +133,26 @@ Route::prefix('v1')->group(function () {
         Route::post('/prendas/{id}/recuperar', [PrendaController::class, 'marcarRecuperada']);
         Route::post('/prendas/{id}/poner-venta', [PrendaController::class, 'marcarEnVenta']);
         Route::post('/prendas/{id}/vender', [PrendaController::class, 'marcarVendida']);
+
+        // Imágenes de Prendas (CRUD normalizado)
+        Route::get('/prendas/{prendaId}/imagenes', [\App\Http\Controllers\PrendaImagenController::class, 'index']);
+        Route::post('/prendas/{prendaId}/imagenes', [\App\Http\Controllers\PrendaImagenController::class, 'store']);
+        Route::get('/prendas/{prendaId}/imagenes/{imagenId}', [\App\Http\Controllers\PrendaImagenController::class, 'show']);
+        Route::put('/prendas/{prendaId}/imagenes/{imagenId}', [\App\Http\Controllers\PrendaImagenController::class, 'update']);
+        Route::delete('/prendas/{prendaId}/imagenes/{imagenId}', [\App\Http\Controllers\PrendaImagenController::class, 'destroy']);
+        Route::post('/prendas/{prendaId}/imagenes/reordenar', [\App\Http\Controllers\PrendaImagenController::class, 'reordenar']);
+        Route::post('/prendas/{prendaId}/imagenes/{imagenId}/principal', [\App\Http\Controllers\PrendaImagenController::class, 'establecerPrincipal']);
+        Route::get('/imagenes/duplicados', [\App\Http\Controllers\PrendaImagenController::class, 'buscarDuplicados']);
+
+        // Ventas
+        Route::get('/ventas/debug', [\App\Http\Controllers\VentaController::class, 'debug']); // DEBUG TEMPORAL
+        Route::get('/ventas', [\App\Http\Controllers\VentaController::class, 'index']);
+        Route::get('/ventas/prendas-disponibles', [\App\Http\Controllers\VentaController::class, 'prendasEnVenta']);
+        Route::get('/ventas/estadisticas', [\App\Http\Controllers\VentaController::class, 'estadisticas']);
+        Route::get('/ventas/{id}', [\App\Http\Controllers\VentaController::class, 'show']);
+        Route::post('/ventas/prendas/{id}/marcar-venta', [\App\Http\Controllers\VentaController::class, 'marcarParaVenta']);
+        Route::post('/ventas/prendas/{id}/procesar', [\App\Http\Controllers\VentaController::class, 'procesarVenta']);
+        Route::post('/ventas/{id}/cancelar', [\App\Http\Controllers\VentaController::class, 'cancelar']);
     });
 });
 

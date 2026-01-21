@@ -41,6 +41,9 @@ class CreditoPrendario extends Model
         'tasa_interes',
         'tasa_mora',
         'tipo_interes',
+        'metodo_calculo',
+        'afecta_interes_mensual',
+        'permite_pago_capital_diferente',
         'plazo_dias',
         'dias_gracia',
         'numero_cuotas',
@@ -79,6 +82,8 @@ class CreditoPrendario extends Model
         'tasa_interes' => 'decimal:2',
         'tasa_mora' => 'decimal:2',
         'monto_cuota' => 'decimal:2',
+        'afecta_interes_mensual' => 'boolean',
+        'permite_pago_capital_diferente' => 'boolean',
         'requiere_renovacion' => 'boolean',
     ];
 

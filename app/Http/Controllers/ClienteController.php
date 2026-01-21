@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Cliente;
+use App\Models\CreditoPrendario;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
@@ -54,7 +55,7 @@ class ClienteController extends Controller
         $orderBy = $request->get('order_by', 'created_at');
         $orderDir = $request->get('order_dir', 'desc');
         $allowedOrderFields = ['nombres', 'apellidos', 'dpi', 'created_at', 'estado', 'tipo_cliente'];
-        
+
         if (in_array($orderBy, $allowedOrderFields)) {
             $query->orderBy($orderBy, $orderDir === 'asc' ? 'asc' : 'desc');
         } else {
@@ -150,6 +151,86 @@ class ClienteController extends Controller
         return response()->json([
             'success' => true,
             'data' => $this->formatCliente($cliente)
+        ]);
+    }
+
+    /**
+     * Obtener historial de créditos prendarios de un cliente
+     *
+     * IMPORTANTE: Este método incluye créditos eliminados (soft deleted) para mostrar
+     * el historial completo del cliente. Los créditos eliminados se marcan con 'eliminado: true'
+     * y las prendas eliminadas también se incluyen para mantener la trazabilidad.
+     */
+    public function creditosPrendarios(Request $request, string $id): JsonResponse
+    {
+        $cliente = Cliente::where('id', $id)
+            ->where('eliminado', false)
+            ->first();
+
+        if (!$cliente) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cliente no encontrado'
+            ], 404);
+        }
+
+        // withTrashed() para incluir créditos eliminados (soft deleted) en el historial
+        // También incluimos prendas eliminadas en la relación para trazabilidad completa
+        $query = CreditoPrendario::withTrashed()
+            ->with(['sucursal', 'prendas' => function ($q) {
+                $q->withTrashed(); // Incluir prendas eliminadas también
+            }])
+            ->where('cliente_id', $cliente->id)
+            ->orderBy('fecha_solicitud', 'desc')
+            ->orderBy('id', 'desc');
+
+        $perPage = min((int) $request->get('per_page', 50), 200);
+        $page = (int) $request->get('page', 1);
+
+        $total = (clone $query)->count();
+        $creditos = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $creditos->map(function (CreditoPrendario $c) {
+                return [
+                    'id' => (string) $c->id,
+                    'numero_credito' => $c->numero_credito,
+                    'estado' => $c->estado,
+                    'eliminado' => $c->trashed(), // Indicar si el crédito fue eliminado
+                    'fecha_eliminacion' => $c->deleted_at?->toISOString(),
+                    'fecha_solicitud' => $c->fecha_solicitud?->toISOString(),
+                    'fecha_vencimiento' => $c->fecha_vencimiento?->toISOString(),
+                    'monto_aprobado' => (float) $c->monto_aprobado,
+                    'monto_solicitado' => (float) $c->monto_solicitado,
+                    'capital_pendiente' => (float) $c->capital_pendiente,
+                    'intereses_pendientes' => (float) ($c->interes_generado - $c->interes_pagado),
+                    'mora_pendiente' => (float) ($c->mora_generada - $c->mora_pagada),
+                    'numero_cuotas' => $c->numero_cuotas,
+                    'tasa_interes' => (float) $c->tasa_interes,
+                    'tipo_interes' => $c->tipo_interes,
+                    'sucursal' => $c->sucursal ? [
+                        'id' => (string) $c->sucursal->id,
+                        'nombre' => $c->sucursal->nombre,
+                    ] : null,
+                    'prendas' => $c->prendas->map(function ($p) {
+                        return [
+                            'id' => (string) $p->id,
+                            'codigo_prenda' => $p->codigo_prenda,
+                            'descripcion' => $p->descripcion,
+                            'eliminado' => $p->trashed(), // Indicar si la prenda fue eliminada
+                        ];
+                    })->values(),
+                ];
+            })->values(),
+            'pagination' => [
+                'total' => $total,
+                'per_page' => $perPage,
+                'current_page' => $page,
+                'last_page' => (int) ceil($total / $perPage),
+                'from' => $total === 0 ? 0 : (($page - 1) * $perPage) + 1,
+                'to' => min($page * $perPage, $total),
+            ],
         ]);
     }
 
@@ -361,13 +442,13 @@ class ClienteController extends Controller
         if (preg_match('/^data:image\/(\w+);base64,/', $base64, $matches)) {
             $extension = $matches[1];
             $imageData = base64_decode(substr($base64, strpos($base64, ',') + 1));
-            
+
             // Generar nombre único
             $filename = 'clientes/' . uniqid() . '_' . time() . '.' . $extension;
-            
+
             // Guardar en storage
             Storage::disk('public')->put($filename, $imageData);
-            
+
             return $filename;
         }
 

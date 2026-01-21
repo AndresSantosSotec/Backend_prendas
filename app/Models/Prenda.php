@@ -38,12 +38,14 @@ class Prenda extends Model
         'fecha_tasacion',
         'fecha_recuperacion',
         'fecha_venta',
+        'fecha_publicacion_venta',
         'comprador_id',
         'precio_venta',
         'factura_venta',
         'observaciones',
         'requiere_mantenimiento',
         'notas_mantenimiento',
+        'datos_adicionales',
     ];
 
     protected $casts = [
@@ -51,6 +53,7 @@ class Prenda extends Model
         'fecha_tasacion' => 'date',
         'fecha_recuperacion' => 'date',
         'fecha_venta' => 'date',
+        'fecha_publicacion_venta' => 'datetime',
         'valor_estimado_cliente' => 'decimal:2',
         'valor_tasacion' => 'decimal:2',
         'valor_prestamo' => 'decimal:2',
@@ -59,6 +62,7 @@ class Prenda extends Model
         'precio_venta' => 'decimal:2',
         'caracteristicas' => 'array',
         'fotos' => 'array',
+        'datos_adicionales' => 'array',
         'requiere_mantenimiento' => 'boolean',
     ];
 
@@ -86,6 +90,38 @@ class Prenda extends Model
     public function tasaciones()
     {
         return $this->hasMany(Tasacion::class, 'prenda_id');
+    }
+
+    /**
+     * Relación con los datos adicionales normalizados (tabla EAV)
+     */
+    public function datosAdicionalesNormalizados()
+    {
+        return $this->hasMany(PrendaDatoAdicional::class, 'prenda_id')->orderBy('orden');
+    }
+
+    /**
+     * Relación con las imágenes normalizadas
+     */
+    public function imagenesNormalizadas()
+    {
+        return $this->hasMany(PrendaImagen::class, 'prenda_id')->orderBy('es_principal', 'desc')->orderBy('orden');
+    }
+
+    /**
+     * Obtener imagen principal
+     */
+    public function imagenPrincipal()
+    {
+        return $this->hasOne(PrendaImagen::class, 'prenda_id')->where('es_principal', true);
+    }
+
+    /**
+     * Obtener imágenes por tipo
+     */
+    public function imagenesPorTipo(string $tipo)
+    {
+        return $this->imagenesNormalizadas()->where('tipo_imagen', $tipo)->get();
     }
 
     // Scopes
