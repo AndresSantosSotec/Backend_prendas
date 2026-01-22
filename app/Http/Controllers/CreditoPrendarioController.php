@@ -13,6 +13,7 @@ use App\Models\CreditoPlanPago;
 use App\Models\IdempotencyKey;
 use App\Models\AuditoriaCredito;
 use App\Models\CodigoPrereservado;
+use App\Services\CajaService;
 use App\Enums\EstadoCredito;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -529,6 +530,31 @@ class CreditoPrendarioController extends Controller
                 } catch (\Exception $e) {
                     // Log del error pero no fallar la transacción
                     Log::warning('Error al marcar códigos como usados: ' . $e->getMessage());
+                }
+            }
+
+            // ========================================
+            // REGISTRAR DESEMBOLSO EN CAJA (EGRESO)
+            // ========================================
+            // Solo si el desembolso es en efectivo y hay caja abierta
+            $formaDesembolso = $request->forma_desembolso ?? 'efectivo';
+            if ($formaDesembolso === 'efectivo') {
+                $montoDesembolso = $credito->monto_aprobado ?? $credito->monto_solicitado;
+                $clienteNombre = null;
+                if ($credito->cliente) {
+                    $clienteNombre = $credito->cliente->nombres . ' ' . $credito->cliente->apellidos;
+                }
+
+                try {
+                    CajaService::registrarDesembolso(
+                        $montoDesembolso,
+                        $credito->numero_credito,
+                        $clienteNombre,
+                        $formaDesembolso
+                    );
+                } catch (\Exception $cajaEx) {
+                    // Log pero no fallar si no hay caja abierta
+                    Log::warning('No se pudo registrar desembolso en caja: ' . $cajaEx->getMessage());
                 }
             }
 

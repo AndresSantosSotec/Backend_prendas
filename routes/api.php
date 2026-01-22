@@ -9,7 +9,12 @@ use App\Http\Controllers\SucursalController;
 use App\Http\Controllers\GeoNamesController;
 use App\Http\Controllers\CategoriaProductoController;
 use App\Http\Controllers\CreditoPrendarioController;
+use App\Http\Controllers\BovedaController;
 use App\Http\Controllers\PrendaController;
+use App\Http\Controllers\CajaController;
+use App\Http\Controllers\DenominacionController;
+use App\Http\Controllers\ReciboController;
+use Illuminate\Support\Facades\DB;
 
 /*
 |--------------------------------------------------------------------------
@@ -25,6 +30,42 @@ use App\Http\Controllers\PrendaController;
 Route::prefix('v1')->group(function () {
     // Rutas públicas de autenticación
     Route::post('/auth/login', [AuthController::class, 'login']);
+
+    Route::get('/ping', function () {
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Pong'
+        ]);
+    });
+
+    Route::get('/version', function () {
+        return response()->json([
+            'status' => 'success',
+            'version' => '1.0.0'
+        ]);
+    });
+
+    Route::get('/health', function () {
+        return response()->json([
+            'status' => 'success',
+            'message' => 'API is healthy'
+        ]);
+    });
+
+    Route::get('/BD', function () {
+        try {
+            DB::connection()->getPdo();
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Base de datos conectada'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Base de datos no conectada'
+            ]);
+        }
+    });
 
     // Rutas protegidas
     Route::middleware('auth:sanctum')->group(function () {
@@ -88,7 +129,33 @@ Route::prefix('v1')->group(function () {
         Route::get('/codigos-prereservados/token', [\App\Http\Controllers\CodigoPrereservadoController::class, 'generarToken']);
         Route::post('/codigos-prereservados/reservar', [\App\Http\Controllers\CodigoPrereservadoController::class, 'reservar']);
         Route::get('/codigos-prereservados/obtener', [\App\Http\Controllers\CodigoPrereservadoController::class, 'obtener']);
+
+        // Bóvedas
+        Route::get('/bovedas/consolidacion', [BovedaController::class, 'consolidacion']); // Antes de {id}
+        Route::get('/bovedas', [BovedaController::class, 'index']);
+        Route::post('/bovedas', [BovedaController::class, 'store']);
+        Route::get('/bovedas/{id}', [BovedaController::class, 'show']);
+        Route::put('/bovedas/{id}', [BovedaController::class, 'update']);
+        Route::delete('/bovedas/{id}', [BovedaController::class, 'destroy']);
+        Route::post('/bovedas/{id}/movimientos', [BovedaController::class, 'registrarMovimiento']);
+        Route::get('/bovedas/{id}/historial', [BovedaController::class, 'historialMovimientos']);
+
+        // Movimientos de bóveda
+        Route::get('/bovedas-movimientos/pendientes', [BovedaController::class, 'movimientosPendientes']);
+        Route::post('/bovedas-movimientos/{id}/aprobar', [BovedaController::class, 'aprobarMovimiento']);
+        Route::post('/bovedas-movimientos/{id}/rechazar', [BovedaController::class, 'rechazarMovimiento']);
         Route::post('/codigos-prereservados/liberar', [\App\Http\Controllers\CodigoPrereservadoController::class, 'liberar']);
+
+        // Recibos - rutas sin parámetro ID primero
+        Route::get('/recibos', [ReciboController::class, 'index']);
+        Route::post('/recibos', [ReciboController::class, 'store']);
+        Route::get('/recibos/siguiente-numero', [ReciboController::class, 'siguienteNumero']);
+        Route::get('/recibos/reporte', [ReciboController::class, 'reporte']);
+        Route::get('/recibos/buscar-cliente', [ReciboController::class, 'buscarCliente']);
+        // Recibos - rutas con parámetro ID después
+        Route::get('/recibos/{id}', [ReciboController::class, 'show']);
+        Route::post('/recibos/{id}/anular', [ReciboController::class, 'anular']);
+        Route::get('/recibos/{id}/pdf', [ReciboController::class, 'generarPDF']);
 
         // Créditos Prendarios
         Route::get('/creditos-prendarios', [CreditoPrendarioController::class, 'index']);
@@ -153,6 +220,22 @@ Route::prefix('v1')->group(function () {
         Route::post('/ventas/prendas/{id}/marcar-venta', [\App\Http\Controllers\VentaController::class, 'marcarParaVenta']);
         Route::post('/ventas/prendas/{id}/procesar', [\App\Http\Controllers\VentaController::class, 'procesarVenta']);
         Route::post('/ventas/{id}/cancelar', [\App\Http\Controllers\VentaController::class, 'cancelar']);
+
+        // Caja
+        Route::get('/cajas', [CajaController::class, 'index']);
+        Route::get('/cajas/check-estado', [CajaController::class, 'checkEstado']);
+        Route::post('/cajas/abrir', [CajaController::class, 'abrir']);
+        Route::post('/cajas/{id}/cerrar', [CajaController::class, 'cerrar']);
+        Route::get('/cajas/{id}/movimientos', [CajaController::class, 'getMovimientos']);
+        Route::post('/cajas/movimientos', [CajaController::class, 'registrarMovimiento']);
+
+        // Denominaciones y Monedas
+        Route::get('/denominaciones', [DenominacionController::class, 'index']);
+        Route::get('/denominaciones/moneda-base', [DenominacionController::class, 'getMonedaBase']);
+        Route::get('/denominaciones/moneda/{monedaId}', [DenominacionController::class, 'getDenominacionesByMoneda']);
+        Route::post('/denominaciones/monedas', [DenominacionController::class, 'createMoneda']);
+        Route::post('/denominaciones', [DenominacionController::class, 'createDenominacion']);
+        Route::post('/denominaciones/{id}/toggle', [DenominacionController::class, 'toggleDenominacion']);
     });
 });
 

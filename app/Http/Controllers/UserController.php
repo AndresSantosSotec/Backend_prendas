@@ -49,20 +49,6 @@ class UserController extends Controller
             $query->orderBy('created_at', 'desc');
         }
 
-        // Estadísticas (siempre se calculan sobre el total sin paginación)
-        $stats = [
-            'total' => User::count(),
-            'activos' => User::where('activo', true)->count(),
-            'inactivos' => User::where('activo', false)->count(),
-            'por_rol' => [
-                'administrador' => User::where('rol', 'administrador')->count(),
-                'cajero' => User::where('rol', 'cajero')->count(),
-                'tasador' => User::where('rol', 'tasador')->count(),
-                'vendedor' => User::where('rol', 'vendedor')->count(),
-                'supervisor' => User::where('rol', 'supervisor')->count(),
-            ],
-        ];
-
         // Paginación
         $perPage = min((int) $request->get('per_page', 10), 100); // Máximo 100 por página
         $page = (int) $request->get('page', 1);
@@ -72,6 +58,36 @@ class UserController extends Controller
 
         // Aplicar paginación
         $users = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
+
+        // Estadísticas optimizadas (solo si se solicitan o es la primera carga)
+        // Se pueden omitir con ?skip_stats=1 para mejorar rendimiento en navegación de páginas
+        $stats = null;
+        if (!$request->boolean('skip_stats')) {
+            // Una sola consulta agregada en lugar de 6 consultas separadas
+            $statsRaw = User::selectRaw('
+                COUNT(*) as total,
+                SUM(CASE WHEN activo = 1 THEN 1 ELSE 0 END) as activos,
+                SUM(CASE WHEN activo = 0 THEN 1 ELSE 0 END) as inactivos,
+                SUM(CASE WHEN rol = "administrador" THEN 1 ELSE 0 END) as administrador,
+                SUM(CASE WHEN rol = "cajero" THEN 1 ELSE 0 END) as cajero,
+                SUM(CASE WHEN rol = "tasador" THEN 1 ELSE 0 END) as tasador,
+                SUM(CASE WHEN rol = "vendedor" THEN 1 ELSE 0 END) as vendedor,
+                SUM(CASE WHEN rol = "supervisor" THEN 1 ELSE 0 END) as supervisor
+            ')->first();
+
+            $stats = [
+                'total' => (int) $statsRaw->total,
+                'activos' => (int) $statsRaw->activos,
+                'inactivos' => (int) $statsRaw->inactivos,
+                'por_rol' => [
+                    'administrador' => (int) $statsRaw->administrador,
+                    'cajero' => (int) $statsRaw->cajero,
+                    'tasador' => (int) $statsRaw->tasador,
+                    'vendedor' => (int) $statsRaw->vendedor,
+                    'supervisor' => (int) $statsRaw->supervisor,
+                ],
+            ];
+        }
 
         return response()->json([
             'success' => true,

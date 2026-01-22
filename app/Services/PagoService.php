@@ -6,9 +6,11 @@ use App\Models\CreditoPrendario;
 use App\Models\CreditoMovimiento;
 use App\Models\CreditoPlanPago;
 use App\Models\IdempotencyKey;
+use App\Services\CajaService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class PagoService
@@ -234,6 +236,18 @@ class PagoService
         // Actualizar Plan de Pagos
         $this->actualizarPlanPagosPorRenovacion($credito, $calculo, $nuevoVencimiento);
 
+        // ========================================
+        // REGISTRAR INGRESO A CAJA
+        // ========================================
+        $clienteNombre = $credito->cliente ? ($credito->cliente->nombres . ' ' . $credito->cliente->apellidos) : null;
+        CajaService::registrarPagoCredito(
+            $monto,
+            $credito->numero_credito,
+            'RENOVACION',
+            $movimiento->numero_movimiento,
+            $clienteNombre
+        );
+
         return $movimiento;
     }
 
@@ -360,6 +374,18 @@ class PagoService
         $credito->estado = 'vigente';
         $credito->save();
 
+        // ========================================
+        // REGISTRAR INGRESO A CAJA
+        // ========================================
+        $clienteNombre = $credito->cliente ? ($credito->cliente->nombres . ' ' . $credito->cliente->apellidos) : null;
+        CajaService::registrarPagoCredito(
+            $monto,
+            $credito->numero_credito,
+            'INTERES_ADELANTADO',
+            $movimiento->numero_movimiento,
+            $clienteNombre
+        );
+
         return $movimiento;
     }
 
@@ -433,6 +459,18 @@ class PagoService
         // Actualizar Plan de Pagos
         $this->actualizarPlanPagos($credito, $monto);
 
+        // ========================================
+        // REGISTRAR INGRESO A CAJA
+        // ========================================
+        $clienteNombre = $credito->cliente ? ($credito->cliente->nombres . ' ' . $credito->cliente->apellidos) : null;
+        CajaService::registrarPagoCredito(
+            $monto,
+            $credito->numero_credito,
+            'PARCIAL',
+            $movimiento->numero_movimiento,
+            $clienteNombre
+        );
+
         return $movimiento;
     }
 
@@ -491,6 +529,18 @@ class PagoService
 
         // Marcar todas las cuotas pendientes como pagadas
         $this->liquidarPlanPagos($credito);
+
+        // ========================================
+        // REGISTRAR INGRESO A CAJA
+        // ========================================
+        $clienteNombre = $credito->cliente ? ($credito->cliente->nombres . ' ' . $credito->cliente->apellidos) : null;
+        CajaService::registrarPagoCredito(
+            $monto,
+            $credito->numero_credito,
+            'LIQUIDACION',
+            $movimiento->numero_movimiento,
+            $clienteNombre
+        );
 
         return $movimiento;
     }
@@ -613,6 +663,26 @@ class PagoService
                 'tipo_modificacion' => 'reestructuracion',
                 'motivo_modificacion' => 'Reactivación de crédito'
             ]);
+
+            // ========================================
+            // REGISTRAR DESEMBOLSO EN CAJA (EGRESO)
+            // ========================================
+            $clienteNombre = $credito->cliente ? ($credito->cliente->nombres . ' ' . $credito->cliente->apellidos) : null;
+            $formaDesembolso = $data['forma_desembolso'] ?? 'efectivo';
+
+            if ($formaDesembolso === 'efectivo') {
+                try {
+                    CajaService::registrarDesembolso(
+                        $monto,
+                        $credito->numero_credito,
+                        $clienteNombre,
+                        $formaDesembolso
+                    );
+                } catch (\Exception $e) {
+                    // Log pero no fallar si no hay caja abierta
+                    Log::warning('No se pudo registrar desembolso en caja (reactivación): ' . $e->getMessage());
+                }
+            }
 
             return $movimiento;
         });

@@ -6,6 +6,7 @@ use App\Models\Prenda;
 use App\Models\CreditoPrendario;
 use App\Models\Cliente;
 use App\Http\Resources\PrendaResource;
+use App\Exports\PrendasExport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -13,12 +14,13 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PrendaController extends Controller
 {
     /**
-     * Display a listing of the resource.
+     * Generar reporte de prendas en PDF o Excel
      */
     public function reporte(Request $request) {
         try {
@@ -67,39 +69,26 @@ class PrendaController extends Controller
             $prendas = $query->get();
             $format = $request->input('format', 'pdf');
 
-            if ($format === 'csv' || $format === 'excel') {
-                 $headers = [
-                    'Content-Type' => 'text/csv',
-                    'Content-Disposition' => 'attachment; filename="reporte_prendas_' . date('Y-m-d') . '.csv"',
+            // Generar Excel (.xlsx) con formato estético
+            if ($format === 'csv' || $format === 'excel' || $format === 'xlsx') {
+                $filtros = [
+                    'busqueda' => $request->busqueda,
+                    'estado' => $request->estado,
+                    'categoria' => $request->categoria,
+                    'fecha_desde' => $request->fecha_desde,
+                    'fecha_hasta' => $request->fecha_hasta,
                 ];
 
-                $callback = function() use ($prendas) {
-                    $file = fopen('php://output', 'w');
-                    fputs($file, "\xEF\xBB\xBF"); // BOM
-                    fputcsv($file, ['ID', 'Código', 'Categoría', 'Descripción', 'Estado', 'Marca', 'Modelo', 'Tasación', 'Val. Prestamo', 'Val. Venta', 'Ubicación', 'Fecha Ingreso']);
+                $fileName = 'Reporte_Prendas_' . date('Y-m-d_His') . '.xlsx';
 
-                    foreach ($prendas as $prenda) {
-                        fputcsv($file, [
-                            $prenda->id,
-                            $prenda->codigo_prenda,
-                            $prenda->categoriaProducto?->nombre ?? 'N/A',
-                            $prenda->descripcion,
-                            $prenda->estado,
-                            $prenda->marca,
-                            $prenda->modelo,
-                            $prenda->valor_tasacion,
-                            $prenda->valor_prestamo,
-                            $prenda->valor_venta,
-                            $prenda->ubicacion_fisica,
-                            $prenda->fecha_ingreso,
-                        ]);
-                    }
-                    fclose($file);
-                };
-
-                return response()->stream($callback, 200, $headers);
+                return Excel::download(
+                    new PrendasExport($prendas, $filtros),
+                    $fileName,
+                    \Maatwebsite\Excel\Excel::XLSX
+                );
             }
 
+            // Generar PDF
             $pdf = Pdf::loadView('reports.prendas', compact('prendas'));
             return $pdf->download('reporte_prendas_' . date('Y-m-d') . '.pdf');
         } catch (\Exception $e) {

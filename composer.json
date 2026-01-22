@@ -11,6 +11,7 @@
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.2",
         "laravel/tinker": "^2.10.1",
+        "maatwebsite/excel": "*",
         "picqer/php-barcode-generator": "^3.2"
     },
     "require-dev": {

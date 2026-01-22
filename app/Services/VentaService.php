@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\Prenda;
 use App\Models\CreditoPrendario;
 use App\Models\Venta;
+use App\Models\CajaAperturaCierre;
+use App\Services\CajaService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -117,6 +119,14 @@ class VentaService
                 throw new \Exception("El precio de venta no puede ser menor a Q" . number_format($precioMinimo, 2));
             }
 
+            // Obtener caja abierta del usuario
+            $cajaAbierta = CajaService::getCajaAbierta();
+            $metodoPago = $data['metodo_pago'] ?? 'efectivo';
+
+            // Calcular utilidad (precio venta - valor préstamo)
+            $valorPrestamo = $prenda->valor_prestamo ?? 0;
+            $utilidad = $precioFinal - $valorPrestamo;
+
             // Registrar venta
             $venta = Venta::create([
                 'prenda_id' => $prenda->id,
@@ -129,10 +139,21 @@ class VentaService
                 'precio_publicado' => $prenda->valor_venta ?? 0,
                 'precio_final' => $precioFinal,
                 'descuento' => ($prenda->valor_venta ?? 0) - $precioFinal,
-                'metodo_pago' => $data['metodo_pago'] ?? 'efectivo',
+                'utilidad' => max(0, $utilidad),
+                'metodo_pago' => $metodoPago,
+                // Campos de pago detallado
+                'monto_efectivo' => $metodoPago === 'efectivo' ? $precioFinal : ($data['monto_efectivo'] ?? 0),
+                'monto_tarjeta' => $metodoPago === 'tarjeta' ? $precioFinal : ($data['monto_tarjeta'] ?? 0),
+                'monto_transferencia' => $metodoPago === 'transferencia' ? $precioFinal : ($data['monto_transferencia'] ?? 0),
+                'monto_cheque' => $metodoPago === 'cheque' ? $precioFinal : ($data['monto_cheque'] ?? 0),
                 'referencia_pago' => $data['referencia_pago'] ?? null,
+                'referencia_tarjeta' => $data['referencia_tarjeta'] ?? null,
+                'referencia_transferencia' => $data['referencia_transferencia'] ?? null,
+                'referencia_cheque' => $data['referencia_cheque'] ?? null,
+                'banco' => $data['banco'] ?? null,
                 'vendedor_id' => Auth::id() ?? 1,
                 'sucursal_id' => Auth::user()->sucursal_id ?? 1,
+                'caja_id' => $cajaAbierta?->id,
                 'fecha_venta' => now(),
                 'observaciones' => $data['observaciones'] ?? null,
                 'estado' => 'completada'
@@ -149,6 +170,27 @@ class VentaService
             // Si el crédito existe, actualizar saldo con la venta
             if ($prenda->creditoPrendario) {
                 $this->aplicarVentaACredito($prenda->creditoPrendario, $precioFinal);
+            }
+
+            // ========================================
+            // REGISTRAR INGRESO A CAJA
+            // ========================================
+            // Solo registrar en caja si el pago incluye efectivo
+            $montoEfectivo = 0;
+            if ($metodoPago === 'efectivo') {
+                $montoEfectivo = $precioFinal;
+            } elseif ($metodoPago === 'mixto') {
+                $montoEfectivo = (float) ($data['monto_efectivo'] ?? 0);
+            }
+
+            if ($montoEfectivo > 0) {
+                CajaService::registrarVenta(
+                    $montoEfectivo,
+                    $venta->codigo_venta,
+                    $prenda->codigo_prenda,
+                    $metodoPago,
+                    $venta->cliente_nombre
+                );
             }
 
             return $venta->fresh(['prenda', 'vendedor']);

@@ -9,6 +9,13 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
+/**
+ * @method bool hasPermission(string $modulo, string $accion)
+ * @method bool hasRole(array|string $roles)
+ * @method bool hasModuleAccess(string $modulo)
+ * @property string $rol
+ * @property int|null $sucursal_id
+ */
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
@@ -26,6 +33,7 @@ class User extends Authenticatable
         'password',
         'rol',
         'activo',
+        'sucursal_id', // Added this line
         'failed_login_attempts',
         'last_failed_login_at',
         'locked_until',
@@ -188,5 +196,36 @@ class User extends Authenticatable
         }
 
         $this->permissions()->sync($permissionIds);
+    }
+
+    /**
+     * Verificar si el usuario tiene uno de los roles especificados
+     */
+    public function hasRole(array|string $roles): bool
+    {
+        if (is_string($roles)) {
+            $roles = [$roles];
+        }
+
+        // Normalizar roles (admin -> administrador, etc.)
+        $normalizedRoles = array_map(function ($role) {
+            return match(strtolower($role)) {
+                'admin' => 'administrador',
+                'gerente', 'manager' => 'gerente',
+                'cajero', 'cashier' => 'cajero',
+                'vendedor', 'seller' => 'vendedor',
+                default => strtolower($role)
+            };
+        }, $roles);
+
+        return in_array($this->rol, $normalizedRoles);
+    }
+
+    /**
+     * Sucursal a la que pertenece el usuario
+     */
+    public function sucursal()
+    {
+        return $this->belongsTo(Sucursal::class);
     }
 }
