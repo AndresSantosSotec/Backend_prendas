@@ -27,6 +27,13 @@ use Illuminate\Support\Facades\DB;
 |
 */
 
+    Route::get('/ping', function () {
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Pong'
+        ]);
+    });
+
 Route::prefix('v1')->group(function () {
     // Rutas públicas de autenticación
     Route::post('/auth/login', [AuthController::class, 'login']);

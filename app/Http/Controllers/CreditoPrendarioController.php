@@ -37,80 +37,92 @@ class CreditoPrendarioController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = CreditoPrendario::with([
-            'cliente',
-            'sucursal',
-            'prendas.imagenesNormalizadas',
-            'prendas.datosAdicionalesNormalizados',
-            'prendas.categoriaProducto'
-        ]);
+        try {
+            // OPTIMIZACIÓN: Limitar eager loading solo a lo necesario
+            $query = CreditoPrendario::with([
+                'cliente:id,nombres,apellidos,dpi,codigo_cliente', // Solo campos necesarios
+                'sucursal:id,nombre',
+                // NO cargar imágenes aquí - muy pesado. Cargarlas solo en show()
+            ]);
 
-        // Filtros
-        if ($request->has('busqueda') && $request->busqueda !== '') {
-            $busqueda = $request->busqueda;
-            $query->where(function ($q) use ($busqueda) {
-                $q->where('numero_credito', 'like', "%{$busqueda}%")
-                  ->orWhereHas('cliente', function ($q) use ($busqueda) {
-                      $q->where('nombres', 'like', "%{$busqueda}%")
-                        ->orWhere('apellidos', 'like', "%{$busqueda}%")
-                        ->orWhere('dpi', 'like', "%{$busqueda}%")
-                        ->orWhere('codigo_cliente', 'like', "%{$busqueda}%");
-                  });
-            });
+            // Filtros
+            if ($request->has('busqueda') && $request->busqueda !== '') {
+                $busqueda = $request->busqueda;
+                $query->where(function ($q) use ($busqueda) {
+                    $q->where('numero_credito', 'like', "%{$busqueda}%")
+                      ->orWhereHas('cliente', function ($q) use ($busqueda) {
+                          $q->where('nombres', 'like', "%{$busqueda}%")
+                            ->orWhere('apellidos', 'like', "%{$busqueda}%")
+                            ->orWhere('dpi', 'like', "%{$busqueda}%")
+                            ->orWhere('codigo_cliente', 'like', "%{$busqueda}%");
+                      });
+                });
+            }
+
+            if ($request->has('estado') && $request->estado !== '' && $request->estado !== 'todos') {
+                $query->where('estado', $request->estado);
+            }
+
+            if ($request->has('monto_min') && $request->monto_min !== '') {
+                $query->where('monto_aprobado', '>=', $request->monto_min);
+            }
+
+            if ($request->has('monto_max') && $request->monto_max !== '') {
+                $query->where('monto_aprobado', '<=', $request->monto_max);
+            }
+
+            if ($request->has('fecha_desde') && $request->fecha_desde !== '') {
+                $query->where('fecha_solicitud', '>=', $request->fecha_desde);
+            }
+
+            if ($request->has('fecha_hasta') && $request->fecha_hasta !== '') {
+                $query->where('fecha_solicitud', '<=', $request->fecha_hasta);
+            }
+
+            // Ordenamiento
+            $orderBy = $request->get('order_by', 'fecha_solicitud');
+            $orderDir = $request->get('order_dir', 'desc');
+            $allowedOrderFields = ['fecha_solicitud', 'fecha_vencimiento', 'monto_aprobado', 'estado', 'numero_credito'];
+
+            if (in_array($orderBy, $allowedOrderFields)) {
+                $query->orderBy($orderBy, $orderDir === 'asc' ? 'asc' : 'desc');
+            } else {
+                $query->orderBy('fecha_solicitud', 'desc');
+            }
+
+            // Paginación
+            $perPage = min((int) $request->get('per_page', 15), 100);
+            $page = (int) $request->get('page', 1);
+
+            $totalFiltrado = (clone $query)->count();
+            $creditos = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $creditos->map(function ($credito) {
+                    return $this->formatCreditoList($credito); // Método más ligero para listado
+                }),
+                'pagination' => [
+                    'total' => $totalFiltrado,
+                    'per_page' => $perPage,
+                    'current_page' => $page,
+                    'last_page' => ceil($totalFiltrado / $perPage),
+                    'from' => (($page - 1) * $perPage) + 1,
+                    'to' => min($page * $perPage, $totalFiltrado),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error en CreditoPrendarioController@index', [
+                'error' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al cargar créditos: ' . $e->getMessage()
+            ], 500);
         }
-
-        if ($request->has('estado') && $request->estado !== '' && $request->estado !== 'todos') {
-            $query->where('estado', $request->estado);
-        }
-
-        if ($request->has('monto_min') && $request->monto_min !== '') {
-            $query->where('monto_aprobado', '>=', $request->monto_min);
-        }
-
-        if ($request->has('monto_max') && $request->monto_max !== '') {
-            $query->where('monto_aprobado', '<=', $request->monto_max);
-        }
-
-        if ($request->has('fecha_desde') && $request->fecha_desde !== '') {
-            $query->where('fecha_solicitud', '>=', $request->fecha_desde);
-        }
-
-        if ($request->has('fecha_hasta') && $request->fecha_hasta !== '') {
-            $query->where('fecha_solicitud', '<=', $request->fecha_hasta);
-        }
-
-        // Ordenamiento
-        $orderBy = $request->get('order_by', 'fecha_solicitud');
-        $orderDir = $request->get('order_dir', 'desc');
-        $allowedOrderFields = ['fecha_solicitud', 'fecha_vencimiento', 'monto_aprobado', 'estado', 'numero_credito'];
-
-        if (in_array($orderBy, $allowedOrderFields)) {
-            $query->orderBy($orderBy, $orderDir === 'asc' ? 'asc' : 'desc');
-        } else {
-            $query->orderBy('fecha_solicitud', 'desc');
-        }
-
-        // Paginación
-        $perPage = min((int) $request->get('per_page', 15), 100);
-        $page = (int) $request->get('page', 1);
-
-        $totalFiltrado = (clone $query)->count();
-        $creditos = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
-
-        return response()->json([
-            'success' => true,
-            'data' => $creditos->map(function ($credito) {
-                return $this->formatCredito($credito);
-            }),
-            'pagination' => [
-                'total' => $totalFiltrado,
-                'per_page' => $perPage,
-                'current_page' => $page,
-                'last_page' => ceil($totalFiltrado / $perPage),
-                'from' => (($page - 1) * $perPage) + 1,
-                'to' => min($page * $perPage, $totalFiltrado),
-            ],
-        ]);
     }
 
     /**
@@ -118,30 +130,55 @@ class CreditoPrendarioController extends Controller
      */
     public function getEstadisticas(): JsonResponse
     {
-        $stats = [
-            'total' => CreditoPrendario::count(),
-            'solicitados' => CreditoPrendario::where('estado', 'solicitado')->count(),
-            'en_analisis' => CreditoPrendario::where('estado', 'en_analisis')->count(),
-            'aprobados' => CreditoPrendario::where('estado', 'aprobado')->count(),
-            'vigentes' => CreditoPrendario::where('estado', 'vigente')->count(),
-            'vencidos' => CreditoPrendario::where('estado', 'vencido')->count(),
-            'en_mora' => CreditoPrendario::where('estado', 'en_mora')->count(),
-            'pagados' => CreditoPrendario::where('estado', 'pagado')->count(),
-            'cancelados' => CreditoPrendario::where('estado', 'cancelado')->count(),
-            'monto_total_prestado' => (float) CreditoPrendario::whereIn('estado', ['vigente', 'vencido', 'en_mora', 'pagado'])
-                ->sum('monto_desembolsado'),
-            'monto_capital_pendiente' => (float) CreditoPrendario::whereIn('estado', ['vigente', 'vencido', 'en_mora'])
-                ->sum('capital_pendiente'),
-            'monto_interes_pendiente' => (float) CreditoPrendario::whereIn('estado', ['vigente', 'vencido', 'en_mora'])
-                ->sum(DB::raw('interes_generado - interes_pagado')),
-            'monto_mora_pendiente' => (float) CreditoPrendario::whereIn('estado', ['vigente', 'vencido', 'en_mora'])
-                ->sum(DB::raw('mora_generada - mora_pagada')),
-        ];
+        try {
+            // OPTIMIZACIÓN: Una sola consulta con CASE para todas las estadísticas
+            $statsRaw = CreditoPrendario::selectRaw('
+                COUNT(*) as total,
+                SUM(CASE WHEN estado = "solicitado" THEN 1 ELSE 0 END) as solicitados,
+                SUM(CASE WHEN estado = "en_analisis" THEN 1 ELSE 0 END) as en_analisis,
+                SUM(CASE WHEN estado = "aprobado" THEN 1 ELSE 0 END) as aprobados,
+                SUM(CASE WHEN estado = "vigente" THEN 1 ELSE 0 END) as vigentes,
+                SUM(CASE WHEN estado = "vencido" THEN 1 ELSE 0 END) as vencidos,
+                SUM(CASE WHEN estado = "en_mora" THEN 1 ELSE 0 END) as en_mora,
+                SUM(CASE WHEN estado = "pagado" THEN 1 ELSE 0 END) as pagados,
+                SUM(CASE WHEN estado = "cancelado" THEN 1 ELSE 0 END) as cancelados,
+                SUM(CASE WHEN estado IN ("vigente", "vencido", "en_mora", "pagado") THEN monto_desembolsado ELSE 0 END) as monto_total_prestado,
+                SUM(CASE WHEN estado IN ("vigente", "vencido", "en_mora") THEN capital_pendiente ELSE 0 END) as monto_capital_pendiente,
+                SUM(CASE WHEN estado IN ("vigente", "vencido", "en_mora") THEN (interes_generado - interes_pagado) ELSE 0 END) as monto_interes_pendiente,
+                SUM(CASE WHEN estado IN ("vigente", "vencido", "en_mora") THEN (mora_generada - mora_pagada) ELSE 0 END) as monto_mora_pendiente
+            ')
+            ->first();
 
-        return response()->json([
-            'success' => true,
-            'data' => $stats
-        ]);
+            $stats = [
+                'total' => (int) $statsRaw->total,
+                'solicitados' => (int) $statsRaw->solicitados,
+                'en_analisis' => (int) $statsRaw->en_analisis,
+                'aprobados' => (int) $statsRaw->aprobados,
+                'vigentes' => (int) $statsRaw->vigentes,
+                'vencidos' => (int) $statsRaw->vencidos,
+                'en_mora' => (int) $statsRaw->en_mora,
+                'pagados' => (int) $statsRaw->pagados,
+                'cancelados' => (int) $statsRaw->cancelados,
+                'monto_total_prestado' => (float) $statsRaw->monto_total_prestado,
+                'monto_capital_pendiente' => (float) $statsRaw->monto_capital_pendiente,
+                'monto_interes_pendiente' => (float) $statsRaw->monto_interes_pendiente,
+                'monto_mora_pendiente' => (float) $statsRaw->monto_mora_pendiente,
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => $stats
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error en CreditoPrendarioController@getEstadisticas', [
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener estadísticas: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -770,6 +807,43 @@ class CreditoPrendarioController extends Controller
                     'es_cuota_gracia' => (bool) $cuota->es_cuota_gracia,
                 ];
             })->values() : [],
+            'creadoEn' => $credito->created_at->toISOString(),
+            'actualizadoEn' => $credito->updated_at->toISOString(),
+        ];
+    }
+
+    /**
+     * Formatear crédito para listado (versión ligera sin relaciones pesadas)
+     */
+    private function formatCreditoList(CreditoPrendario $credito): array
+    {
+        return [
+            'id' => (string) $credito->id,
+            'numero_credito' => $credito->numero_credito,
+            'codigo_credito' => $credito->numero_credito,
+            'cliente' => $credito->cliente ? [
+                'id' => (string) $credito->cliente->id,
+                'codigo_cliente' => $credito->cliente->codigo_cliente,
+                'nombres' => $credito->cliente->nombres,
+                'apellidos' => $credito->cliente->apellidos,
+                'dpi' => $credito->cliente->dpi,
+            ] : null,
+            'sucursal' => $credito->sucursal ? [
+                'id' => (string) $credito->sucursal->id,
+                'nombre' => $credito->sucursal->nombre,
+            ] : null,
+            'estado' => $credito->estado,
+            'fecha_solicitud' => $credito->fecha_solicitud?->toISOString(),
+            'fecha_vencimiento' => $credito->fecha_vencimiento?->toISOString(),
+            'monto_solicitado' => (float) $credito->monto_solicitado,
+            'monto_aprobado' => (float) $credito->monto_aprobado,
+            'capital_pendiente' => (float) $credito->capital_pendiente,
+            'intereses_pendientes' => (float) ($credito->interes_generado - $credito->interes_pagado),
+            'mora_pendiente' => (float) ($credito->mora_generada - $credito->mora_pagada),
+            'tasa_interes' => (float) $credito->tasa_interes,
+            'plazo_dias' => $credito->plazo_dias,
+            'dias_mora' => $credito->dias_mora,
+            // NO incluir prendas, imágenes ni datos adicionales en el listado
             'creadoEn' => $credito->created_at->toISOString(),
             'actualizadoEn' => $credito->updated_at->toISOString(),
         ];

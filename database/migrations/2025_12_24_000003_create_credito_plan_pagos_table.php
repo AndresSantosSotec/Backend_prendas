@@ -66,7 +66,7 @@ return new class extends Migration
             $table->decimal('tasa_mora_aplicada', 8, 2)->default(0)->comment('Tasa de mora aplicada');
 
             // Información de pago
-            $table->foreignId('ultimo_movimiento_id')->nullable()->constrained('credito_movimientos')->comment('Último movimiento aplicado');
+            $table->unsignedBigInteger('ultimo_movimiento_id')->nullable()->comment('Último movimiento aplicado');
             $table->foreignId('usuario_pago_id')->nullable()->constrained('users')->comment('Usuario que registró el pago');
 
             // Datos adicionales
