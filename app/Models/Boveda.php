@@ -95,15 +95,27 @@ class Boveda extends Model
     // Métodos de negocio
     public function puedeRecibirMonto($monto)
     {
-        if ($this->saldo_maximo && $this->saldo_actual + $monto > $this->saldo_maximo) {
-            return false;
+        // Solo validar si hay un saldo máximo configurado
+        if ($this->saldo_maximo !== null && $this->saldo_maximo > 0) {
+            $nuevoSaldo = $this->saldo_actual + $monto;
+            if ($nuevoSaldo > $this->saldo_maximo) {
+                return false;
+            }
         }
         return true;
     }
 
     public function puedeRetirarMonto($monto)
     {
-        return $this->saldo_actual - $monto >= $this->saldo_minimo;
+        $nuevoSaldo = $this->saldo_actual - $monto;
+
+        // Solo validar si hay un saldo mínimo configurado mayor a 0
+        if ($this->saldo_minimo !== null && $this->saldo_minimo > 0) {
+            return $nuevoSaldo >= $this->saldo_minimo;
+        }
+
+        // Permitir retiros mientras no deje el saldo negativo
+        return $nuevoSaldo >= 0;
     }
 
     public function estaAbierta()

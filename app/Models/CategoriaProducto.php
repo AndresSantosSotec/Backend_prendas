@@ -29,6 +29,7 @@ class CategoriaProducto extends Model
         'permite_pago_capital_diferente',
         'campos_formulario',
         'campos_adicionales',
+        'campos_dinamicos',
     ];
 
     protected $casts = [
@@ -42,6 +43,7 @@ class CategoriaProducto extends Model
         'permite_pago_capital_diferente' => 'boolean',
         'campos_formulario' => 'array',
         'campos_adicionales' => 'array',
+        'campos_dinamicos' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',

@@ -18,7 +18,9 @@ class DatabaseSeeder extends Seeder
         $this->call([
             UserSeeder::class,
             PermissionSeeder::class,
+            SucursalSeeder::class,
             CategoriaProductoSeeder::class,
+            CamposDinamicosCategoriaSeeder::class,
         ]);
     }
 }

@@ -101,6 +101,7 @@ class CategoriaProductoController extends Controller
                     'permite_pago_capital_diferente' => $categoria->permite_pago_capital_diferente ?? false,
                     'campos_formulario' => $categoria->campos_formulario,
                     'campos_adicionales' => $categoria->campos_adicionales,
+                    'campos_dinamicos' => $categoria->campos_dinamicos ?? [],
                 ];
             })
         ]);
@@ -139,6 +140,11 @@ class CategoriaProductoController extends Controller
             'icono' => 'nullable|string|max:50',
             'orden' => 'nullable|integer|min:0',
             'activa' => 'nullable|boolean',
+            'campos_dinamicos' => 'nullable|array',
+            'campos_dinamicos.*.nombre' => 'required|string|max:100',
+            'campos_dinamicos.*.tipo' => 'required|in:texto,numero,fecha,booleano,seleccion,texto_largo',
+            'campos_dinamicos.*.requerido' => 'nullable|boolean',
+            'campos_dinamicos.*.opciones' => 'nullable|array',
         ]);
 
         if ($validator->fails()) {
@@ -191,6 +197,11 @@ class CategoriaProductoController extends Controller
             'icono' => 'nullable|string|max:50',
             'orden' => 'nullable|integer|min:0',
             'activa' => 'nullable|boolean',
+            'campos_dinamicos' => 'nullable|array',
+            'campos_dinamicos.*.nombre' => 'required|string|max:100',
+            'campos_dinamicos.*.tipo' => 'required|in:texto,numero,fecha,booleano,seleccion,texto_largo',
+            'campos_dinamicos.*.requerido' => 'nullable|boolean',
+            'campos_dinamicos.*.opciones' => 'nullable|array',
         ]);
 
         if ($validator->fails()) {
@@ -285,6 +296,7 @@ class CategoriaProductoController extends Controller
             'metodo_calculo_default' => $categoria->metodo_calculo_default ?? 'francesa',
             'afecta_interes_mensual' => $categoria->afecta_interes_mensual ?? false,
             'permite_pago_capital_diferente' => $categoria->permite_pago_capital_diferente ?? false,
+            'campos_dinamicos' => $categoria->campos_dinamicos ?? [],
             'creadoEn' => $categoria->created_at->toISOString(),
             'actualizadoEn' => $categoria->updated_at->toISOString(),
         ];

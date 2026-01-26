@@ -10,6 +10,11 @@ use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use App\Models\BovedaDetalle;
+use App\Exports\BovedasExport;
+use App\Exports\BovedaMovimientosExport;
+use App\Exports\BovedaConsolidacionExport;
+use Maatwebsite\Excel\Facades\Excel;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class BovedaController extends Controller
 {
@@ -59,11 +64,10 @@ class BovedaController extends Controller
             'descripcion' => 'nullable|string|max:500',
             'sucursal_id' => 'required|exists:sucursales,id',
             'saldo_inicial' => 'required|numeric|min:0',
-            'saldo_minimo' => 'nullable|numeric|min:0',
-            'saldo_maximo' => 'nullable|numeric|gt:saldo_minimo',
             'tipo' => 'required|in:general,principal,auxiliar',
             'requiere_aprobacion' => 'boolean',
             'responsable_id' => 'nullable|exists:users,id',
+            'desglose_denominaciones' => 'nullable|array',
         ]);
 
         /** @var User $user */
@@ -99,17 +103,23 @@ class BovedaController extends Controller
 
             // Si hay saldo inicial, registrar movimiento de apertura
             if ($request->saldo_inicial > 0) {
-                BovedaMovimiento::create([
+                $movimiento = BovedaMovimiento::create([
                     'boveda_id' => $boveda->id,
                     'usuario_id' => $user->id,
                     'sucursal_id' => $request->sucursal_id,
                     'tipo_movimiento' => 'entrada',
                     'monto' => $request->saldo_inicial,
                     'concepto' => 'Apertura de bóveda con saldo inicial',
+                    'desglose_denominaciones' => $request->desglose_denominaciones,
                     'estado' => 'aprobado',
                     'aprobado_por' => $user->id,
                     'fecha_aprobacion' => now(),
                 ]);
+
+                // Guardar detalles de denominaciones normalizados
+                if ($request->desglose_denominaciones && is_array($request->desglose_denominaciones)) {
+                    BovedaDetalle::crearDesdeDesglose($movimiento->id, $request->desglose_denominaciones);
+                }
 
                 $boveda->ultima_apertura = now();
                 $boveda->save();
@@ -168,8 +178,6 @@ class BovedaController extends Controller
         $request->validate([
             'nombre' => 'required|string|max:100',
             'descripcion' => 'nullable|string|max:500',
-            'saldo_minimo' => 'nullable|numeric|min:0',
-            'saldo_maximo' => 'nullable|numeric|gt:saldo_minimo',
             'tipo' => 'required|in:general,principal,auxiliar',
             'activa' => 'boolean',
             'requiere_aprobacion' => 'boolean',
@@ -528,6 +536,235 @@ class BovedaController extends Controller
                 'fecha_inicio' => $request->fecha_inicio,
                 'fecha_fin' => $request->fecha_fin,
             ]
+        ]);
+    }
+
+    /**
+     * Exportar lista de bóvedas a Excel
+     */
+    public function exportarBovedas(Request $request)
+    {
+        /** @var User $user */
+        $user = Auth::user();
+
+        if (!$user->hasPermission('bovedas', 'reportes') && $user->rol !== 'administrador' && $user->rol !== 'gerente') {
+            return response()->json(['error' => 'No tienes permisos para exportar reportes'], 403);
+        }
+
+        $filters = [
+            'sucursal_id' => $request->sucursal_id,
+            'activa' => $request->activa,
+            'tipo' => $request->tipo,
+        ];
+
+        $fileName = 'bovedas_' . date('Y-m-d_His') . '.xlsx';
+
+        return Excel::download(
+            new BovedasExport($filters, $user->id, $user->rol),
+            $fileName
+        );
+    }
+
+    /**
+     * Exportar movimientos de bóveda a Excel
+     */
+    public function exportarMovimientos(Request $request, $id)
+    {
+        /** @var User $user */
+        $user = Auth::user();
+        $boveda = Boveda::findOrFail($id);
+
+        if (!$user->hasPermission('bovedas', 'reportes') && $user->rol !== 'administrador' && $user->rol !== 'gerente') {
+            return response()->json(['error' => 'No tienes permisos para exportar reportes'], 403);
+        }
+
+        if ($user->rol !== 'administrador' && $user->rol !== 'gerente' && $boveda->sucursal_id != $user->sucursal_id) {
+            return response()->json(['error' => 'No tienes permisos para exportar esta bóveda'], 403);
+        }
+
+        $filters = [
+            'estado' => $request->estado,
+            'tipo_movimiento' => $request->tipo_movimiento,
+            'fecha_inicio' => $request->fecha_inicio,
+            'fecha_fin' => $request->fecha_fin,
+        ];
+
+        $fileName = 'movimientos_boveda_' . $boveda->codigo . '_' . date('Y-m-d_His') . '.xlsx';
+
+        return Excel::download(
+            new BovedaMovimientosExport($id, $filters),
+            $fileName
+        );
+    }
+
+    /**
+     * Exportar consolidación a Excel
+     */
+    public function exportarConsolidacion(Request $request)
+    {
+        /** @var User $user */
+        $user = Auth::user();
+
+        if (!$user->hasPermission('bovedas', 'reportes') && $user->rol !== 'administrador' && $user->rol !== 'gerente') {
+            return response()->json(['error' => 'No tienes permisos para exportar reportes'], 403);
+        }
+
+        $filters = [
+            'sucursal_id' => $request->sucursal_id,
+            'fecha_inicio' => $request->fecha_inicio,
+            'fecha_fin' => $request->fecha_fin,
+        ];
+
+        $fileName = 'consolidacion_bovedas_' . date('Y-m-d_His') . '.xlsx';
+
+        return Excel::download(
+            new BovedaConsolidacionExport($filters, $user->id, $user->rol),
+            $fileName
+        );
+    }
+
+    /**
+     * Exportar movimientos de bóveda a PDF
+     */
+    public function exportarMovimientosPDF(Request $request, $id)
+    {
+        /** @var User $user */
+        $user = Auth::user();
+        $boveda = Boveda::with('sucursal')->findOrFail($id);
+
+        if (!$user->hasPermission('bovedas', 'reportes') && $user->rol !== 'administrador' && $user->rol !== 'gerente') {
+            return response()->json(['error' => 'No tienes permisos para exportar reportes'], 403);
+        }
+
+        if ($user->rol !== 'administrador' && $user->rol !== 'gerente' && $boveda->sucursal_id != $user->sucursal_id) {
+            return response()->json(['error' => 'No tienes permisos para exportar esta bóveda'], 403);
+        }
+
+        $query = $boveda->movimientos()->with(['usuario', 'aprobador', 'bovedaDestino']);
+
+        if ($request->estado) {
+            $query->where('estado', $request->estado);
+        }
+
+        if ($request->tipo_movimiento) {
+            $query->where('tipo_movimiento', $request->tipo_movimiento);
+        }
+
+        if ($request->fecha_inicio) {
+            $query->whereDate('created_at', '>=', $request->fecha_inicio);
+        }
+
+        if ($request->fecha_fin) {
+            $query->whereDate('created_at', '<=', $request->fecha_fin);
+        }
+
+        $movimientos = $query->orderBy('created_at', 'desc')->get();
+
+        $data = [
+            'boveda' => $boveda,
+            'movimientos' => $movimientos,
+            'periodo' => [
+                'inicio' => $request->fecha_inicio,
+                'fin' => $request->fecha_fin,
+            ],
+            'fecha_generacion' => now()->format('d/m/Y H:i'),
+            'usuario' => $user->name,
+        ];
+
+        $pdf = Pdf::loadView('reports.boveda-movimientos', $data)
+            ->setPaper('letter', 'landscape');
+
+        $fileName = 'movimientos_' . $boveda->codigo . '_' . date('Y-m-d_His') . '.pdf';
+
+        return response()->streamDownload(function() use ($pdf) {
+            echo $pdf->output();
+        }, $fileName, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="' . $fileName . '"'
+        ]);
+    }
+
+    /**
+     * Exportar consolidación a PDF
+     */
+    public function exportarConsolidacionPDF(Request $request)
+    {
+        /** @var User $user */
+        $user = Auth::user();
+
+        if (!$user->hasPermission('bovedas', 'reportes') && $user->rol !== 'administrador' && $user->rol !== 'gerente') {
+            return response()->json(['error' => 'No tienes permisos para exportar reportes'], 403);
+        }
+
+        $query = Boveda::with(['sucursal', 'movimientosAprobados']);
+
+        if ($user->rol !== 'administrador' && $request->sucursal_id) {
+            if ($request->sucursal_id != $user->sucursal_id) {
+                return response()->json(['error' => 'Solo puedes ver reportes de tu sucursal'], 403);
+            }
+            $query->where('sucursal_id', $request->sucursal_id);
+        } elseif ($user->rol !== 'administrador') {
+            $query->where('sucursal_id', $user->sucursal_id);
+        }
+
+        if ($request->sucursal_id) {
+            $query->where('sucursal_id', $request->sucursal_id);
+        }
+
+        $bovedas = $query->activas()->get();
+
+        $consolidacion = $bovedas->map(function ($boveda) use ($request) {
+            $movimientosQuery = $boveda->movimientosAprobados();
+
+            if ($request->fecha_inicio) {
+                $movimientosQuery->whereDate('created_at', '>=', $request->fecha_inicio);
+            }
+
+            if ($request->fecha_fin) {
+                $movimientosQuery->whereDate('created_at', '<=', $request->fecha_fin);
+            }
+
+            $movimientos = $movimientosQuery->get();
+            $entradas = $movimientos->filter(fn($m) => in_array($m->tipo_movimiento, ['entrada', 'transferencia_entrada']));
+            $salidas = $movimientos->filter(fn($m) => in_array($m->tipo_movimiento, ['salida', 'transferencia_salida']));
+
+            return [
+                'boveda' => $boveda,
+                'total_entradas' => $entradas->sum('monto'),
+                'total_salidas' => $salidas->sum('monto'),
+                'saldo_actual' => $boveda->saldo_actual,
+                'numero_movimientos' => $movimientos->count(),
+            ];
+        });
+
+        $totales = [
+            'total_bovedas' => $consolidacion->count(),
+            'saldo_consolidado' => $consolidacion->sum('saldo_actual'),
+            'total_entradas' => $consolidacion->sum('total_entradas'),
+            'total_salidas' => $consolidacion->sum('total_salidas'),
+        ];
+
+        $data = [
+            'consolidacion' => $consolidacion,
+            'totales' => $totales,
+            'periodo' => [
+                'inicio' => $request->fecha_inicio,
+                'fin' => $request->fecha_fin,
+            ],
+            'fecha_generacion' => now()->format('d/m/Y H:i'),
+            'usuario' => $user->name,
+        ];
+
+        $pdf = Pdf::loadView('reports.boveda-consolidacion', $data)
+            ->setPaper('letter', 'landscape');
+
+        $fileName = 'consolidacion_bovedas_' . date('Y-m-d_His') . '.pdf';
+
+        return response()->streamDownload(function() use ($pdf) {
+            echo $pdf->output();
+        }, $fileName, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="' . $fileName . '"'
         ]);
     }
 }

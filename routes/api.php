@@ -14,6 +14,7 @@ use App\Http\Controllers\PrendaController;
 use App\Http\Controllers\CajaController;
 use App\Http\Controllers\DenominacionController;
 use App\Http\Controllers\ReciboController;
+use App\Http\Controllers\ReporteCajaController;
 use Illuminate\Support\Facades\DB;
 
 /*
@@ -139,6 +140,9 @@ Route::prefix('v1')->group(function () {
 
         // Bóvedas
         Route::get('/bovedas/consolidacion', [BovedaController::class, 'consolidacion']); // Antes de {id}
+        Route::get('/bovedas/exportar', [BovedaController::class, 'exportarBovedas']);
+        Route::get('/bovedas/consolidacion/exportar', [BovedaController::class, 'exportarConsolidacion']);
+        Route::get('/bovedas/consolidacion/pdf', [BovedaController::class, 'exportarConsolidacionPDF']);
         Route::get('/bovedas', [BovedaController::class, 'index']);
         Route::post('/bovedas', [BovedaController::class, 'store']);
         Route::get('/bovedas/{id}', [BovedaController::class, 'show']);
@@ -146,6 +150,8 @@ Route::prefix('v1')->group(function () {
         Route::delete('/bovedas/{id}', [BovedaController::class, 'destroy']);
         Route::post('/bovedas/{id}/movimientos', [BovedaController::class, 'registrarMovimiento']);
         Route::get('/bovedas/{id}/historial', [BovedaController::class, 'historialMovimientos']);
+        Route::get('/bovedas/{id}/exportar-movimientos', [BovedaController::class, 'exportarMovimientos']);
+        Route::get('/bovedas/{id}/exportar-movimientos-pdf', [BovedaController::class, 'exportarMovimientosPDF']);
 
         // Movimientos de bóveda
         Route::get('/bovedas-movimientos/pendientes', [BovedaController::class, 'movimientosPendientes']);
@@ -235,6 +241,13 @@ Route::prefix('v1')->group(function () {
         Route::post('/cajas/{id}/cerrar', [CajaController::class, 'cerrar']);
         Route::get('/cajas/{id}/movimientos', [CajaController::class, 'getMovimientos']);
         Route::post('/cajas/movimientos', [CajaController::class, 'registrarMovimiento']);
+
+        // Reportes de Caja
+        Route::get('/reportes/caja/movimientos', [ReporteCajaController::class, 'reporteMovimientos']);
+        Route::get('/reportes/caja/consolidado', [ReporteCajaController::class, 'consolidado']);
+        Route::post('/reportes/caja/pdf', [ReporteCajaController::class, 'reportePDF']);
+        Route::post('/reportes/caja/consolidado-pdf', [ReporteCajaController::class, 'consolidadoPDF']);
+        Route::get('/reportes/caja/excel', [ReporteCajaController::class, 'exportarExcel']);
 
         // Denominaciones y Monedas
         Route::get('/denominaciones', [DenominacionController::class, 'index']);
