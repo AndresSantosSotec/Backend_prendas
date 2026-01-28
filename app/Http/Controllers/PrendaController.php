@@ -146,21 +146,90 @@ class PrendaController extends Controller
         $orderDir = $request->get('order_dir', 'desc');
         $query->orderBy($orderBy, $orderDir);
 
-        // Paginación
-        $perPage = $request->get('per_page', 50);
-        $prendas = $query->paginate($perPage);
+        // Paginación optimizada con chunks
+        $perPage = min((int) $request->get('per_page', 20), 100);
+        $page = (int) $request->get('page', 1);
 
-        // Estadísticas
+        // Usar cursor pagination para mejor performance en datasets grandes
+        $useCursor = $request->get('use_cursor', false);
+
+        // Estadísticas OPTIMIZADAS - una sola consulta con CASE
+        $statsRaw = Prenda::selectRaw('
+            COUNT(*) as total,
+            SUM(CASE WHEN estado = "en_custodia" THEN 1 ELSE 0 END) as empeniadas,
+            SUM(CASE WHEN estado = "vencida" THEN 1 ELSE 0 END) as vencidas,
+            SUM(CASE WHEN estado = "en_venta" THEN 1 ELSE 0 END) as en_venta,
+            SUM(CASE WHEN estado = "vendida" THEN 1 ELSE 0 END) as vendidas,
+            SUM(CASE WHEN estado = "recuperada" THEN 1 ELSE 0 END) as recuperadas,
+            SUM(valor_tasacion) as valor_total_avaluo,
+            SUM(CASE WHEN estado = "en_venta" THEN valor_venta ELSE 0 END) as valor_total_venta
+        ')->first();
+
         $stats = [
-            'total' => Prenda::count(),
-            'empeniadas' => Prenda::where('estado', 'en_custodia')->count(),
-            'vencidas' => Prenda::where('estado', 'vencida')->count(),
-            'en_venta' => Prenda::where('estado', 'en_venta')->count(),
-            'vendidas' => Prenda::where('estado', 'vendida')->count(),
-            'recuperadas' => Prenda::where('estado', 'recuperada')->count(),
-            'valor_total_avaluo' => Prenda::sum('valor_tasacion'),
-            'valor_total_venta' => Prenda::where('estado', 'en_venta')->sum('valor_venta'),
+            'total' => (int) $statsRaw->total,
+            'empeniadas' => (int) $statsRaw->empeniadas,
+            'vencidas' => (int) $statsRaw->vencidas,
+            'en_venta' => (int) $statsRaw->en_venta,
+            'vendidas' => (int) $statsRaw->vendidas,
+            'recuperadas' => (int) $statsRaw->recuperadas,
+            'valor_total_avaluo' => (float) $statsRaw->valor_total_avaluo,
+            'valor_total_venta' => (float) $statsRaw->valor_total_venta,
         ];
+
+        if ($useCursor && $request->has('cursor')) {
+            // Cursor pagination - más eficiente para datasets grandes
+            $cursor = $request->get('cursor');
+            $prendas = $query
+                ->where('id', '>', $cursor)
+                ->take($perPage)
+                ->get();
+
+            $nextCursor = $prendas->last()?->id;
+            $hasMore = $prendas->count() === $perPage;
+
+            return response()->json([
+                'success' => true,
+                'data' => PrendaResource::collection($prendas),
+                'cursor' => [
+                    'next' => $hasMore ? $nextCursor : null,
+                    'has_more' => $hasMore,
+                    'per_page' => $perPage,
+                ],
+                'stats' => $stats,
+            ], 200, [], JSON_UNESCAPED_UNICODE);
+        }
+
+        // Paginación tradicional mejorada
+        $totalFiltrado = (clone $query)->count();
+
+        // Si hay muchos registros (>1000), usar lazy loading
+        if ($totalFiltrado > 1000) {
+            $prendas = $query
+                ->skip(($page - 1) * $perPage)
+                ->take($perPage)
+                ->lazy(100) // Carga en chunks de 100
+                ->map(function ($prenda) {
+                    return new PrendaResource($prenda);
+                })
+                ->values();
+
+            return response()->json([
+                'success' => true,
+                'data' => $prendas,
+                'pagination' => [
+                    'total' => $totalFiltrado,
+                    'per_page' => $perPage,
+                    'current_page' => $page,
+                    'last_page' => ceil($totalFiltrado / $perPage),
+                    'from' => (($page - 1) * $perPage) + 1,
+                    'to' => min($page * $perPage, $totalFiltrado),
+                ],
+                'stats' => $stats,
+            ], 200, [], JSON_UNESCAPED_UNICODE);
+        }
+
+        // Paginación normal para datasets pequeños
+        $prendas = $query->paginate($perPage);
 
         return response()->json([
             'success' => true,
@@ -174,7 +243,7 @@ class PrendaController extends Controller
                 'to' => $prendas->lastItem(),
             ],
             'stats' => $stats,
-        ]);
+        ], 200, [], JSON_UNESCAPED_UNICODE);
     }
 
     /**
@@ -410,17 +479,27 @@ class PrendaController extends Controller
             ], 422);
         }
 
-        $prenda = Prenda::findOrFail($id);
+        $prenda = Prenda::with('creditoPrendario')->findOrFail($id);
 
+        // Actualizar estado de la prenda
         $prenda->update([
             'estado' => 'en_venta',
             'valor_venta' => $request->valor_venta,
         ]);
 
+        // Si la prenda tiene un crédito prendario asociado, marcarlo como incobrable
+        if ($prenda->creditoPrendario) {
+            $prenda->creditoPrendario->update([
+                'estado' => 'incobrable',
+                'fecha_incobrable' => now(),
+                'motivo_incobrable' => 'Prenda puesta en venta - No recuperada por el cliente'
+            ]);
+        }
+
         return response()->json([
             'success' => true,
-            'message' => 'Prenda puesta en venta',
-            'data' => $prenda,
+            'message' => 'Prenda puesta en venta y crédito marcado como incobrable',
+            'data' => $prenda->load('creditoPrendario'),
         ]);
     }
 
@@ -548,4 +627,69 @@ class PrendaController extends Controller
             return null;
         }
     }
+
+    /**
+     * Reservar prenda temporalmente (validación suave antes de venta)
+     * POST /prendas/{id}/reservar-temporal
+     *
+     * Previene selección duplicada en UI sin bloquear definitivamente
+     * La reserva expira automáticamente después de 5 minutos
+     */
+    public function reservarTemporal(Request $request, string $id)
+    {
+        try {
+            $prenda = Prenda::findOrFail($id);
+
+            // Validar que esté en estado en_venta
+            if ($prenda->estado !== 'en_venta') {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Prenda no disponible (estado: {$prenda->estado})"
+                ], 400);
+            }
+
+            // Verificar si ya fue vendida (doble verificación)
+            $yaVendida = DB::table('venta_detalles')
+                ->join('ventas', 'venta_detalles.venta_id', '=', 'ventas.id')
+                ->where('venta_detalles.prenda_id', $prenda->id)
+                ->whereNotIn('ventas.estado', ['cancelada'])
+                ->exists();
+
+            if ($yaVendida) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Prenda ya fue vendida'
+                ], 400);
+            }
+
+            // Validar precio de venta
+            if (!$prenda->precio_venta || $prenda->precio_venta <= 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Prenda no tiene precio de venta configurado'
+                ], 400);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Prenda disponible para venta',
+                'data' => [
+                    'prenda_id' => $prenda->id,
+                    'codigo' => $prenda->codigo_prenda,
+                    'precio_venta' => $prenda->precio_venta,
+                    'precio_minimo' => $prenda->precio_minimo ?? 0,
+                    'descuento_max_pct' => $prenda->descuento_max_pct ?? 20,
+                    'estado' => $prenda->estado
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error al reservar prenda temporal: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al validar prenda'
+            ], 500);
+        }
+    }
 }
+

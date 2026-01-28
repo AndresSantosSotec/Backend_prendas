@@ -99,18 +99,65 @@ class ClienteController extends Controller
                 ->pluck('sucursal')
                 ->toArray();
 
-            // Paginación
-            $perPage = min((int) $request->get('per_page', 10), 100);
+            // Paginación optimizada con chunks
+            $perPage = min((int) $request->get('per_page', 20), 100);
             $page = (int) $request->get('page', 1);
 
+            // Usar cursor pagination para mejor performance en datasets grandes
+            $useCursor = $request->get('use_cursor', false);
+
+            if ($useCursor && $request->has('cursor')) {
+                // Cursor pagination - más eficiente para datasets grandes
+                $cursor = $request->get('cursor');
+                $clientes = $query
+                    ->where('id', '>', $cursor)
+                    ->take($perPage)
+                    ->get();
+
+                $nextCursor = $clientes->last()?->id;
+                $hasMore = $clientes->count() === $perPage;
+
+                return response()->json([
+                    'success' => true,
+                    'data' => $clientes->map(function ($cliente) {
+                        return $this->formatCliente($cliente);
+                    }),
+                    'cursor' => [
+                        'next' => $hasMore ? $nextCursor : null,
+                        'has_more' => $hasMore,
+                        'per_page' => $perPage,
+                    ],
+                    'stats' => $stats,
+                    'sucursales' => $sucursales,
+                ], 200, [], JSON_UNESCAPED_UNICODE);
+            }
+
+            // Paginación tradicional mejorada - usar lazy() para chunks
             $totalFiltrado = (clone $query)->count();
-            $clientes = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
+
+            // Si hay muchos registros (>1000), usar lazy loading
+            if ($totalFiltrado > 1000) {
+                $clientes = $query
+                    ->skip(($page - 1) * $perPage)
+                    ->take($perPage)
+                    ->lazy(100) // Carga en chunks de 100
+                    ->map(function ($cliente) {
+                        return $this->formatCliente($cliente);
+                    })
+                    ->values();
+            } else {
+                $clientes = $query
+                    ->skip(($page - 1) * $perPage)
+                    ->take($perPage)
+                    ->get()
+                    ->map(function ($cliente) {
+                        return $this->formatCliente($cliente);
+                    });
+            }
 
             return response()->json([
                 'success' => true,
-                'data' => $clientes->map(function ($cliente) {
-                    return $this->formatCliente($cliente);
-                }),
+                'data' => $clientes,
                 'pagination' => [
                     'total' => $totalFiltrado,
                     'per_page' => $perPage,

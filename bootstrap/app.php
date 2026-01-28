@@ -17,6 +17,8 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\HandleCors::class,
             \App\Http\Middleware\SecurityHeaders::class,
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
+            \App\Http\Middleware\CompressResponse::class,
+            \App\Http\Middleware\CacheGetRequests::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [

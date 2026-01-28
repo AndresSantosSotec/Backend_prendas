@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Prenda;
 use App\Models\Venta;
 use App\Services\VentaService;
-use App\Services\VentaMultiPrendaService;
 use App\Http\Resources\PrendaResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -13,14 +12,10 @@ use Illuminate\Support\Facades\Log;
 class VentaController extends Controller
 {
     protected $ventaService;
-    protected $ventaMultiPrendaService;
 
-    public function __construct(
-        VentaService $ventaService,
-        VentaMultiPrendaService $ventaMultiPrendaService
-    ) {
+    public function __construct(VentaService $ventaService)
+    {
         $this->ventaService = $ventaService;
-        $this->ventaMultiPrendaService = $ventaMultiPrendaService;
     }
 
     /**
@@ -83,7 +78,7 @@ class VentaController extends Controller
     }
 
     /**
-     * Procesar venta de prenda (DEPRECADO - usar store para multi-prenda)
+     * Procesar venta de prenda
      */
     public function procesarVenta(Request $request, string $id)
     {
@@ -109,58 +104,6 @@ class VentaController extends Controller
             ]);
         } catch (\Exception $e) {
             Log::error('Error al procesar venta: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage()
-            ], 400);
-        }
-    }
-
-    /**
-     * Crear venta con múltiples prendas y múltiples pagos (NUEVO)
-     * POST /ventas
-     *
-     * Body: {
-     *   cliente_id: 1,
-     *   tipo_venta: 'contado|apartado|plan_pago',
-     *   items: [
-     *     { prenda_id: 10, precio_unitario: 1500, descuento: 100 },
-     *     { prenda_id: 11, precio_unitario: 500, descuento: 0 }
-     *   ],
-     *   pagos: [
-     *     { metodo: 'efectivo', monto: 1000 },
-     *     { metodo: 'tarjeta', monto: 900, referencia: 'TRX-123' }
-     *   ]
-     * }
-     */
-    public function store(Request $request)
-    {
-        $request->validate([
-            'cliente_id' => 'nullable|exists:clientes,id',
-            'tipo_venta' => 'required|in:contado,apartado,plan_pago',
-            'items' => 'required|array|min:1',
-            'items.*.prenda_id' => 'required|exists:prendas,id',
-            'items.*.descuento' => 'nullable|numeric|min:0',
-            'pagos' => 'nullable|array',
-            'pagos.*.metodo' => 'required|in:efectivo,tarjeta,transferencia,cheque',
-            'pagos.*.monto' => 'required|numeric|min:0',
-            'pagos.*.referencia' => 'nullable|string|max:100',
-            'observaciones' => 'nullable|string|max:1000',
-        ]);
-
-        try {
-            $venta = $this->ventaMultiPrendaService->crearVenta($request->all());
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Venta creada exitosamente',
-                'data' => $venta
-            ], 201);
-        } catch (\Exception $e) {
-            Log::error('Error al crear venta multi-prenda: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString()
-            ]);
-
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage()
@@ -260,15 +203,7 @@ class VentaController extends Controller
 
         try {
             $venta = Venta::findOrFail($id);
-
-            // Usar servicio apropiado según tipo de venta
-            if ($venta->detalles()->count() > 0) {
-                // Venta multi-prenda
-                $resultado = $this->ventaMultiPrendaService->cancelarVenta($venta, $request->motivo);
-            } else {
-                // Venta antigua (1 prenda)
-                $resultado = $this->ventaService->cancelarVenta($venta, $request->motivo);
-            }
+            $resultado = $this->ventaService->cancelarVenta($venta, $request->motivo);
 
             return response()->json([
                 'success' => true,
@@ -277,36 +212,6 @@ class VentaController extends Controller
             ]);
         } catch (\Exception $e) {
             Log::error('Error al cancelar venta: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage()
-            ], 400);
-        }
-    }
-
-    /**
-     * Registrar pago adicional (para apartados/planes de pago)
-     * POST /ventas/{id}/pagos
-     */
-    public function registrarPago(Request $request, string $id)
-    {
-        $request->validate([
-            'metodo' => 'required|in:efectivo,tarjeta,transferencia,cheque',
-            'monto' => 'required|numeric|min:0',
-            'referencia' => 'nullable|string|max:100',
-        ]);
-
-        try {
-            $venta = Venta::findOrFail($id);
-            $resultado = $this->ventaMultiPrendaService->registrarPagoAdicional($venta, $request->all());
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Pago registrado exitosamente',
-                'data' => $resultado
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Error al registrar pago: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage()

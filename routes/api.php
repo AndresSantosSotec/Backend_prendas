@@ -213,6 +213,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/prendas/{id}/recuperar', [PrendaController::class, 'marcarRecuperada']);
         Route::post('/prendas/{id}/poner-venta', [PrendaController::class, 'marcarEnVenta']);
         Route::post('/prendas/{id}/vender', [PrendaController::class, 'marcarVendida']);
+        Route::post('/prendas/{id}/reservar-temporal', [PrendaController::class, 'reservarTemporal']); // NUEVO
 
         // Imágenes de Prendas (CRUD normalizado)
         Route::get('/prendas/{prendaId}/imagenes', [\App\Http\Controllers\PrendaImagenController::class, 'index']);
@@ -230,9 +231,11 @@ Route::prefix('v1')->group(function () {
         Route::get('/ventas/prendas-disponibles', [\App\Http\Controllers\VentaController::class, 'prendasEnVenta']);
         Route::get('/ventas/estadisticas', [\App\Http\Controllers\VentaController::class, 'estadisticas']);
         Route::get('/ventas/{id}', [\App\Http\Controllers\VentaController::class, 'show']);
+        Route::post('/ventas', [\App\Http\Controllers\VentaController::class, 'store']); // NUEVO: crear venta multi-prenda
         Route::post('/ventas/prendas/{id}/marcar-venta', [\App\Http\Controllers\VentaController::class, 'marcarParaVenta']);
-        Route::post('/ventas/prendas/{id}/procesar', [\App\Http\Controllers\VentaController::class, 'procesarVenta']);
+        Route::post('/ventas/prendas/{id}/procesar', [\App\Http\Controllers\VentaController::class, 'procesarVenta']); // DEPRECADO
         Route::post('/ventas/{id}/cancelar', [\App\Http\Controllers\VentaController::class, 'cancelar']);
+        Route::post('/ventas/{id}/pagos', [\App\Http\Controllers\VentaController::class, 'registrarPago']); // NUEVO: pagos adicionales
 
         // Caja
         Route::get('/cajas', [CajaController::class, 'index']);

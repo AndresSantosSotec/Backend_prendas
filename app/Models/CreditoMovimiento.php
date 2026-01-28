@@ -2,13 +2,73 @@
 
 namespace App\Models;
 
+use App\Services\ContabilidadService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Log;
 
 class CreditoMovimiento extends Model
 {
     use HasFactory, SoftDeletes;
+
+    /**
+     * Boot del modelo - Eventos
+     */
+    protected static function booted()
+    {
+        // Generar asiento contable automático después de crear el movimiento
+        static::created(function ($movimiento) {
+            // Solo generar asiento si está habilitado en configuración
+            if (!config('contabilidad.auto_asientos', false)) {
+                return;
+            }
+
+            // Verificar si el tipo de operación está habilitado
+            $tipoOperacion = null;
+
+            if ($movimiento->esDesembolso()) {
+                if (!config('contabilidad.auto_asientos_por_operacion.desembolso_credito', false)) {
+                    return;
+                }
+                $tipoOperacion = 'desembolso_credito';
+            } elseif ($movimiento->esPago()) {
+                if (!config('contabilidad.auto_asientos_por_operacion.pago_credito', false)) {
+                    return;
+                }
+                $tipoOperacion = 'pago_credito';
+            }
+
+            // Si no hay tipo de operación válido, salir
+            if (!$tipoOperacion) {
+                return;
+            }
+
+            try {
+                $service = app(ContabilidadService::class);
+                $asiento = $service->generarAsientoAutomatico($movimiento, $tipoOperacion);
+
+                if (config('contabilidad.log_asientos', true)) {
+                    Log::info("Asiento contable generado automáticamente", [
+                        'movimiento_id' => $movimiento->id,
+                        'asiento_id' => $asiento->id,
+                        'tipo_operacion' => $tipoOperacion,
+                        'numero_comprobante' => $asiento->numero_comprobante,
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::error("Error al generar asiento contable automático", [
+                    'movimiento_id' => $movimiento->id,
+                    'tipo_operacion' => $tipoOperacion,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+
+                // No lanzar la excepción para no afectar el flujo principal
+                // El movimiento se crea aunque falle el asiento
+            }
+        });
+    }
 
     protected $fillable = [
         'credito_prendario_id',

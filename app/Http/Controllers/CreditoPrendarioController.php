@@ -90,18 +90,63 @@ class CreditoPrendarioController extends Controller
                 $query->orderBy('fecha_solicitud', 'desc');
             }
 
-            // Paginación
-            $perPage = min((int) $request->get('per_page', 15), 100);
+            // Paginación optimizada con chunks
+            $perPage = min((int) $request->get('per_page', 20), 100);
             $page = (int) $request->get('page', 1);
 
+            // Usar cursor pagination para mejor performance en datasets grandes
+            $useCursor = $request->get('use_cursor', false);
+
+            if ($useCursor && $request->has('cursor')) {
+                // Cursor pagination - más eficiente para datasets grandes
+                $cursor = $request->get('cursor');
+                $creditos = $query
+                    ->where('id', '>', $cursor)
+                    ->take($perPage)
+                    ->get();
+
+                $nextCursor = $creditos->last()?->id;
+                $hasMore = $creditos->count() === $perPage;
+
+                return response()->json([
+                    'success' => true,
+                    'data' => $creditos->map(function ($credito) {
+                        return $this->formatCreditoList($credito);
+                    }),
+                    'cursor' => [
+                        'next' => $hasMore ? $nextCursor : null,
+                        'has_more' => $hasMore,
+                        'per_page' => $perPage,
+                    ],
+                ], 200, [], JSON_UNESCAPED_UNICODE);
+            }
+
+            // Paginación tradicional mejorada con lazy loading para datasets grandes
             $totalFiltrado = (clone $query)->count();
-            $creditos = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
+
+            // Si hay muchos registros (>1000), usar lazy loading
+            if ($totalFiltrado > 1000) {
+                $creditos = $query
+                    ->skip(($page - 1) * $perPage)
+                    ->take($perPage)
+                    ->lazy(100) // Carga en chunks de 100
+                    ->map(function ($credito) {
+                        return $this->formatCreditoList($credito);
+                    })
+                    ->values();
+            } else {
+                $creditos = $query
+                    ->skip(($page - 1) * $perPage)
+                    ->take($perPage)
+                    ->get()
+                    ->map(function ($credito) {
+                        return $this->formatCreditoList($credito);
+                    });
+            }
 
             return response()->json([
                 'success' => true,
-                'data' => $creditos->map(function ($credito) {
-                    return $this->formatCreditoList($credito); // Método más ligero para listado
-                }),
+                'data' => $creditos,
                 'pagination' => [
                     'total' => $totalFiltrado,
                     'per_page' => $perPage,
