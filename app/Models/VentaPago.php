@@ -12,20 +12,18 @@ class VentaPago extends Model
 
     protected $fillable = [
         'venta_id',
-        'metodo',
+        'metodo_pago_id',
         'monto',
         'cambio',
         'referencia',
         'banco',
-        'autorizacion',
-        'fecha_pago',
+        'numero_autorizacion',
         'observaciones',
     ];
 
     protected $casts = [
         'monto' => 'decimal:2',
         'cambio' => 'decimal:2',
-        'fecha_pago' => 'datetime',
     ];
 
     // Relaciones
@@ -34,27 +32,21 @@ class VentaPago extends Model
         return $this->belongsTo(Venta::class);
     }
 
+    public function metodoPago()
+    {
+        return $this->belongsTo(MetodoPago::class);
+    }
+
     // Accessors
     public function getMetodoNombreAttribute()
     {
-        $metodos = [
-            'efectivo' => 'Efectivo',
-            'tarjeta_debito' => 'Tarjeta de Débito',
-            'tarjeta_credito' => 'Tarjeta de Crédito',
-            'transferencia' => 'Transferencia',
-            'cheque' => 'Cheque',
-            'deposito' => 'Depósito',
-            'qr' => 'Código QR',
-            'otro' => 'Otro',
-        ];
-
-        return $metodos[$this->metodo] ?? $this->metodo;
+        return $this->metodoPago?->nombre ?? 'Desconocido';
     }
 
     // Scopes
-    public function scopePorMetodo($query, $metodo)
+    public function scopePorMetodo($query, $metodoPagoId)
     {
-        return $query->where('metodo', $metodo);
+        return $query->where('metodo_pago_id', $metodoPagoId);
     }
 
     public function scopeEntreFechas($query, $desde, $hasta)

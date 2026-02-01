@@ -244,8 +244,8 @@ class ContabilidadService
             'moneda_id' => $venta->moneda_id ?? 1,
             'tipo_origen' => 'venta_prenda',
             'venta_id' => $venta->id,
-            'numero_documento' => $venta->numero_documento ?? "VENTA-{$venta->id}",
-            'glosa' => "Venta de prenda - Documento {$venta->numero_documento}",
+            'numero_documento' => $venta->codigo_venta ?? "VENTA-{$venta->id}",
+            'glosa' => "Venta de prenda - Documento {$venta->codigo_venta}",
             'fecha_documento' => $venta->fecha_venta ?? now(),
             'fecha_contabilizacion' => now()->toDateString(),
             'sucursal_id' => $venta->sucursal_id,
@@ -257,7 +257,7 @@ class ContabilidadService
         // DEBE: Caja General (total de la venta)
         $cuentaCaja = $this->obtenerCuenta('1101.01.001');
         CtbMovimiento::create([
-            'diario_id' => $diario?->id,
+            'diario_id' => $diario->id,
             'cuenta_contable_id' => $cuentaCaja->id,
             'debe' => $venta->total_final,
             'haber' => 0,

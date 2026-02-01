@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\EstadoPrenda;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -46,6 +47,8 @@ class Prenda extends Model
         'requiere_mantenimiento',
         'notas_mantenimiento',
         'datos_adicionales',
+        'tipo_ingreso',
+        'sucursal_id',
     ];
 
     protected $casts = [

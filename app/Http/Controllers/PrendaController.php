@@ -356,15 +356,36 @@ class PrendaController extends Controller
     {
         $prenda = Prenda::findOrFail($id);
 
+        // VALIDACIÓN: No permitir editar prendas con estado 'pagada' o 'recuperada'
+        // Solo se pueden eliminar, no editar (para mantener integridad con créditos)
+        if (in_array($prenda->estado, ['pagada', 'recuperada'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se puede editar una prenda con estado "' . $prenda->estado . '". Solo se puede eliminar.',
+                'errors' => ['estado' => ['Prenda no editable en estado actual']]
+            ], 422);
+        }
+
+        // Log para debugging
+        Log::info('UPDATE PRENDA - Request data:', [
+            'prenda_id' => $id,
+            'all_data' => $request->all(),
+            'precio_venta' => $request->input('precio_venta'),
+            'ubicacion_fisica' => $request->input('ubicacion_fisica'),
+        ]);
+
         $validator = Validator::make($request->all(), [
             'descripcion' => 'sometimes|string|max:500',
             'valor_tasacion' => 'sometimes|numeric|min:0',
             'valor_prestamo' => 'sometimes|numeric|min:0',
             'valor_venta' => 'sometimes|numeric|min:0',
-            'ubicacion_fisica' => 'sometimes|string',
+            'precio_venta' => 'sometimes|numeric|min:0',
+            'ubicacion_fisica' => 'sometimes|string|max:255',
+            'estado' => 'sometimes|in:en_custodia,recuperada,en_venta,vendida,perdida,dañada',
         ]);
 
         if ($validator->fails()) {
+            Log::error('UPDATE PRENDA - Validation failed:', $validator->errors()->toArray());
             return response()->json([
                 'success' => false,
                 'message' => 'Error de validación',
@@ -372,12 +393,30 @@ class PrendaController extends Controller
             ], 422);
         }
 
-        $prenda->update($request->all());
+        // Actualizar solo los campos que vienen en el request
+        $dataToUpdate = $request->only([
+            'descripcion',
+            'valor_tasacion',
+            'valor_prestamo',
+            'valor_venta',
+            'precio_venta',
+            'ubicacion_fisica',
+            'estado',
+        ]);
+
+        Log::info('UPDATE PRENDA - Data to update:', $dataToUpdate);
+
+        $prenda->update($dataToUpdate);
+
+        Log::info('UPDATE PRENDA - After update:', [
+            'precio_venta' => $prenda->precio_venta,
+            'ubicacion_fisica' => $prenda->ubicacion_fisica,
+        ]);
 
         return response()->json([
             'success' => true,
             'message' => 'Prenda actualizada exitosamente',
-            'data' => new PrendaResource($prenda->load(['categoriaProducto', 'creditoPrendario.cliente'])),
+            'data' => new PrendaResource($prenda->fresh()->load(['categoriaProducto', 'creditoPrendario.cliente'])),
         ]);
     }
 
@@ -481,14 +520,28 @@ class PrendaController extends Controller
 
         $prenda = Prenda::with('creditoPrendario')->findOrFail($id);
 
+        // Validar estado del crédito si existe
+        if ($prenda->creditoPrendario) {
+            $estadoCredito = $prenda->creditoPrendario->estado;
+            $estadosPermitidos = ['vencido', 'en_mora', 'cancelado', 'incobrable'];
+
+            if (!in_array($estadoCredito, $estadosPermitidos)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "No se puede marcar en venta. El crédito está '{$estadoCredito}'. Debe estar vencido, en mora, cancelado o incobrable.",
+                ], 422);
+            }
+        }
+
         // Actualizar estado de la prenda
         $prenda->update([
             'estado' => 'en_venta',
             'valor_venta' => $request->valor_venta,
+            'fecha_publicacion_venta' => now(),
         ]);
 
-        // Si la prenda tiene un crédito prendario asociado, marcarlo como incobrable
-        if ($prenda->creditoPrendario) {
+        // Si la prenda tiene un crédito prendario asociado y aún no está incobrable, marcarlo
+        if ($prenda->creditoPrendario && $prenda->creditoPrendario->estado !== 'incobrable') {
             $prenda->creditoPrendario->update([
                 'estado' => 'incobrable',
                 'fecha_incobrable' => now(),
@@ -498,7 +551,7 @@ class PrendaController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Prenda puesta en venta y crédito marcado como incobrable',
+            'message' => 'Prenda puesta en venta exitosamente',
             'data' => $prenda->load('creditoPrendario'),
         ]);
     }
@@ -563,16 +616,45 @@ class PrendaController extends Controller
     /**
      * Obtener prendas en venta
      */
-    public function getEnVenta()
+    public function getEnVenta(Request $request)
     {
-        $prendas = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente'])
-            ->where('estado', 'en_venta')
-            ->orderBy('fecha_ingreso', 'desc')
-            ->get();
+        $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente'])
+            ->where('estado', 'en_venta');
+
+        // Búsqueda
+        if ($request->has('busqueda') && !empty($request->busqueda)) {
+            $busqueda = $request->busqueda;
+            $query->where(function ($q) use ($busqueda) {
+                $q->where('descripcion', 'like', "%{$busqueda}%")
+                  ->orWhere('codigo_prenda', 'like', "%{$busqueda}%");
+            });
+        }
+
+        // Filtro por categoría
+        if ($request->has('categoria') && !empty($request->categoria) && $request->categoria !== 'todas') {
+            $query->whereHas('categoriaProducto', function($q) use ($request) {
+                $q->where('nombre', $request->categoria);
+            });
+        }
+
+        $query->orderBy('fecha_ingreso', 'desc');
+
+        $perPage = (int) $request->get('per_page', 20);
+
+        // Usar paginate para obtener metadata de paginación
+        $prendas = $query->paginate($perPage);
 
         return response()->json([
             'success' => true,
-            'data' => PrendaResource::collection($prendas),
+            'data' => PrendaResource::collection($prendas->items()),
+            'pagination' => [
+                'total' => $prendas->total(),
+                'per_page' => $prendas->perPage(),
+                'current_page' => $prendas->currentPage(),
+                'last_page' => $prendas->lastPage(),
+                'from' => $prendas->firstItem(),
+                'to' => $prendas->lastItem(),
+            ],
         ]);
     }
 

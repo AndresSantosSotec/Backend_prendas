@@ -22,8 +22,8 @@ class PrendaResource extends JsonResource
             'fotos' => $this->fotos ?? [],
             'fotoPrincipal' => $this->foto_principal,
             'avaluo' => (float) $this->valor_tasacion ?? 0,
-            'precioVenta' => (float) $this->valor_venta ?? 0,
-            'precioVentaReal' => (float) $this->precio_venta ?? null, // Precio al que realmente se vendió
+            'valorVenta' => (float) $this->valor_venta ?? 0, // Valor base de venta
+            'precioVenta' => (float) $this->precio_venta ?? $this->valor_venta ?? 0, // Precio editable de venta
             'precioMinimo' => (float) ($this->valor_venta * 0.8) ?? 0, // 20% de descuento máximo
             'descuentoMaximo' => 20,
             'estado' => $this->mapearEstado($this->estado),

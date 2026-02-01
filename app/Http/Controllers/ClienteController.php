@@ -21,7 +21,15 @@ class ClienteController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
-            $query = Cliente::query();
+            $query = Cliente::query()->withCount([
+                'creditosPrendarios as total_creditos',
+                'creditosPrendarios as activos_creditos' => function($q) {
+                    $q->whereIn('estado', ['vigente', 'en_mora']);
+                },
+                'creditosPrendarios as vencidos_creditos' => function($q) {
+                    $q->where('estado', 'vencido');
+                }
+            ]);
 
             // Filtros
             if ($request->has('estado') && $request->estado !== '' && $request->estado !== 'todos') {
@@ -192,7 +200,7 @@ class ClienteController extends Controller
             ->where('estado', 'activo')
             ->orderBy('nombres', 'asc')
             ->orderBy('apellidos', 'asc')
-            ->get(['id', 'nombres', 'apellidos', 'dpi']);
+            ->get(['id', 'nombres', 'apellidos', 'dpi', 'nit', 'email']);
 
         return response()->json([
             'success' => true,
@@ -202,6 +210,8 @@ class ClienteController extends Controller
                     'nombres' => $cliente->nombres,
                     'apellidos' => $cliente->apellidos,
                     'dpi' => $cliente->dpi,
+                    'nit' => $cliente->nit,
+                    'email' => $cliente->email,
                 ];
             })
         ]);
@@ -306,6 +316,86 @@ class ClienteController extends Controller
                 'from' => $total === 0 ? 0 : (($page - 1) * $perPage) + 1,
                 'to' => min($page * $perPage, $total),
             ],
+        ]);
+    }
+
+    /**
+     * Obtener la Ficha Detallada del Cliente (Ficha del Cliente)
+     */
+    public function ficha(string $id): JsonResponse
+    {
+        $cliente = Cliente::where('id', $id)
+            ->where('eliminado', false)
+            ->first();
+
+        if (!$cliente) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cliente no encontrado'
+            ], 404);
+        }
+
+        // Estadísticas de créditos
+        $creditos = CreditoPrendario::where('cliente_id', $cliente->id)->get();
+        
+        $stats = [
+            'total_historial' => $creditos->count(),
+            'activos' => $creditos->whereIn('estado', ['vigente', 'en_mora', 'aprobado'])->count(),
+            'pagados' => $creditos->where('estado', 'pagado')->count(),
+            'vencidos' => $creditos->where('estado', 'vencido')->count(),
+            'monto_total_prestado' => (float) $creditos->sum('monto_aprobado'),
+            'monto_capital_pendiente' => (float) $creditos->sum('capital_pendiente'),
+            'total_interes_pagado' => (float) $creditos->sum('interes_pagado'),
+            'total_mora_pagada' => (float) $creditos->sum('mora_pagada'),
+            'saldo_actual_total' => (float) $creditos->sum(function($c) {
+                return $c->capital_pendiente + ($c->interes_generado - $c->interes_pagado) + ($c->mora_generada - $c->mora_pagada);
+            }),
+            'ultima_operacion' => $creditos->max('updated_at')?->toISOString(),
+            'primer_credito' => $creditos->min('fecha_solicitud')?->format('Y-m-d'),
+        ];
+
+        // Comportamiento de pago (Credit Score Simple)
+        $score = [
+            'puntos' => 100,
+            'nivel' => 'Excelente',
+            'color' => 'green',
+        ];
+
+        if ($stats['vencidos'] > 0) {
+            $score['puntos'] -= ($stats['vencidos'] * 20);
+        }
+        
+        // Penalización por mora activa
+        $creditosMora = $creditos->where('estado', 'en_mora')->count();
+        if ($creditosMora > 0) {
+            $score['puntos'] -= ($creditosMora * 10);
+        }
+
+        if ($score['puntos'] < 40) {
+            $score['nivel'] = 'Riesgoso';
+            $score['color'] = 'red';
+        } elseif ($score['puntos'] < 70) {
+            $score['nivel'] = 'Regular';
+            $score['color'] = 'orange';
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'cliente' => $this->formatCliente($cliente),
+                'resumen_financiero' => $stats,
+                'comportamiento' => $score,
+                'creditos_recientes' => $creditos->sortByDesc('fecha_solicitud')->take(5)->map(function($c) {
+                    return [
+                        'id' => (string) $c->id,
+                        'numero' => $c->numero_credito,
+                        'monto' => (float) $c->monto_aprobado,
+                        'fecha' => $c->fecha_solicitud?->format('Y-m-d'),
+                        'estado' => $c->estado,
+                        'saldo' => (float) ($c->capital_pendiente + ($c->interes_generado - $c->interes_pagado) + ($c->mora_generada - $c->mora_pagada))
+                    ];
+                })->values()
+            ]
         ]);
     }
 
@@ -501,6 +591,11 @@ class ClienteController extends Controller
             'eliminado' => $cliente->eliminado,
             'creadoEn' => $cliente->created_at->toISOString(),
             'actualizadoEn' => $cliente->updated_at->toISOString(),
+            'creditosInfo' => [
+                'total' => $cliente->total_creditos ?? 0,
+                'activos' => $cliente->activos_creditos ?? 0,
+                'vencidos' => $cliente->vencidos_creditos ?? 0,
+            ],
         ];
     }
 }

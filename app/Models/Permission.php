@@ -40,6 +40,7 @@ class Permission extends Model
         'historial' => ['ver'],
         'reportes' => ['generar', 'exportar'],
         'usuarios' => ['ver', 'crear', 'editar', 'eliminar', 'asignar_permisos'],
+        'compras' => ['ver', 'crear', 'editar', 'eliminar'],
         'categorias_productos' => ['ver', 'crear', 'editar', 'eliminar', 'toggle_activa'],
     ];
 
@@ -52,6 +53,7 @@ class Permission extends Model
             'dashboard' => ['ver'],
             'clientes' => ['ver', 'crear'],
             'creditos' => ['ver', 'crear'],
+            'compras' => ['ver', 'crear'],
             'caja' => ['abrir', 'cerrar', 'ver_movimientos'],
             'cobros' => ['realizar', 'ver', 'imprimir_recibo'],
             'prendas' => ['ver'],
@@ -63,12 +65,14 @@ class Permission extends Model
             'simulador' => ['usar', 'imprimir', 'guardar'],
             'prendas' => ['ver'],
             'ventas' => ['ver', 'tasar'],
+            'compras' => ['ver', 'crear'],
             'historial' => ['ver'],
         ],
         'vendedor' => [
             'dashboard' => ['ver'],
             'clientes' => ['ver', 'crear'],
             'ventas' => ['ver', 'vender', 'apartar', 'crear_plan_pago', 'aplicar_descuento'],
+            'compras' => ['ver'],
             'prendas' => ['ver'],
             'historial' => ['ver'],
         ],
@@ -76,6 +80,7 @@ class Permission extends Model
             'dashboard' => ['ver'],
             'clientes' => ['ver'],
             'creditos' => ['ver', 'renovar'],
+            'compras' => ['ver', 'crear', 'editar'],
             'prendas' => ['ver', 'cambiar_estado'],
             'ventas' => ['ver', 'modificar_precio', 'aplicar_descuento'],
             'reportes' => ['generar', 'exportar'],

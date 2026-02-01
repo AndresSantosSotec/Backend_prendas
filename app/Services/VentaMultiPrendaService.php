@@ -7,6 +7,10 @@ use App\Models\Venta;
 use App\Models\VentaDetalle;
 use App\Models\VentaPago;
 use App\Models\MetodoPago;
+use App\Models\Cliente;
+use App\Models\Sucursal;
+use App\Enums\EstadoPrenda;
+use App\Enums\EstadoVenta;
 use App\Services\ContabilidadService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -113,11 +117,47 @@ class VentaMultiPrendaService
                 $this->validarDescuento($prenda, $item['descuento'], $item['precio_unitario']);
             }
 
+            // 3.1. Obtener información del cliente
+            $clienteId = $data['cliente_id'] ?? null;
+
+            $clienteNombre = 'Consumidor Final';
+            $clienteNit = 'C/F';
+            $esConsumidorFinal = true;
+
+            if ($clienteId) {
+                $cliente = Cliente::find($clienteId);
+                if ($cliente) {
+                    $clienteNombre = $cliente->nombre_completo ?? (trim($cliente->nombres . ' ' . $cliente->apellidos));
+                    $clienteNit = $cliente->nit ?? 'C/F';
+                    $esConsumidorFinal = false;
+                }
+            } else {
+                // Si no hay ID de cliente, pero enviaron NIT/Nombre manualmente
+                $clienteNombre = $data['cliente_nombre'] ?? 'Consumidor Final';
+                $clienteNit = $data['nit'] ?? ($data['cliente_nit'] ?? 'C/F');
+                $esConsumidorFinal = $data['consumidor_final'] ?? true;
+            }
+
+            // 3.2. Determinar sucursal (prioridad: data > usuario > primera disponible)
+            $sucursalId = $data['sucursal_id'] ?? null;
+            if (!$sucursalId && Auth::user()) {
+                $sucursalId = Auth::user()->sucursal_id;
+            }
+            if (!$sucursalId) {
+                // Fallback: usar primera sucursal disponible
+                $sucursalId = Sucursal::first()?->id;
+                if (!$sucursalId) {
+                    throw new \Exception('No hay sucursales disponibles en el sistema');
+                }
+            }
+
             // 4. Crear registro de venta
             $venta = Venta::create([
                 'codigo_venta' => $this->generarCodigoVenta(),
                 'cliente_id' => $data['cliente_id'] ?? null,
-                'sucursal_id' => $data['sucursal_id'] ?? Auth::user()->sucursal_id,
+                'cliente_nombre' => $clienteNombre,
+                'cliente_nit' => $clienteNit,
+                'sucursal_id' => $sucursalId,
                 'vendedor_id' => Auth::id(),
                 'tipo_venta' => $data['tipo_venta'] ?? 'contado',
                 'fecha_venta' => now(),
@@ -129,8 +169,10 @@ class VentaMultiPrendaService
                 'total_pagado' => 0, // se actualiza después
 
                 'estado' => 'pendiente', // se cambia después según pagos
-                'observaciones' => $data['observaciones'] ?? null,
-                'consumidor_final' => $data['consumidor_final'] ?? true,
+                'observaciones' => $data['observaciones'] ?? 'Venta generada desde módulo NuevaVenta por ' . (Auth::user()->name ?? 'admin'),
+                'consumidor_final' => $esConsumidorFinal,
+                'tipo_documento' => $data['tipo_comprobante'] ?? 'NOTA',
+                'moneda_id' => $data['moneda_id'] ?? 1, // Por defecto GTQ
             ]);
 
             // 5. Agregar items (detalles)
@@ -139,11 +181,28 @@ class VentaMultiPrendaService
             // 6. Registrar pagos
             $totalPagado = $this->registrarPagos($venta, $data['pagos'] ?? []);
 
+            // 6.1. Configurar apartado o plan de pagos si aplica
+            $saldoPendiente = $venta->total_final - $totalPagado;
+
+            if ($data['tipo_venta'] === 'apartado' && $totalPagado > 0) {
+                $venta->update([
+                    'enganche' => $totalPagado,
+                    'saldo_pendiente' => $saldoPendiente,
+                    'plazo_dias' => $data['plazo_dias'] ?? 30,
+                    'fecha_vencimiento' => now()->addDays($data['plazo_dias'] ?? 30),
+                ]);
+            }
+
+            if ($data['tipo_venta'] === 'plan_pagos') {
+                $this->configurarPlanPagos($venta, $data, $totalPagado, $saldoPendiente);
+            }
+
             // 7. Determinar estado final
             $estado = $this->determinarEstadoVenta($venta, $totalPagado, $data['tipo_venta']);
 
             $venta->update([
                 'total_pagado' => $totalPagado,
+                'saldo_pendiente' => $saldoPendiente,
                 'estado' => $estado,
                 'cambio_devuelto' => max(0, $totalPagado - $venta->total_final)
             ]);
@@ -335,6 +394,9 @@ class VentaMultiPrendaService
     /**
      * Registrar pagos y devolver total pagado
      */
+    /**
+     * Registrar múltiples métodos de pago
+     */
     private function registrarPagos(Venta $venta, array $pagos): float
     {
         $totalPagado = 0;
@@ -346,13 +408,21 @@ class VentaMultiPrendaService
                 continue; // ignorar pagos inválidos
             }
 
+            // Obtener ID del método de pago desde tabla metodos_pago
+            $metodoCodigo = $pago['metodo'] ?? 'efectivo';
+            $metodoPagoId = $this->obtenerMetodoPagoId($metodoCodigo);
+
+            if (!$metodoPagoId) {
+                Log::warning("Método de pago '{$metodoCodigo}' no encontrado, usando efectivo por defecto");
+                $metodoPagoId = 1; // ID de efectivo
+            }
+
             VentaPago::create([
                 'venta_id' => $venta->id,
-                'metodo' => $pago['metodo'] ?? 'efectivo',
+                'metodo_pago_id' => $metodoPagoId,
                 'monto' => $monto,
                 'referencia' => $pago['referencia'] ?? null,
                 'banco' => $pago['banco'] ?? null,
-                'fecha_pago' => now(),
             ]);
 
             $totalPagado += $monto;
@@ -362,21 +432,40 @@ class VentaMultiPrendaService
     }
 
     /**
+     * Obtener ID de método de pago por código
+     */
+    private function obtenerMetodoPagoId(string $codigo): ?int
+    {
+        static $cache = null;
+
+        if ($cache === null) {
+            // Cargar todos los métodos de pago en cache (solo una vez)
+            $cache = MetodoPago::pluck('id', 'codigo')->toArray();
+        }
+
+        return $cache[$codigo] ?? null;
+    }
+
+    /**
      * Determinar estado de venta según pagos y tipo
      */
     private function determinarEstadoVenta(Venta $venta, float $totalPagado, string $tipoVenta): string
     {
-        // Si es apartado o plan de pago, siempre queda pendiente al inicio
-        if (in_array($tipoVenta, ['apartado', 'plan_pago'])) {
-            return 'pendiente';
+        // Si es apartado o plan de pagos, usar su estado específico
+        if ($tipoVenta === 'apartado') {
+            return EstadoVenta::APARTADO->value;
+        }
+
+        if ($tipoVenta === 'plan_pagos') {
+            return EstadoVenta::PLAN_PAGOS->value;
         }
 
         // Contado: depende de si está totalmente pagada
         if ($totalPagado >= $venta->total_final) {
-            return 'pagada';
+            return EstadoVenta::PAGADA->value;
         }
 
-        return 'pendiente';
+        return EstadoVenta::PENDIENTE->value;
     }
 
     /**
@@ -385,17 +474,24 @@ class VentaMultiPrendaService
     private function actualizarEstadoPrendas(Venta $venta, string $estadoVenta, $prendas): void
     {
         foreach ($prendas as $prenda) {
+            // Solo estados válidos de la BD: en_custodia, recuperada, en_venta, vendida, perdida, deteriorada, devuelta
             $nuevoEstado = match($venta->tipo_venta) {
-                'contado' => $estadoVenta === 'pagada' ? 'vendida' : 'en_venta',
-                'apartado' => 'apartada',
-                'plan_pago' => 'en_plan_pago',
-                default => 'en_venta'
+                'contado' => $estadoVenta === 'pagada' ? EstadoPrenda::VENDIDA->value : EstadoPrenda::EN_VENTA->value,
+                'apartado' => EstadoPrenda::EN_VENTA->value, // Sigue en venta hasta completar pago
+                'plan_pagos' => EstadoPrenda::EN_VENTA->value, // Sigue en venta hasta completar pago
+                default => EstadoPrenda::EN_VENTA->value
             };
 
-            $prenda->update([
+            $datosActualizacion = [
                 'estado' => $nuevoEstado,
-                'fecha_venta' => $estadoVenta === 'pagada' ? now() : null,
-            ]);
+            ];
+
+            // Solo establecer fecha_venta cuando realmente se vende (pagada completamente)
+            if ($estadoVenta === 'pagada' && $nuevoEstado === EstadoPrenda::VENDIDA->value) {
+                $datosActualizacion['fecha_venta'] = now();
+            }
+
+            $prenda->update($datosActualizacion);
         }
     }
 
@@ -493,5 +589,49 @@ class VentaMultiPrendaService
 
             return $venta->fresh(['pagos', 'detalles.prenda']);
         });
+    }
+
+    /**
+     * Configurar venta como plan de pagos
+     */
+    private function configurarPlanPagos(Venta $venta, array $data, float $enganche, float $saldo): void
+    {
+        $numeroCuotas = $data['numero_cuotas'] ?? 1;
+        $tasaInteres = $data['tasa_interes'] ?? 0;
+        $frecuencia = $data['frecuencia_pago'] ?? 'mensual';
+
+        // Calcular intereses
+        $intereses = ($saldo * ($tasaInteres / 100));
+        $totalConIntereses = $saldo + $intereses;
+
+        // Calcular cuota
+        $montoCuota = $numeroCuotas > 0 ? $totalConIntereses / $numeroCuotas : $totalConIntereses;
+
+        // Calcular fechas
+        $fechaPrimerPago = match($frecuencia) {
+            'semanal' => now()->addWeek(),
+            'quincenal' => now()->addWeeks(2),
+            'mensual' => now()->addMonth(),
+            default => now()->addMonth(),
+        };
+
+        $semanasPorCuota = match($frecuencia) {
+            'semanal' => 1,
+            'quincenal' => 2,
+            'mensual' => 4,
+            default => 4,
+        };
+
+        $venta->update([
+            'enganche' => $enganche,
+            'numero_cuotas' => $numeroCuotas,
+            'monto_cuota' => $montoCuota,
+            'frecuencia_pago' => $frecuencia,
+            'tasa_interes' => $tasaInteres,
+            'intereses' => $intereses,
+            'cuotas_pagadas' => 0,
+            'fecha_proximo_pago' => $fechaPrimerPago,
+            'fecha_vencimiento' => now()->addWeeks($numeroCuotas * $semanasPorCuota),
+        ]);
     }
 }

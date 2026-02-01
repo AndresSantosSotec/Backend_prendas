@@ -15,6 +15,8 @@ use App\Http\Controllers\CajaController;
 use App\Http\Controllers\DenominacionController;
 use App\Http\Controllers\ReciboController;
 use App\Http\Controllers\ReporteCajaController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\CompraController;
 use Illuminate\Support\Facades\DB;
 
 /*
@@ -77,6 +79,11 @@ Route::prefix('v1')->group(function () {
 
     // Rutas protegidas
     Route::middleware('auth:sanctum')->group(function () {
+        // Dashboard
+        Route::get('/dashboard', [DashboardController::class, 'index']);
+        Route::get('/dashboard/graficas', [DashboardController::class, 'graficas']);
+        Route::get('/dashboard/alertas', [DashboardController::class, 'alertas']);
+
         // Autenticación
         Route::get('/auth/me', [AuthController::class, 'me']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
@@ -104,6 +111,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/clientes/activos', [ClienteController::class, 'activos']);
         Route::get('/clientes', [ClienteController::class, 'index']);
         Route::get('/clientes/{id}', [ClienteController::class, 'show']);
+        Route::get('/clientes/{id}/ficha', [ClienteController::class, 'ficha']);
         Route::get('/clientes/{id}/creditos-prendarios', [ClienteController::class, 'creditosPrendarios']);
         Route::post('/clientes', [ClienteController::class, 'store']);
         Route::put('/clientes/{id}', [ClienteController::class, 'update']);
@@ -178,6 +186,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/creditos-prendarios/{id}/movimientos', [CreditoPrendarioController::class, 'getMovimientos']);
         Route::get('/creditos-prendarios/{id}/saldo', [CreditoPrendarioController::class, 'getSaldo']);
         Route::post('/creditos-prendarios', [CreditoPrendarioController::class, 'store']);
+        Route::put('/creditos-prendarios/{id}', [CreditoPrendarioController::class, 'update']);
+        Route::patch('/creditos-prendarios/{id}', [CreditoPrendarioController::class, 'update']);
         Route::post('/credigos-prendarios/{id}/desembolsar', [CreditoPrendarioController::class, 'desembolsar']);
         Route::post('/creditos-prendarios/{id}/pagar', [CreditoPrendarioController::class, 'pagar']);
         Route::post('/creditos-prendarios/{id}/aprobar', [CreditoPrendarioController::class, 'aprobar']);
@@ -208,6 +218,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/prendas/{id}', [PrendaController::class, 'show']);
         Route::post('/prendas', [PrendaController::class, 'store']);
         Route::put('/prendas/{id}', [PrendaController::class, 'update']);
+        Route::patch('/prendas/{id}', [PrendaController::class, 'update']); // Permitir PATCH también
         Route::delete('/prendas/{id}', [PrendaController::class, 'destroy']);
         Route::post('/prendas/{id}/foto', [PrendaController::class, 'uploadPhoto']);
         Route::post('/prendas/{id}/recuperar', [PrendaController::class, 'marcarRecuperada']);
@@ -227,15 +238,25 @@ Route::prefix('v1')->group(function () {
 
         // Ventas
         Route::get('/ventas/debug', [\App\Http\Controllers\VentaController::class, 'debug']); // DEBUG TEMPORAL
+        Route::get('/ventas/pendientes-pago', [\App\Http\Controllers\VentaController::class, 'ventasPendientesPago']); // Ventas con saldo pendiente
         Route::get('/ventas', [\App\Http\Controllers\VentaController::class, 'index']);
         Route::get('/ventas/prendas-disponibles', [\App\Http\Controllers\VentaController::class, 'prendasEnVenta']);
         Route::get('/ventas/estadisticas', [\App\Http\Controllers\VentaController::class, 'estadisticas']);
         Route::get('/ventas/{id}', [\App\Http\Controllers\VentaController::class, 'show']);
+        Route::get('/ventas/{id}/resumen-pagos', [\App\Http\Controllers\VentaController::class, 'resumenPagos']); // Resumen de pagos
         Route::post('/ventas', [\App\Http\Controllers\VentaController::class, 'store']); // NUEVO: crear venta multi-prenda
+        Route::put('/ventas/{id}', [\App\Http\Controllers\VentaController::class, 'update']);
+        Route::patch('/ventas/{id}', [\App\Http\Controllers\VentaController::class, 'update']);
         Route::post('/ventas/prendas/{id}/marcar-venta', [\App\Http\Controllers\VentaController::class, 'marcarParaVenta']);
         Route::post('/ventas/prendas/{id}/procesar', [\App\Http\Controllers\VentaController::class, 'procesarVenta']); // DEPRECADO
+        Route::post('/ventas/{id}/abonos', [\App\Http\Controllers\VentaController::class, 'registrarAbono']); // Registrar abono/pago
         Route::post('/ventas/{id}/cancelar', [\App\Http\Controllers\VentaController::class, 'cancelar']);
         Route::post('/ventas/{id}/pagos', [\App\Http\Controllers\VentaController::class, 'registrarPago']); // NUEVO: pagos adicionales
+        Route::post('/ventas/{id}/certificar', [\App\Http\Controllers\VentaController::class, 'certificar']);
+        Route::delete('/ventas/{id}', [\App\Http\Controllers\VentaController::class, 'destroy']);
+
+        // Compras
+        Route::post('/compras', [CompraController::class, 'store']);
 
         // Caja
         Route::get('/cajas', [CajaController::class, 'index']);
@@ -244,6 +265,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/cajas/{id}/cerrar', [CajaController::class, 'cerrar']);
         Route::get('/cajas/{id}/movimientos', [CajaController::class, 'getMovimientos']);
         Route::post('/cajas/movimientos', [CajaController::class, 'registrarMovimiento']);
+        Route::put('/cajas/{id}', [CajaController::class, 'update']);
+        Route::patch('/cajas/{id}', [CajaController::class, 'update']);
 
         // Reportes de Caja
         Route::get('/reportes/caja/movimientos', [ReporteCajaController::class, 'reporteMovimientos']);
@@ -258,7 +281,46 @@ Route::prefix('v1')->group(function () {
         Route::get('/denominaciones/moneda/{monedaId}', [DenominacionController::class, 'getDenominacionesByMoneda']);
         Route::post('/denominaciones/monedas', [DenominacionController::class, 'createMoneda']);
         Route::post('/denominaciones', [DenominacionController::class, 'createDenominacion']);
+        Route::put('/denominaciones/{id}', [DenominacionController::class, 'update']);
+        Route::patch('/denominaciones/{id}', [DenominacionController::class, 'update']);
+        Route::delete('/denominaciones/{id}', [DenominacionController::class, 'destroy']);
         Route::post('/denominaciones/{id}/toggle', [DenominacionController::class, 'toggleDenominacion']);
+
+        // Recibos
+        Route::put('/recibos/{id}', [ReciboController::class, 'update']);
+        Route::patch('/recibos/{id}', [ReciboController::class, 'update']);
+        Route::delete('/recibos/{id}', [ReciboController::class, 'destroy']);
     });
+
+    // Rutas de Reportes de Ventas (Fuera de Sanctum para descargas directas)
+    Route::get('/ventas/{id}/pdf', [\App\Http\Controllers\VentaController::class, 'generarPDF']);
+    Route::get('/ventas/exportar/excel', [\App\Http\Controllers\VentaController::class, 'exportarExcel']);
+
+        // Rutas del Chatbot IA (requiere autenticación)
+        Route::prefix('chatbot')->group(function () {
+            Route::post('/consultar', [\App\Http\Controllers\ChatbotController::class, 'consultar']);
+            Route::get('/estadisticas', [\App\Http\Controllers\ChatbotController::class, 'estadisticas']);
+        });
 });
+
+Route::prefix('ecommerce')->group(function () {
+
+    Route::get('/categorias', [\App\Http\Controllers\CategoriaProductoController::class, 'index']);
+    Route::get('/clientes', [\App\Http\Controllers\ClienteController::class, 'index']);
+    Route::get('/prendas', [\App\Http\Controllers\PrendaController::class, 'index']);
+    Route::get('/prendas/{id}', [\App\Http\Controllers\PrendaController::class, 'show']);
+    Route::post('/prendas', [\App\Http\Controllers\PrendaController::class, 'store']);
+    Route::put('/prendas/{id}', [\App\Http\Controllers\PrendaController::class, 'update']);
+    Route::patch('/prendas/{id}', [\App\Http\Controllers\PrendaController::class, 'update']);
+    Route::delete('/prendas/{id}', [\App\Http\Controllers\PrendaController::class, 'destroy']);
+
+    Route::get('/ping', function () {
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Pong'
+        ]);
+    });
+
+});
+
 

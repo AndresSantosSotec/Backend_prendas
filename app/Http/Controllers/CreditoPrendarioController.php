@@ -42,6 +42,8 @@ class CreditoPrendarioController extends Controller
             $query = CreditoPrendario::with([
                 'cliente:id,nombres,apellidos,dpi,codigo_cliente', // Solo campos necesarios
                 'sucursal:id,nombre',
+                'prendas:id,credito_prendario_id,codigo_prenda,descripcion,marca,modelo,categoria_producto_id,valor_tasacion,valor_prestamo,estado', // Campos básicos de prendas con categoría
+                'prendas.categoriaProducto:id,nombre', // Cargar categoría de las prendas
                 // NO cargar imágenes aquí - muy pesado. Cargarlas solo en show()
             ]);
 
@@ -261,7 +263,7 @@ class CreditoPrendarioController extends Controller
             'prendas.*.marca' => 'nullable|string|max:100',
             'prendas.*.modelo' => 'nullable|string|max:100',
             'prendas.*.numero_serie' => 'nullable|string|max:100',
-            'prendas.*.condicion_fisica' => 'nullable|in:excelente,bueno,regular,deteriorado',
+            'prendas.*.condicion_fisica' => 'nullable|in:excelente,muy_buena,buena,bueno,regular,deteriorado,mala',
             'prendas.*.fotos' => 'nullable|array',
             'prendas.*.datos_adicionales' => 'nullable|array',
         ], [
@@ -292,6 +294,24 @@ class CreditoPrendarioController extends Controller
 
         try {
             DB::beginTransaction();
+
+            // VALIDACIÓN: Verificar que las prendas no estén en estado "en_venta"
+            // Una prenda en venta no puede ser empeñada
+            foreach ($request->prendas as $prendaData) {
+                // Esta validación solo aplica si se está intentando crear con una prenda existente
+                // (normalmente se crean prendas nuevas, pero por si acaso)
+                if (isset($prendaData['id'])) {
+                    $prendaExistente = Prenda::find($prendaData['id']);
+                    if ($prendaExistente && $prendaExistente->estado === 'en_venta') {
+                        DB::rollBack();
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'No se puede crear un crédito con prendas en estado "en venta". La prenda debe cambiarse a otro estado primero.',
+                            'errors' => ['prenda' => ['La prenda está en venta y no puede ser empeñada']]
+                        ], 422);
+                    }
+                }
+            }
 
             // Usar código pre-reservado si se proporciona, sino generar uno nuevo
             $numeroCredito = $request->numero_credito;
@@ -413,11 +433,19 @@ class CreditoPrendarioController extends Controller
                 }
 
                 // Mapear condición física del frontend al formato de BD
+                // Frontend: excelente, bueno, regular, deteriorado
+                // BD: excelente, muy_buena, buena, regular, mala
                 $condicionMap = [
                     'excelente' => 'excelente',
-                    'bueno' => 'buena',
+                    'muy_buena' => 'muy_buena',
+                    'muy_bueno' => 'muy_buena',  // Mapeo masculino->femenino
+                    'bueno' => 'buena',  // Mapeo masculino->femenino
+                    'buena' => 'buena',
                     'regular' => 'regular',
-                    'deteriorado' => 'mala'
+                    'deteriorado' => 'mala',
+                    'deteriorada' => 'mala',
+                    'mala' => 'mala',
+                    'malo' => 'mala'
                 ];
 
                 $condicionFisica = $prendaData['condicion_fisica'] ?? 'bueno';
@@ -582,7 +610,7 @@ class CreditoPrendarioController extends Controller
                     'valor_comercial' => $tasacionData['valor_comercial'] ?? $tasacionData['valor_final_asignado'] ?? null,
                     'valor_liquidacion' => $tasacionData['valor_liquidacion'] ?? null,
                     'valor_final_asignado' => $tasacionData['valor_final_asignado'] ?? $tasacionData['valor_comercial'] ?? null,
-                    'condicion_fisica' => $prendaData['condicion_fisica'] ?? 'bueno',
+                    'condicion_fisica' => $condicion,  // Usar el valor mapeado correctamente
                     'antiguedad_estimada' => $tasacionData['antiguedad'] ?? null,
                     'metodo_tasacion' => $this->mapearMetodoTasacion($tasacionData['metodo_valuacion'] ?? 'comparativo'),
                     'observaciones' => $tasacionData['observaciones'] ?? null,
@@ -647,6 +675,48 @@ class CreditoPrendarioController extends Controller
                 'message' => 'Crédito prendario creado exitosamente',
                 'data' => $this->formatCredito($credito->fresh(['cliente', 'sucursal', 'prendas', 'planPagos']))
             ], 201);
+
+        } catch (\Illuminate\Database\QueryException $e) {
+            DB::rollBack();
+
+            // Detectar errores específicos de SQL para devolver mensajes más claros
+            $errorMessage = 'Error al crear el crédito prendario';
+
+            // Error ENUM: Data truncated
+            if (strpos($e->getMessage(), '1265') !== false || strpos($e->getMessage(), 'Data truncated') !== false) {
+                if (strpos($e->getMessage(), 'condicion_fisica') !== false) {
+                    $errorMessage = 'Valor inválido para condición física. Valores permitidos: excelente, muy_buena, buena, regular, mala';
+                } else {
+                    // Intentar extraer el nombre de la columna del mensaje de error
+                    preg_match("/for column '([^']+)'/", $e->getMessage(), $matches);
+                    $columna = $matches[1] ?? 'campo';
+                    $errorMessage = "Valor inválido para el campo '{$columna}'";
+                }
+            }
+            // Error de clave duplicada
+            else if (strpos($e->getMessage(), '1062') !== false || strpos($e->getMessage(), 'Duplicate entry') !== false) {
+                $errorMessage = 'Ya existe un registro con estos datos';
+            }
+            // Error de clave foránea
+            else if (strpos($e->getMessage(), '1452') !== false || strpos($e->getMessage(), 'foreign key constraint') !== false) {
+                $errorMessage = 'Error de referencia: verifique que todos los datos existan';
+            }
+
+            // Log del error completo para debugging
+            Log::error('Error SQL al crear crédito prendario: ' . $e->getMessage(), [
+                'code' => $e->getCode(),
+                'sql' => $e->getSql() ?? 'N/A',
+                'bindings' => $e->getBindings() ?? [],
+                'trace' => $e->getTraceAsString(),
+                'request' => $request->all()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $errorMessage,
+                'error' => config('app.debug') ? $e->getMessage() : null,
+                'code' => $e->getCode()
+            ], 422);
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -888,7 +958,21 @@ class CreditoPrendarioController extends Controller
             'tasa_interes' => (float) $credito->tasa_interes,
             'plazo_dias' => $credito->plazo_dias,
             'dias_mora' => $credito->dias_mora,
-            // NO incluir prendas, imágenes ni datos adicionales en el listado
+            // Incluir información básica de prendas para el listado
+            'prendas' => $credito->prendas ? $credito->prendas->map(function ($prenda) {
+                return [
+                    'id' => (string) $prenda->id,
+                    'codigo_prenda' => $prenda->codigo_prenda,
+                    'descripcion' => $prenda->descripcion,
+                    'marca' => $prenda->marca,
+                    'modelo' => $prenda->modelo,
+                    'categoria' => $prenda->categoriaProducto ? $prenda->categoriaProducto->nombre : null,
+                    'categoria_producto_id' => $prenda->categoria_producto_id ? (string) $prenda->categoria_producto_id : null,
+                    'valor_tasacion' => $prenda->valor_tasacion ? (float) $prenda->valor_tasacion : null,
+                    'valor_prestamo' => $prenda->valor_prestamo ? (float) $prenda->valor_prestamo : null,
+                    'estado' => $prenda->estado,
+                ];
+            })->values() : [],
             'creadoEn' => $credito->created_at->toISOString(),
             'actualizadoEn' => $credito->updated_at->toISOString(),
         ];
@@ -2921,4 +3005,160 @@ class CreditoPrendarioController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Actualizar crédito prendario (especialmente el estado)
+     */
+    public function update(Request $request, string $id): JsonResponse
+    {
+        try {
+            $credito = CreditoPrendario::with(['prendas', 'cliente'])->findOrFail($id);
+
+            // Validar datos
+            $validator = Validator::make($request->all(), [
+                'estado' => 'sometimes|string|in:' . implode(',', EstadoCredito::valores()),
+                'observaciones' => 'nullable|string|max:500',
+                'monto_aprobado' => 'sometimes|numeric|min:0',
+                'plazo_dias' => 'sometimes|integer|min:1',
+                'tasa_interes' => 'sometimes|numeric|min:0',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Errores de validación',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            DB::beginTransaction();
+
+            // Guardar estado anterior para auditoría
+            $estadoAnterior = $credito->estado;
+
+            // Actualizar campos permitidos
+            $camposActualizables = [
+                'estado',
+                'monto_aprobado',
+                'plazo_dias',
+                'tasa_interes',
+                'observaciones',
+            ];
+
+            foreach ($camposActualizables as $campo) {
+                if ($request->has($campo)) {
+                    $credito->{$campo} = $request->{$campo};
+                }
+            }
+
+            // Lógica especial para cambios de estado
+            if ($request->has('estado') && $request->estado !== $estadoAnterior) {
+                $nuevoEstado = $request->estado;
+
+                // Validar transición de estado
+                $transicionesValidas = EstadoCredito::transicionesDesde($estadoAnterior);
+
+                if (!in_array($nuevoEstado, $transicionesValidas)) {
+                    DB::rollBack();
+                    return response()->json([
+                        'success' => false,
+                        'message' => "No se puede cambiar de estado '{$estadoAnterior}' a '{$nuevoEstado}'",
+                        'transiciones_validas' => $transicionesValidas
+                    ], 400);
+                }
+
+                // Actualizar fechas según el nuevo estado
+                switch ($nuevoEstado) {
+                    case EstadoCredito::APROBADO->value:
+                        $credito->fecha_aprobacion = now();
+                        break;
+
+                    case EstadoCredito::VIGENTE->value:
+                        if (!$credito->fecha_desembolso) {
+                            $credito->fecha_desembolso = now();
+                        }
+                        break;
+
+                    case EstadoCredito::RESCATADO->value:
+                    case EstadoCredito::VENDIDO->value:
+                        $credito->fecha_liquidacion = now();
+                        break;
+
+                    case EstadoCredito::VENCIDO->value:
+                    case EstadoCredito::EN_MORA->value:
+                        if (!$credito->fecha_vencimiento || $credito->fecha_vencimiento->isFuture()) {
+                            $credito->fecha_vencimiento = now();
+                        }
+                        break;
+                }
+
+                // Si cambia a VENDIDO o REMATADO, actualizar prendas a "vendida"
+                if (in_array($nuevoEstado, [EstadoCredito::VENDIDO->value, EstadoCredito::REMATADO->value])) {
+                    foreach ($credito->prendas as $prenda) {
+                        $prenda->update([
+                            'estado' => 'vendida',
+                            'fecha_venta' => now(),
+                        ]);
+                    }
+                }
+
+                // Si cambia a EN_INVENTARIO, actualizar prendas a "en_venta"
+                if ($nuevoEstado === EstadoCredito::EN_INVENTARIO->value) {
+                    foreach ($credito->prendas as $prenda) {
+                        $prenda->update([
+                            'estado' => 'en_venta',
+                            'fecha_publicacion_venta' => now(),
+                        ]);
+                    }
+                }
+
+                // Registrar auditoría del cambio de estado
+                AuditoriaCredito::registrar(
+                    $credito->id,
+                    'estado_actualizado',
+                    'estado',
+                    $estadoAnterior,
+                    $nuevoEstado,
+                    $request->observaciones ?? "Estado actualizado de '{$estadoAnterior}' a '{$nuevoEstado}'"
+                );
+            }
+
+            $credito->save();
+
+            DB::commit();
+
+            Log::info("Crédito {$credito->numero_credito} actualizado", [
+                'credito_id' => $credito->id,
+                'cambios' => $request->only($camposActualizables),
+                'usuario' => Auth::id(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Crédito actualizado exitosamente',
+                'data' => $this->formatCredito($credito->fresh(['cliente', 'sucursal', 'prendas']))
+            ], 200);
+
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Crédito no encontrado',
+            ], 404);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            Log::error('Error al actualizar crédito: ' . $e->getMessage(), [
+                'credito_id' => $id,
+                'trace' => $e->getTraceAsString(),
+                'request' => $request->all()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al actualizar el crédito',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
+        }
+    }
 }
+

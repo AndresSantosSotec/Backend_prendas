@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\EstadoVenta;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -50,12 +51,28 @@ class Venta extends Model
         'no_autorizacion',
         'fecha_certificacion',
         'notas',
+        // Campos plan de pagos y apartados
+        'plazo_dias',
+        'fecha_vencimiento',
+        'enganche',
+        'saldo_pendiente',
+        'numero_cuotas',
+        'monto_cuota',
+        'frecuencia_pago',
+        'fecha_proximo_pago',
+        'cuotas_pagadas',
+        'intereses',
+        'tasa_interes',
+        'fecha_liquidacion',
     ];
 
     protected $casts = [
         'fecha_venta' => 'datetime',
         'fecha_cancelacion' => 'datetime',
         'fecha_certificacion' => 'datetime',
+        'fecha_vencimiento' => 'datetime',
+        'fecha_proximo_pago' => 'datetime',
+        'fecha_liquidacion' => 'datetime',
         'precio_publicado' => 'decimal:2',
         'precio_final' => 'decimal:2',
         'descuento' => 'decimal:2',
@@ -66,8 +83,16 @@ class Venta extends Model
         'total_final' => 'decimal:2',
         'total_pagado' => 'decimal:2',
         'cambio_devuelto' => 'decimal:2',
+        'enganche' => 'decimal:2',
+        'saldo_pendiente' => 'decimal:2',
+        'monto_cuota' => 'decimal:2',
+        'intereses' => 'decimal:2',
+        'tasa_interes' => 'decimal:2',
         'consumidor_final' => 'boolean',
         'certificada' => 'boolean',
+        'cuotas_pagadas' => 'integer',
+        'numero_cuotas' => 'integer',
+        'plazo_dias' => 'integer',
     ];
 
     // Relaciones anteriores

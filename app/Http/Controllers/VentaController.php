@@ -6,21 +6,29 @@ use App\Models\Prenda;
 use App\Models\Venta;
 use App\Services\VentaService;
 use App\Services\VentaMultiPrendaService;
+use App\Services\VentaCreditoService;
 use App\Http\Resources\PrendaResource;
+use App\Exports\VentasExport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Maatwebsite\Excel\Facades\Excel;
 
 class VentaController extends Controller
 {
     protected $ventaService;
     protected $ventaMultiPrendaService;
+    protected $ventaCreditoService;
 
     public function __construct(
         VentaService $ventaService,
-        VentaMultiPrendaService $ventaMultiPrendaService
+        VentaMultiPrendaService $ventaMultiPrendaService,
+        VentaCreditoService $ventaCreditoService
     ) {
         $this->ventaService = $ventaService;
         $this->ventaMultiPrendaService = $ventaMultiPrendaService;
+        $this->ventaCreditoService = $ventaCreditoService;
     }
 
     /**
@@ -174,11 +182,15 @@ class VentaController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = Venta::with(['prenda.categoriaProducto', 'vendedor', 'sucursal']);
+            $query = Venta::with(['detalles.prenda', 'vendedor', 'sucursal', 'cliente']);
 
-            // Filtros
-            if ($request->has('estado')) {
-                $query->where('estado', $request->estado);
+            // Filtros de estado extendidos
+            if ($request->has('estado') && $request->estado !== 'todas') {
+                if ($request->estado === 'devueltas') {
+                    $query->where('estado', 'devuelta');
+                } else {
+                    $query->where('estado', $request->estado);
+                }
             }
 
             if ($request->has('fecha_desde')) {
@@ -198,12 +210,13 @@ class VentaController extends Controller
                 $query->where(function($q) use ($busqueda) {
                     $q->where('codigo_venta', 'like', "%{$busqueda}%")
                       ->orWhere('cliente_nombre', 'like', "%{$busqueda}%")
-                      ->orWhere('cliente_nit', 'like', "%{$busqueda}%");
+                      ->orWhere('cliente_nit', 'like', "%{$busqueda}%")
+                      ->orWhere('numero_documento', 'like', "%{$busqueda}%");
                 });
             }
 
-            $ventas = $query->orderBy('fecha_venta', 'desc')
-                           ->paginate($request->per_page ?? 50);
+            $perPage = $request->get('per_page', 50);
+            $ventas = $query->orderBy('fecha_venta', 'desc')->paginate($perPage);
 
             return response()->json([
                 'success' => true,
@@ -233,8 +246,15 @@ class VentaController extends Controller
     public function show(string $id)
     {
         try {
-            $venta = Venta::with(['prenda.categoriaProducto', 'creditoPrendario', 'vendedor', 'sucursal'])
-                         ->findOrFail($id);
+            $venta = Venta::with([
+                'detalles.prenda.categoriaProducto',
+                'pagos',
+                'creditoPrendario',
+                'vendedor',
+                'sucursal',
+                'cliente',
+                'moneda'
+            ])->findOrFail($id);
 
             return response()->json([
                 'success' => true,
@@ -315,6 +335,101 @@ class VentaController extends Controller
     }
 
     /**
+     * Certificar factura (FEL Guatemala)
+     */
+    public function certificar(string $id)
+    {
+        try {
+            $venta = Venta::findOrFail($id);
+
+            if ($venta->certificada) {
+                throw new \Exception('Esta venta ya ha sido certificada');
+            }
+
+            // Simulación de certificación FEL
+            $venta->certificada = true;
+            $venta->no_autorizacion = strtoupper(bin2hex(random_bytes(16)));
+            $venta->fecha_certificacion = now();
+            $venta->generarNumeroDocumento();
+            $venta->save();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Factura certificada exitosamente',
+                'data' => $venta
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Eliminar venta
+     */
+    public function destroy(string $id)
+    {
+        try {
+            $venta = Venta::findOrFail($id);
+
+            if ($venta->certificada) {
+                throw new \Exception('No se puede eliminar una venta ya certificada. Debe anularla.');
+            }
+
+            $venta->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Venta eliminada exitosamente'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Exportar reporte PDF de una venta
+     */
+    public function generarPDF(string $id)
+    {
+        try {
+            $venta = Venta::with(['detalles.prenda', 'pagos.metodoPago', 'vendedor', 'sucursal', 'cliente', 'moneda'])->findOrFail($id);
+            
+            $pdf = Pdf::loadView('reports.venta', compact('venta'));
+            
+            return $pdf->stream("Venta_{$venta->codigo_venta}.pdf");
+        } catch (\Exception $e) {
+            Log::error('Error al generar PDF de venta: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el PDF: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Exportar listado a Excel
+     */
+    public function exportarExcel(Request $request)
+    {
+        try {
+            $filtros = $request->all();
+            return Excel::download(new VentasExport($filtros), 'Listado_Ventas_' . date('Ymd_His') . '.xlsx');
+        } catch (\Exception $e) {
+            Log::error('Error al exportar Excel de ventas: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al exportar a Excel: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Obtener estadísticas de ventas
      */
     public function estadisticas(Request $request)
@@ -325,17 +440,17 @@ class VentaController extends Controller
 
             $stats = [
                 'total_ventas' => Venta::whereBetween('fecha_venta', [$fechaDesde, $fechaHasta])
-                                      ->where('estado', 'completada')
+                                      ->where('estado', 'pagada')
                                       ->count(),
                 'monto_total' => Venta::whereBetween('fecha_venta', [$fechaDesde, $fechaHasta])
-                                     ->where('estado', 'completada')
-                                     ->sum('precio_final'),
+                                     ->where('estado', 'pagada')
+                                     ->sum('total_final'),
                 'promedio_venta' => Venta::whereBetween('fecha_venta', [$fechaDesde, $fechaHasta])
-                                        ->where('estado', 'completada')
-                                        ->avg('precio_final'),
+                                        ->where('estado', 'pagada')
+                                        ->avg('total_final'),
                 'descuento_total' => Venta::whereBetween('fecha_venta', [$fechaDesde, $fechaHasta])
-                                         ->where('estado', 'completada')
-                                         ->sum('descuento'),
+                                         ->where('estado', 'pagada')
+                                         ->sum('total_descuentos'),
                 'prendas_disponibles' => Prenda::where('estado', 'en_venta')->count()
             ];
 
@@ -383,4 +498,115 @@ class VentaController extends Controller
             'prendas_en_venta_detalle' => PrendaResource::collection($prendasEnVentaDetalle)
         ]);
     }
+
+    /**
+     * Registrar abono/pago a venta a crédito
+     * POST /ventas/{id}/abonos
+     */
+    public function registrarAbono(Request $request, string $id)
+    {
+        $request->validate([
+            'monto' => 'required|numeric|min:0.01',
+            'metodo' => 'required|in:efectivo,tarjeta,transferencia,cheque',
+            'referencia' => 'nullable|string|max:100',
+            'banco' => 'nullable|string|max:100',
+            'observaciones' => 'nullable|string|max:500'
+        ]);
+
+        try {
+            $venta = Venta::with(['detalles.prenda', 'pagos'])->findOrFail($id);
+
+            $resultado = $this->ventaCreditoService->registrarAbono($venta, $request->all());
+
+            return response()->json([
+                'success' => true,
+                'message' => $resultado['liquidada']
+                    ? 'Venta liquidada completamente'
+                    : 'Abono registrado exitosamente',
+                'data' => $resultado
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error al registrar abono: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Obtener resumen de pagos de una venta
+     * GET /ventas/{id}/resumen-pagos
+     */
+    public function resumenPagos(string $id)
+    {
+        try {
+            $venta = Venta::with('pagos.metodoPago')->findOrFail($id);
+            $resumen = $this->ventaCreditoService->obtenerResumenPagos($venta);
+
+            return response()->json([
+                'success' => true,
+                'data' => $resumen
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Listar ventas pendientes de pago (apartados y plan de pagos)
+     * GET /ventas/pendientes-pago
+     */
+    public function ventasPendientesPago(Request $request)
+    {
+        try {
+            $query = Venta::with(['cliente', 'detalles.prenda', 'vendedor'])
+                ->whereIn('tipo_venta', ['apartado', 'plan_pagos'])
+                ->whereNotIn('estado', ['pagada', 'cancelada', 'anulada'])
+                ->where('saldo_pendiente', '>', 0);
+
+            // Filtros
+            if ($request->has('cliente_id')) {
+                $query->where('cliente_id', $request->cliente_id);
+            }
+
+            if ($request->has('vencidas')) {
+                $query->where('fecha_vencimiento', '<', now());
+            }
+
+            if ($request->has('por_vencer')) {
+                $query->whereBetween('fecha_vencimiento', [now(), now()->addDays(7)]);
+            }
+
+            $ventas = $query->orderBy('fecha_vencimiento', 'asc')
+                ->paginate($request->per_page ?? 20);
+
+            // Agregar resumen a cada venta
+            $ventas->getCollection()->transform(function ($venta) {
+                $venta->resumen_pagos = $this->ventaCreditoService->obtenerResumenPagos($venta);
+                return $venta;
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $ventas->items(),
+                'pagination' => [
+                    'current_page' => $ventas->currentPage(),
+                    'last_page' => $ventas->lastPage(),
+                    'per_page' => $ventas->perPage(),
+                    'total' => $ventas->total()
+                ]
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error al listar ventas pendientes: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al cargar ventas pendientes'
+            ], 500);
+        }
+    }
 }
+

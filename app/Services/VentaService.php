@@ -65,8 +65,20 @@ class VentaService
     {
         return DB::transaction(function () use ($prenda, $data) {
             // Validar que la prenda pueda pasar a venta
-            if (!in_array($prenda->estado, ['empeniado', 'vencido', 'evaluacion_venta'])) {
-                throw new \Exception("La prenda debe estar empeñada, vencida o en evaluación para pasar a venta");
+            $estadosValidosPrevia = ['en_custodia', 'empeniado', 'vencido', 'evaluacion_venta'];
+
+            if (!in_array($prenda->estado, $estadosValidosPrevia)) {
+                throw new \Exception("La prenda debe estar en custodia, empeñada, vencida o en evaluación para pasar a venta. Estado actual: {$prenda->estado}");
+            }
+
+            // Validar estado del crédito si existe
+            if ($prenda->creditoPrendario) {
+                $estadoCredito = $prenda->creditoPrendario->estado;
+                $estadosCreditoPermitidos = ['vencido', 'en_mora', 'cancelado', 'incobrable'];
+
+                if (!in_array($estadoCredito, $estadosCreditoPermitidos)) {
+                    throw new \Exception("El crédito debe estar vencido, en mora, cancelado o incobrable para pasar la prenda a venta. Estado actual del crédito: {$estadoCredito}");
+                }
             }
 
             // Calcular precio de venta (puede venir del data o calcular automáticamente)
