@@ -56,6 +56,19 @@ class PrendaResource extends JsonResource
                 ];
             }),
 
+            // 🔥 INFORMACIÓN DEL CRÉDITO COMPLETA (para validaciones en frontend)
+            'credito' => $this->when($this->creditoPrendario, function () {
+                return [
+                    'id' => $this->creditoPrendario->id,
+                    'numero_credito' => $this->creditoPrendario->numero_credito,
+                    'estado' => $this->creditoPrendario->estado,
+                    'fecha_vencimiento' => $this->creditoPrendario->fecha_vencimiento ? $this->creditoPrendario->fecha_vencimiento->toISOString() : null,
+                    'fecha_desembolso' => $this->creditoPrendario->fecha_desembolso ? $this->creditoPrendario->fecha_desembolso->toISOString() : null,
+                    'monto_aprobado' => (float) $this->creditoPrendario->monto_aprobado,
+                    'capital_pendiente' => (float) $this->creditoPrendario->capital_pendiente,
+                ];
+            }),
+
             // Metadatos
             'creadoEn' => $this->created_at ? $this->created_at->toISOString() : null,
             'actualizadoEn' => $this->updated_at ? $this->updated_at->toISOString() : null,

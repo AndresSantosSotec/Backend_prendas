@@ -19,6 +19,13 @@ return Application::configure(basePath: dirname(__DIR__))
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
             \App\Http\Middleware\CompressResponse::class,
             \App\Http\Middleware\CacheGetRequests::class,
+            \App\Http\Middleware\AuditLog::class, // 🔒 Auditoría de operaciones
+        ]);
+
+        // 🔒 Alias de middlewares personalizados
+        $middleware->alias([
+            'throttle.downloads' => \App\Http\Middleware\ThrottleDownloads::class,
+            'sucursal.scope' => \App\Http\Middleware\SucursalScope::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [

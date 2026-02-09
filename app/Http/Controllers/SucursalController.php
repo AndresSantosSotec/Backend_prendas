@@ -36,7 +36,7 @@ class SucursalController extends Controller
         $orderBy = $request->get('order_by', 'created_at');
         $orderDir = $request->get('order_dir', 'desc');
         $allowedOrderFields = ['codigo', 'nombre', 'ciudad', 'activa', 'created_at'];
-        
+
         if (in_array($orderBy, $allowedOrderFields)) {
             $query->orderBy($orderBy, $orderDir === 'asc' ? 'asc' : 'desc');
         } else {
@@ -50,8 +50,9 @@ class SucursalController extends Controller
             'inactivas' => Sucursal::where('activa', false)->count(),
         ];
 
-        // Paginación
-        $perPage = min((int) $request->get('per_page', 10), 100);
+        // Paginación con validación (mínimo 10, máximo 100)
+        $perPage = (int) $request->get('per_page', 10);
+        $perPage = max(10, min(100, $perPage)); // Asegurar rango 10-100
         $page = (int) $request->get('page', 1);
 
         $totalFiltrado = (clone $query)->count();
@@ -129,8 +130,8 @@ class SucursalController extends Controller
             'ciudad' => 'nullable|string|max:100',
             'departamento' => 'nullable|string|max:100',
             'municipio' => 'nullable|string|max:255',
-            'departamento_geoname_id' => 'required|integer',
-            'municipio_geoname_id' => 'required|integer',
+            'departamento_geoname_id' => 'nullable|integer',
+            'municipio_geoname_id' => 'nullable|integer',
             'pais' => 'nullable|string|max:100',
             'pais_geoname_id' => 'nullable|integer',
             'descripcion' => 'nullable|string',
@@ -147,19 +148,19 @@ class SucursalController extends Controller
 
         $data = $validator->validated();
         $data['activa'] = $data['activa'] ?? true;
-        
+
         // Auto-generar código si no se proporciona
         if (empty($data['codigo'])) {
             $ultimaSucursal = Sucursal::withTrashed()->orderBy('id', 'desc')->first();
             $numero = $ultimaSucursal ? ((int) substr($ultimaSucursal->codigo, 4)) + 1 : 1;
             $data['codigo'] = 'SUC-' . str_pad($numero, 3, '0', STR_PAD_LEFT);
         }
-        
+
         // Limpiar nombre del departamento (remover "Departamento de ")
         if (!empty($data['departamento'])) {
             $data['departamento'] = preg_replace('/^Departamento de\s+/i', '', $data['departamento']);
         }
-        
+
         // Establecer Guatemala como país por defecto
         if (empty($data['pais'])) {
             $data['pais'] = 'Guatemala';
@@ -200,8 +201,8 @@ class SucursalController extends Controller
             'ciudad' => 'nullable|string|max:100',
             'departamento' => 'nullable|string|max:100',
             'municipio' => 'nullable|string|max:255',
-            'departamento_geoname_id' => 'sometimes|required|integer',
-            'municipio_geoname_id' => 'sometimes|required|integer',
+            'departamento_geoname_id' => 'nullable|integer',
+            'municipio_geoname_id' => 'nullable|integer',
             'pais' => 'nullable|string|max:100',
             'pais_geoname_id' => 'nullable|integer',
             'descripcion' => 'nullable|string',
@@ -217,12 +218,12 @@ class SucursalController extends Controller
         }
 
         $data = $validator->validated();
-        
+
         // Limpiar nombre del departamento (remover "Departamento de ")
         if (!empty($data['departamento'])) {
             $data['departamento'] = preg_replace('/^Departamento de\s+/i', '', $data['departamento']);
         }
-        
+
         // Asegurar que el país sea Guatemala si no se especifica
         if (empty($data['pais'])) {
             $data['pais'] = 'Guatemala';

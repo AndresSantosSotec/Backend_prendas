@@ -12,6 +12,30 @@ class CreditoPrendario extends Model
 
     protected $table = 'creditos_prendarios';
 
+    /**
+     * Estados finales donde el crédito no puede cambiar de estado
+     */
+    public const ESTADOS_FINALES = ['pagado', 'cancelado', 'incobrable', 'liquidado'];
+
+    /**
+     * Boot del modelo - eventos y validaciones
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        // Validar que no se pueda cambiar el estado de un crédito completamente pagado
+        static::updating(function ($credito) {
+            // Si el estado original es un estado final, no permitir cambios de estado
+            $estadoOriginal = $credito->getOriginal('estado');
+            $estadoNuevo = $credito->estado;
+
+            if ($estadoOriginal !== $estadoNuevo && in_array($estadoOriginal, self::ESTADOS_FINALES)) {
+                throw new \Exception("No se puede modificar el estado de un crédito que ya está {$estadoOriginal}. El crédito #{$credito->numero_credito} no puede ser editado.");
+            }
+        });
+    }
+
     protected $fillable = [
         'numero_credito',
         'cliente_id',
@@ -146,6 +170,39 @@ class CreditoPrendario extends Model
         return $this->hasMany(CreditoPrendario::class, 'credito_renovado_id');
     }
 
+    /**
+     * Relación muchos a muchos con gastos
+     * Los gastos son cargos adicionales que NO generan interés
+     */
+    public function gastos()
+    {
+        return $this->belongsToMany(
+            Gasto::class,
+            'credito_gasto',
+            'credito_id',
+            'gasto_id',
+            'id',
+            'id_gasto'
+        )
+        ->withPivot('valor_calculado')
+        ->withTimestamps();
+    }
+
+    /**
+     * Calcular el total de gastos del crédito
+     */
+    public function calcularTotalGastos(): float
+    {
+        $montoOtorgado = (float) ($this->monto_aprobado ?? $this->monto_solicitado ?? 0);
+        $total = 0;
+
+        foreach ($this->gastos as $gasto) {
+            $total += $gasto->calcularValor($montoOtorgado);
+        }
+
+        return round($total, 2);
+    }
+
     // Scopes útiles
     public function scopeVigentes($query)
     {
@@ -192,17 +249,17 @@ class CreditoPrendario extends Model
 
         // Calcular capital pagado (suma de capital de pagos)
         $capitalPagado = $movimientosActivos
-            ->whereIn('tipo_movimiento', ['pago_cuota', 'pago_parcial', 'pago', 'rescate', 'pago_total'])
+            ->whereIn('tipo_movimiento', ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado'])
             ->sum('capital');
 
         // Calcular interés pagado
         $interesPagado = $movimientosActivos
-            ->whereIn('tipo_movimiento', ['pago_cuota', 'pago_parcial', 'pago', 'rescate', 'pago_total'])
+            ->whereIn('tipo_movimiento', ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado'])
             ->sum('interes');
 
         // Calcular mora pagada
         $moraPagada = $movimientosActivos
-            ->whereIn('tipo_movimiento', ['pago_cuota', 'pago_parcial', 'pago', 'rescate', 'pago_total', 'pago_mora'])
+            ->whereIn('tipo_movimiento', ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado', 'cargo_mora'])
             ->sum('mora');
 
         // Calcular capital pendiente
@@ -238,15 +295,15 @@ class CreditoPrendario extends Model
             ->get();
 
         $capitalPagado = $movimientosActivos
-            ->whereIn('tipo_movimiento', ['pago_cuota', 'pago_parcial', 'pago', 'rescate', 'pago_total'])
+            ->whereIn('tipo_movimiento', ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado'])
             ->sum('capital');
 
         $interesPagado = $movimientosActivos
-            ->whereIn('tipo_movimiento', ['pago_cuota', 'pago_parcial', 'pago', 'rescate', 'pago_total'])
+            ->whereIn('tipo_movimiento', ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado'])
             ->sum('interes');
 
         $moraPagada = $movimientosActivos
-            ->whereIn('tipo_movimiento', ['pago_cuota', 'pago_parcial', 'pago', 'rescate', 'pago_total', 'pago_mora'])
+            ->whereIn('tipo_movimiento', ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado', 'cargo_mora'])
             ->sum('mora');
 
         $capitalPendiente = $this->monto_aprobado - $capitalPagado;
@@ -288,5 +345,50 @@ class CreditoPrendario extends Model
     public function tienePagosAtrasados()
     {
         return $this->dias_mora > 0;
+    }
+
+    /**
+     * Verificar si el crédito está completamente pagado
+     * Un crédito está pagado cuando:
+     * - Su estado es 'pagado', 'cancelado' o 'liquidado', O
+     * - El capital pendiente es 0 o menor
+     */
+    public function getEstaPagadoAttribute(): bool
+    {
+        // Por estado explícito
+        if (in_array($this->estado, ['pagado', 'cancelado', 'liquidado'])) {
+            return true;
+        }
+
+        // Por saldo (capital pendiente = 0 o menor)
+        $capitalPendiente = (float) ($this->capital_pendiente ?? 0);
+        return $capitalPendiente <= 0 && $this->monto_aprobado > 0;
+    }
+
+    /**
+     * Verificar si el crédito está en un estado final (no modificable)
+     */
+    public function getEstaEnEstadoFinalAttribute(): bool
+    {
+        return in_array($this->estado, self::ESTADOS_FINALES);
+    }
+
+    /**
+     * Verificar si se puede editar el estado del crédito
+     */
+    public function puedeEditarEstado(): bool
+    {
+        return !$this->esta_en_estado_final;
+    }
+
+    /**
+     * Obtener mensaje de por qué no se puede editar el estado
+     */
+    public function getMensajeEstadoBloqueadoAttribute(): ?string
+    {
+        if ($this->esta_en_estado_final) {
+            return "El crédito #{$this->numero_credito} está en estado '{$this->estado}' y no puede ser modificado.";
+        }
+        return null;
     }
 }

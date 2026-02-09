@@ -81,19 +81,21 @@ class CreditoPrendarioController extends Controller
                 $query->where('fecha_solicitud', '<=', $request->fecha_hasta);
             }
 
-            // Ordenamiento
-            $orderBy = $request->get('order_by', 'fecha_solicitud');
+            // Ordenamiento: Por defecto del más reciente al más antiguo (id desc)
+            $orderBy = $request->get('order_by', 'id');
             $orderDir = $request->get('order_dir', 'desc');
-            $allowedOrderFields = ['fecha_solicitud', 'fecha_vencimiento', 'monto_aprobado', 'estado', 'numero_credito'];
+            $allowedOrderFields = ['id', 'fecha_solicitud', 'fecha_vencimiento', 'monto_aprobado', 'estado', 'numero_credito', 'created_at'];
 
             if (in_array($orderBy, $allowedOrderFields)) {
                 $query->orderBy($orderBy, $orderDir === 'asc' ? 'asc' : 'desc');
             } else {
-                $query->orderBy('fecha_solicitud', 'desc');
+                // Orden por defecto: más reciente primero
+                $query->orderBy('id', 'desc');
             }
 
-            // Paginación optimizada con chunks
-            $perPage = min((int) $request->get('per_page', 20), 100);
+            // Paginación optimizada con chunks (mínimo 10, máximo 100)
+            $perPage = (int) $request->get('per_page', 10);
+            $perPage = max(10, min(100, $perPage)); // Asegurar rango 10-100
             $page = (int) $request->get('page', 1);
 
             // Usar cursor pagination para mejor performance en datasets grandes
@@ -257,6 +259,9 @@ class CreditoPrendarioController extends Controller
             'numero_credito' => 'nullable|string|max:30',
             'codigo_prenda' => 'nullable|string|max:50',
             'session_token' => 'nullable|string|max:100',
+            // Gastos adicionales
+            'gas_ids' => 'nullable|array',
+            'gas_ids.*' => 'integer|exists:gastos,id_gasto',
             'prendas' => 'required|array|min:1',
             'prendas.*.categoria_producto_id' => 'required|exists:categoria_productos,id',
             'prendas.*.descripcion_general' => 'required|string|max:500',
@@ -317,21 +322,80 @@ class CreditoPrendarioController extends Controller
             $numeroCredito = $request->numero_credito;
 
             if (!$numeroCredito) {
-                // Generar número de crédito único
-                $ultimoCredito = CreditoPrendario::withTrashed()
-                    ->whereNotNull('numero_credito')
-                    ->orderBy('id', 'desc')
-                    ->first();
+                // 🔒 PROTECCIÓN CONTRA RACE CONDITION: Reintentar hasta 5 veces si hay duplicado
+                $intentos = 0;
+                $maxIntentos = 5;
 
-                if ($ultimoCredito && $ultimoCredito->numero_credito) {
-                    // Extraer número del formato CR-XXXXXX
-                    $ultimoNumero = (int) substr($ultimoCredito->numero_credito, 3);
-                    $numero = $ultimoNumero + 1;
-                } else {
-                    $numero = 1;
+                while ($intentos < $maxIntentos) {
+                    try {
+                        // 🏢 ORGANIZACIÓN: Código configurable desde .env (2 dígitos)
+                        $organizacion = str_pad(env('ORGANIZATION_CODE', '01'), 2, '0', STR_PAD_LEFT);
+
+                        // Generar número de crédito único en formato ORGDDMMYYAACORRELATIVO (sin guiones)
+                        $fecha = now()->format('dmy'); // Día, Mes, Año (2 dígitos cada uno)
+
+                        // Obtener agencia (solo números, sin letras)
+                        $sucursalId = $request->sucursal_id ?? 1;
+                        $agencia = str_pad($sucursalId, 2, '0', STR_PAD_LEFT);
+
+                        // 🔐 BLOQUEO: Usar lockForUpdate para prevenir race condition
+                        $hoy = now()->format('Y-m-d');
+                        $prefijoBusqueda = $organizacion . $fecha . $agencia;
+
+                        $ultimoCredito = CreditoPrendario::withTrashed()
+                            ->whereDate('created_at', $hoy)
+                            ->whereNotNull('numero_credito')
+                            // Solo buscar códigos con el nuevo formato (no inician con CR-)
+                            ->where('numero_credito', 'NOT LIKE', 'CR-%')
+                            ->where('numero_credito', 'LIKE', $prefijoBusqueda . '%')
+                            ->lockForUpdate() // 🔒 Bloqueo para lectura concurrente
+                            ->orderBy('id', 'desc')
+                            ->first();
+
+                        if ($ultimoCredito && $ultimoCredito->numero_credito) {
+                            // Extraer correlativo del formato ORGDDMMYYAACORRELATIVO (últimos 6 dígitos)
+                            $ultimoCorrelativo = (int) substr($ultimoCredito->numero_credito, -6);
+                            $correlativo = $ultimoCorrelativo + 1;
+                        } else {
+                            $correlativo = 1;
+                        }
+
+                        // Formato: ORGDDMMYYAACORRELATIVO (16 dígitos sin guiones)
+                        // Ejemplo: 0102022601000001 = Org:01, 02/02/26, Agencia:01, Correlativo:000001
+                        $numeroCredito = $organizacion . $fecha . $agencia . str_pad($correlativo, 6, '0', STR_PAD_LEFT);
+
+                        // ✅ Verificar que no exista (doble verificación)
+                        $existe = CreditoPrendario::withTrashed()
+                            ->where('numero_credito', $numeroCredito)
+                            ->exists();
+
+                        if ($existe) {
+                            throw new \Exception("Código duplicado detectado: {$numeroCredito}");
+                        }
+
+                        break; // ✅ Código generado exitosamente, salir del loop
+
+                    } catch (\Exception $e) {
+                        $intentos++;
+
+                        if ($intentos >= $maxIntentos) {
+                            Log::error('ERROR CRÍTICO: No se pudo generar código único después de ' . $maxIntentos . ' intentos', [
+                                'error' => $e->getMessage(),
+                                'organizacion' => $organizacion ?? null,
+                                'fecha' => $fecha ?? null,
+                                'agencia' => $agencia ?? null
+                            ]);
+
+                            return response()->json([
+                                'success' => false,
+                                'message' => 'Error al generar código de crédito único. Por favor, intente nuevamente.'
+                            ], 500);
+                        }
+
+                        // Esperar un momento antes de reintentar (backoff exponencial)
+                        usleep(100000 * $intentos); // 100ms, 200ms, 300ms, etc.
+                    }
                 }
-
-                $numeroCredito = 'CR-' . str_pad($numero, 6, '0', STR_PAD_LEFT);
             }
 
             // Calcular fecha de vencimiento si hay plazo
@@ -398,11 +462,23 @@ class CreditoPrendarioController extends Controller
                     $columnExists = DB::select("SHOW COLUMNS FROM `creditos_prendarios` LIKE 'fecha_primer_pago'");
                     if (!empty($columnExists)) {
                         $datosCredito['fecha_primer_pago'] = Carbon::parse($request->fecha_primer_pago);
+                        Log::info('fecha_primer_pago agregada al crédito', [
+                            'fecha_primer_pago' => $request->fecha_primer_pago,
+                            'parseada' => $datosCredito['fecha_primer_pago']->format('Y-m-d'),
+                        ]);
+                    } else {
+                        Log::warning('Columna fecha_primer_pago NO existe en la tabla');
                     }
                 } catch (\Exception $e) {
                     // Si hay error al verificar, simplemente no agregamos el campo
                     Log::warning('No se pudo verificar columna fecha_primer_pago: ' . $e->getMessage());
                 }
+            } else {
+                Log::info('No se recibió fecha_primer_pago en el request', [
+                    'fecha_desembolso' => $request->fecha_desembolso,
+                    'tiene_fecha_primer_pago' => $request->has('fecha_primer_pago'),
+                    'valor' => $request->input('fecha_primer_pago'),
+                ]);
             }
 
             $credito = CreditoPrendario::create($datosCredito);
@@ -644,6 +720,27 @@ class CreditoPrendarioController extends Controller
             }
 
             // ========================================
+            // SINCRONIZAR GASTOS ADICIONALES (SI SE ENVIARON)
+            // ========================================
+            if ($request->has('gas_ids') && is_array($request->gas_ids) && count($request->gas_ids) > 0) {
+                try {
+                    $gastosService = app(\App\Services\GastosService::class);
+                    $gastosService->sincronizarGastos($credito, $request->gas_ids);
+
+                    Log::info('Gastos asociados al crédito', [
+                        'credito_id' => $credito->id,
+                        'gas_ids' => $request->gas_ids
+                    ]);
+
+                    // Prorratear gastos en el plan de pagos
+                    $this->prorratearGastosEnPlanPagos($credito);
+                } catch (\Exception $gastoEx) {
+                    // Log pero no fallar la transacción si hay error con gastos
+                    Log::warning('Error al sincronizar gastos: ' . $gastoEx->getMessage());
+                }
+            }
+
+            // ========================================
             // REGISTRAR DESEMBOLSO EN CAJA (EGRESO)
             // ========================================
             // Solo si el desembolso es en efectivo y hay caja abierta
@@ -750,7 +847,10 @@ class CreditoPrendarioController extends Controller
             'prendas.categoriaProducto',
             'tasaciones',
             'movimientos',
-            'planPagos'
+            'planPagos' => function($query) {
+                $query->orderBy('numero_cuota', 'asc');
+            },
+            'gastos'
         ])->find($id);
 
         if (!$credito) {
@@ -771,7 +871,7 @@ class CreditoPrendarioController extends Controller
      */
     public function getPlanPagos(string $id): JsonResponse
     {
-        $credito = CreditoPrendario::find($id);
+        $credito = CreditoPrendario::with('gastos')->find($id);
 
         if (!$credito) {
             return response()->json([
@@ -781,34 +881,87 @@ class CreditoPrendarioController extends Controller
         }
 
         $planPagos = $credito->planPagos()->orderBy('numero_cuota')->get();
+        $numeroCuotas = $planPagos->count();
+
+        // Calcular gastos del crédito
+        $gastosService = app(\App\Services\GastosService::class);
+        $montoOtorgado = (float) ($credito->monto_aprobado ?? $credito->monto_solicitado ?? 0);
+        $gastosResult = $gastosService->obtenerGastosCredito($credito);
+        $totalGastos = $gastosResult['total_gastos'];
+
+        // Calcular prorrateo de gastos por cuota
+        $gastosPorCuota = $numeroCuotas > 0
+            ? $gastosService->calcularProrrateoPorCuota($totalGastos, $numeroCuotas)
+            : [];
+
+        // Calcular totales
+        $totalCapital = 0;
+        $totalInteres = 0;
+        $cuotasFormateadas = [];
+        $index = 0;
+
+        foreach ($planPagos as $cuota) {
+            $capital = (float) $cuota->capital_proyectado;
+            $interes = (float) $cuota->interes_proyectado;
+            $mora = (float) $cuota->mora_proyectada;
+            $gastoCuota = $gastosPorCuota[$index] ?? 0;
+            $cuotaBase = $capital + $interes;
+            $cuotaTotal = $cuotaBase + $gastoCuota + $mora;
+
+            $totalCapital += $capital;
+            $totalInteres += $interes;
+
+            $cuotasFormateadas[] = [
+                'id' => (string) $cuota->id,
+                'numero_cuota' => $cuota->numero_cuota,
+                'fecha_vencimiento' => $cuota->fecha_vencimiento?->toISOString(),
+                'fecha_pago' => $cuota->fecha_pago?->toISOString(),
+                'estado' => $cuota->estado,
+                // Componentes de la cuota
+                'capital' => round($capital, 2),
+                'interes' => round($interes, 2),
+                'gastos' => round($gastoCuota, 2),
+                'mora' => round($mora, 2),
+                'cuota_base' => round($cuotaBase, 2),
+                'cuota_total' => round($cuotaTotal, 2),
+                // Datos originales (compatibilidad)
+                'capital_proyectado' => round($capital, 2),
+                'interes_proyectado' => round($interes, 2),
+                'mora_proyectada' => round($mora, 2),
+                'monto_cuota_proyectado' => round($cuotaTotal, 2),
+                // Pagos realizados
+                'capital_pagado' => (float) $cuota->capital_pagado,
+                'interes_pagado' => (float) $cuota->interes_pagado,
+                'mora_pagada' => (float) $cuota->mora_pagada,
+                'monto_total_pagado' => (float) $cuota->monto_total_pagado,
+                // Pendientes
+                'capital_pendiente' => (float) $cuota->capital_pendiente,
+                'interes_pendiente' => (float) $cuota->interes_pendiente,
+                'mora_pendiente' => (float) $cuota->mora_pendiente,
+                'monto_pendiente' => (float) $cuota->monto_pendiente,
+                'saldo_capital_credito' => (float) $cuota->saldo_capital_credito,
+                'dias_mora' => $cuota->dias_mora,
+                'es_cuota_gracia' => (bool) $cuota->es_cuota_gracia,
+                'observaciones' => $cuota->observaciones,
+            ];
+            $index++;
+        }
+
+        // Calcular total a pagar
+        $totalAPagar = round($montoOtorgado + $totalInteres + $totalGastos, 2);
 
         return response()->json([
             'success' => true,
-            'data' => $planPagos->map(function ($cuota) {
-                return [
-                    'id' => (string) $cuota->id,
-                    'numero_cuota' => $cuota->numero_cuota,
-                    'fecha_vencimiento' => $cuota->fecha_vencimiento?->toISOString(),
-                    'fecha_pago' => $cuota->fecha_pago?->toISOString(),
-                    'estado' => $cuota->estado,
-                    'capital_proyectado' => (float) $cuota->capital_proyectado,
-                    'interes_proyectado' => (float) $cuota->interes_proyectado,
-                    'mora_proyectada' => (float) $cuota->mora_proyectada,
-                    'monto_cuota_proyectado' => (float) $cuota->monto_cuota_proyectado,
-                    'capital_pagado' => (float) $cuota->capital_pagado,
-                    'interes_pagado' => (float) $cuota->interes_pagado,
-                    'mora_pagada' => (float) $cuota->mora_pagada,
-                    'monto_total_pagado' => (float) $cuota->monto_total_pagado,
-                    'capital_pendiente' => (float) $cuota->capital_pendiente,
-                    'interes_pendiente' => (float) $cuota->interes_pendiente,
-                    'mora_pendiente' => (float) $cuota->mora_pendiente,
-                    'monto_pendiente' => (float) $cuota->monto_pendiente,
-                    'saldo_capital_credito' => (float) $cuota->saldo_capital_credito,
-                    'dias_mora' => $cuota->dias_mora,
-                    'es_cuota_gracia' => (bool) $cuota->es_cuota_gracia,
-                    'observaciones' => $cuota->observaciones,
-                ];
-            })
+            'data' => $cuotasFormateadas,
+            'resumen' => [
+                'monto_otorgado' => round($montoOtorgado, 2),
+                'total_capital' => round($totalCapital, 2),
+                'total_interes' => round($totalInteres, 2),
+                'total_gastos' => round($totalGastos, 2),
+                'total_a_pagar' => $totalAPagar,
+                'numero_cuotas' => $numeroCuotas,
+                'gastos_detalle' => $gastosResult['gastos'],
+            ],
         ]);
     }
 
@@ -908,20 +1061,40 @@ class CreditoPrendarioController extends Controller
                     'capital_proyectado' => (float) $cuota->capital_proyectado,
                     'interes_proyectado' => (float) $cuota->interes_proyectado,
                     'mora_proyectada' => (float) $cuota->mora_proyectada,
+                    'gastos_proyectado' => (float) $cuota->otros_cargos_proyectados, // Gastos prorrateados por cuota
                     'monto_cuota_proyectado' => (float) $cuota->monto_cuota_proyectado,
                     'capital_pagado' => (float) $cuota->capital_pagado,
                     'interes_pagado' => (float) $cuota->interes_pagado,
                     'mora_pagada' => (float) $cuota->mora_pagada,
+                    'gastos_pagado' => (float) $cuota->otros_cargos_pagados, // Gastos pagados
                     'monto_total_pagado' => (float) $cuota->monto_total_pagado,
                     'capital_pendiente' => (float) $cuota->capital_pendiente,
                     'interes_pendiente' => (float) $cuota->interes_pendiente,
                     'mora_pendiente' => (float) $cuota->mora_pendiente,
+                    'gastos_pendiente' => (float) $cuota->otros_cargos_pendientes, // Gastos pendientes
                     'monto_pendiente' => (float) $cuota->monto_pendiente,
                     'saldo_capital_credito' => (float) $cuota->saldo_capital_credito,
                     'dias_mora' => $cuota->dias_mora,
                     'es_cuota_gracia' => (bool) $cuota->es_cuota_gracia,
+                    'tipo_modificacion' => $cuota->tipo_modificacion ?? 'original',
+                    'motivo_modificacion' => $cuota->motivo_modificacion,
+                    'fecha_modificacion' => $cuota->fecha_modificacion?->toISOString(),
                 ];
             })->values() : [],
+            // Gastos asociados al crédito
+            'gastos' => $credito->gastos ? $credito->gastos->map(function ($gasto) {
+                return [
+                    'id_gasto' => $gasto->id_gasto,
+                    'nombre' => $gasto->nombre,
+                    'tipo' => $gasto->tipo,
+                    'porcentaje' => $gasto->porcentaje ? (float) $gasto->porcentaje : null,
+                    'monto' => $gasto->monto ? (float) $gasto->monto : null,
+                    'valor_calculado' => (float) ($gasto->pivot->valor_calculado ?? 0),
+                ];
+            }) : [],
+            'total_gastos' => $credito->gastos ? $credito->gastos->sum(function ($g) {
+                return (float) ($g->pivot->valor_calculado ?? 0);
+            }) : 0,
             'creadoEn' => $credito->created_at->toISOString(),
             'actualizadoEn' => $credito->updated_at->toISOString(),
         ];
@@ -1007,6 +1180,17 @@ class CreditoPrendarioController extends Controller
             $fechaPrimerPago = Carbon::parse($credito->fecha_primer_pago);
         }
 
+        // DEBUG: Log para identificar problemas de fecha
+        Log::info('generarPlanPagos - Fechas recibidas', [
+            'credito_id' => $credito->id,
+            'numero_credito' => $credito->numero_credito,
+            'fechaPrimerPagoRequest' => $fechaPrimerPagoRequest?->format('Y-m-d'),
+            'credito_fecha_primer_pago' => $credito->fecha_primer_pago,
+            'fechaPrimerPago_final' => $fechaPrimerPago?->format('Y-m-d'),
+            'fechaDesembolso' => $fechaDesembolso->format('Y-m-d'),
+            'dias_gracia' => $diasGracia,
+        ]);
+
         // Calcular días entre cuotas según tipo de interés
         $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);
 
@@ -1064,20 +1248,33 @@ class CreditoPrendarioController extends Controller
 
         // Generar cada cuota
         for ($numeroCuota = 1; $numeroCuota <= $numeroCuotas; $numeroCuota++) {
-            // Calcular fecha de vencimiento
+            // Calcular fecha de vencimiento (en base a meses calendario, no días fijos)
             if ($fechaPrimerPago) {
                 if ($numeroCuota === 1) {
                     $fechaVencimiento = $fechaPrimerPago->copy();
                 } else {
-                    $fechaVencimiento = $fechaPrimerPago->copy()->addDays(($numeroCuota - 1) * $diasEntreCuotas);
+                    // Sumar meses en lugar de días para mantener el mismo día del mes
+                    $fechaVencimiento = $fechaPrimerPago->copy()->addMonths($numeroCuota - 1);
                 }
             } else {
-                $fechaVencimiento = $fechaDesembolso->copy()->addDays(($numeroCuota - 1) * $diasEntreCuotas);
+                // Sumar meses en lugar de días para mantener el mismo día del mes
+                $fechaVencimiento = $fechaDesembolso->copy()->addMonths($numeroCuota - 1);
             }
 
             // Si hay días de gracia en la primera cuota, agregarlos
             if ($numeroCuota === 1 && $diasGracia > 0 && !$fechaPrimerPago) {
                 $fechaVencimiento->addDays($diasGracia);
+            }
+
+            // DEBUG: Log para la primera cuota
+            if ($numeroCuota === 1) {
+                Log::info('generarPlanPagos - Primera cuota calculada', [
+                    'credito_id' => $credito->id,
+                    'fechaPrimerPago_existe' => !is_null($fechaPrimerPago),
+                    'fechaVencimiento' => $fechaVencimiento->format('Y-m-d'),
+                    'diasGracia' => $diasGracia,
+                    'fecha_base' => $fechaPrimerPago ? 'fechaPrimerPago' : 'fechaDesembolso',
+                ]);
             }
 
             // Calcular interés y capital según método
@@ -1166,6 +1363,68 @@ class CreditoPrendarioController extends Controller
             $totalCapital += $capitalProyectado;
             $totalInteres += $interesProyectado;
         }
+    }
+
+    /**
+     * Prorratear gastos adicionales en el plan de pagos
+     * Los gastos se distribuyen uniformemente entre las cuotas
+     * NO generan interés y NO se suman al capital
+     *
+     * @param CreditoPrendario $credito El crédito con gastos ya sincronizados
+     */
+    private function prorratearGastosEnPlanPagos(CreditoPrendario $credito): void
+    {
+        // Cargar gastos frescos
+        $credito->load('gastos', 'planPagos');
+
+        if (!$credito->gastos || $credito->gastos->count() === 0) {
+            return;
+        }
+
+        if (!$credito->planPagos || $credito->planPagos->count() === 0) {
+            return;
+        }
+
+        // Calcular total de gastos
+        $totalGastos = $credito->gastos->sum(function ($gasto) {
+            return (float) ($gasto->pivot->valor_calculado ?? 0);
+        });
+
+        if ($totalGastos <= 0) {
+            return;
+        }
+
+        $numeroCuotas = $credito->planPagos->count();
+        $gastoPorCuota = floor(($totalGastos / $numeroCuotas) * 100) / 100; // Redondear hacia abajo a 2 decimales
+        $gastoAcumulado = 0;
+
+        // Actualizar cada cuota con su parte prorrateada de gastos
+        $cuotas = $credito->planPagos->sortBy('numero_cuota');
+        foreach ($cuotas as $index => $cuota) {
+            if ($index === $numeroCuotas - 1) {
+                // Última cuota: asignar el resto para evitar desfases por redondeo
+                $gastoEnCuota = round($totalGastos - $gastoAcumulado, 2);
+            } else {
+                $gastoEnCuota = $gastoPorCuota;
+                $gastoAcumulado += $gastoPorCuota;
+            }
+
+            // Actualizar cuota con gastos
+            $cuota->update([
+                'otros_cargos_proyectados' => $gastoEnCuota,
+                'otros_cargos_pendientes' => $gastoEnCuota,
+                // Los gastos se suman al monto total de la cuota y al pendiente
+                'monto_cuota_proyectado' => (float) $cuota->monto_cuota_proyectado + $gastoEnCuota,
+                'monto_pendiente' => (float) $cuota->monto_pendiente + $gastoEnCuota,
+            ]);
+        }
+
+        Log::info('Gastos prorrateados en plan de pagos', [
+            'credito_id' => $credito->id,
+            'total_gastos' => $totalGastos,
+            'gasto_por_cuota' => $gastoPorCuota,
+            'numero_cuotas' => $numeroCuotas
+        ]);
     }
 
     /**
@@ -2227,7 +2486,7 @@ class CreditoPrendarioController extends Controller
     {
         try {
             $credito = CreditoPrendario::with(['cliente', 'sucursal', 'planPagos' => function($query) {
-                $query->orderBy('numero_cuota');
+                $query->orderBy('numero_cuota', 'asc');
             }])->findOrFail($id);
 
             $planPagos = $credito->planPagos;
@@ -2532,6 +2791,8 @@ class CreditoPrendarioController extends Controller
      */
     /**
      * Simular plan de pagos (Retorna JSON)
+     *
+     * Ahora incluye cálculo de gastos si se proporcionan gas_ids
      */
     public function simularPlan(Request $request)
     {
@@ -2542,7 +2803,10 @@ class CreditoPrendarioController extends Controller
                 'tipo_interes' => 'required|string',
                 'numero_cuotas' => 'required|integer|min:1',
                 'plazo_dias' => 'nullable|integer',
-                // fecha_desembolso opcional, default now
+                'fecha_desembolso' => 'nullable|date',
+                'fecha_primer_pago' => 'nullable|date|after_or_equal:fecha_desembolso',
+                'gas_ids' => 'nullable|array',
+                'gas_ids.*' => 'integer|exists:gastos,id_gasto',
             ]);
 
             if ($validator->fails()) {
@@ -2561,6 +2825,20 @@ class CreditoPrendarioController extends Controller
             $fechaDesembolso = isset($request->fecha_desembolso) ? Carbon::parse($request->fecha_desembolso) : Carbon::now();
             $fechaPrimerPago = isset($request->fecha_primer_pago) ? Carbon::parse($request->fecha_primer_pago) : null;
 
+            // Calcular gastos si se proporcionan
+            $totalGastos = 0;
+            $gastosDetalle = [];
+            $gastosPorCuota = [];
+
+            if (!empty($request->gas_ids)) {
+                $gastosService = app(\App\Services\GastosService::class);
+                $gastos = \App\Models\Gasto::whereIn('id_gasto', $request->gas_ids)->activos()->get();
+                $resultado = $gastosService->calcularValoresGastos($gastos, $montoAprobado);
+                $totalGastos = $resultado['total_gastos'];
+                $gastosDetalle = $resultado['gastos'];
+                $gastosPorCuota = $gastosService->calcularProrrateoPorCuota($totalGastos, $numeroCuotas);
+            }
+
             // Cálculo tipo "flat"
             $tasaMensual = $tasaInteres / 100;
             $interesPorCuota = round($montoAprobado * $tasaMensual, 2);
@@ -2570,16 +2848,19 @@ class CreditoPrendarioController extends Controller
 
             $planPagos = [];
             $saldoCapital = $montoAprobado;
+            $totalInteres = 0;
 
             for ($i = 1; $i <= $numeroCuotas; $i++) {
                 if ($fechaPrimerPago) {
                     if ($i === 1) {
                          $fechaVencimiento = $fechaPrimerPago->copy();
                     } else {
-                         $fechaVencimiento = $fechaPrimerPago->copy()->addDays(($i - 1) * $diasEntreCuotas);
+                         // Sumar meses en lugar de días para mantener el mismo día del mes
+                         $fechaVencimiento = $fechaPrimerPago->copy()->addMonths($i - 1);
                     }
                 } else {
-                    $fechaVencimiento = $fechaDesembolso->copy()->addDays(($i - 1) * $diasEntreCuotas);
+                    // Sumar meses en lugar de días para mantener el mismo día del mes
+                    $fechaVencimiento = $fechaDesembolso->copy()->addMonths($i - 1);
                 }
 
                 if ($i === 1 && $diasGracia > 0 && !$fechaPrimerPago) {
@@ -2591,24 +2872,43 @@ class CreditoPrendarioController extends Controller
                     $abonoCapital = $saldoCapital;
                 }
 
-                $totalCuota = $abonoCapital + $interesPorCuota;
+                $gastoCuota = $gastosPorCuota[$i - 1] ?? 0;
+                $cuotaBase = $abonoCapital + $interesPorCuota;
+                $totalCuota = $cuotaBase + $gastoCuota;
+
+                $totalInteres += $interesPorCuota;
 
                 $planPagos[] = [
                     'numero_cuota' => $i,
                     'fecha_vencimiento' => $fechaVencimiento->format('Y-m-d'),
-                    'capital' => $abonoCapital,
-                    'interes' => $interesPorCuota,
-                    'otros' => 0,
-                    'cuota' => $totalCuota,
-                    'saldo' => max(0, $saldoCapital - $abonoCapital)
+                    'capital' => round($abonoCapital, 2),
+                    'interes' => round($interesPorCuota, 2),
+                    'gastos' => round($gastoCuota, 2),
+                    'cuota_base' => round($cuotaBase, 2),
+                    'cuota_total' => round($totalCuota, 2),
+                    // Compatibilidad con formato anterior
+                    'otros' => round($gastoCuota, 2),
+                    'cuota' => round($totalCuota, 2),
+                    'saldo' => max(0, round($saldoCapital - $abonoCapital, 2))
                 ];
 
                 $saldoCapital -= $abonoCapital;
             }
 
+            // Calcular total a pagar
+            $totalAPagar = round($montoAprobado + $totalInteres + $totalGastos, 2);
+
             return response()->json([
                 'success' => true,
-                'data' => $planPagos
+                'data' => $planPagos,
+                'resumen' => [
+                    'monto_otorgado' => round($montoAprobado, 2),
+                    'total_interes' => round($totalInteres, 2),
+                    'total_gastos' => round($totalGastos, 2),
+                    'total_a_pagar' => $totalAPagar,
+                    'numero_cuotas' => $numeroCuotas,
+                    'gastos_detalle' => $gastosDetalle,
+                ],
             ]);
 
         } catch (\Exception $e) {
@@ -2655,6 +2955,23 @@ class CreditoPrendarioController extends Controller
             $fechaDesembolso = isset($datosCredito['fecha_desembolso']) ? Carbon::parse($datosCredito['fecha_desembolso']) : Carbon::now();
             $fechaPrimerPago = isset($datosCredito['fecha_primer_pago']) ? Carbon::parse($datosCredito['fecha_primer_pago']) : null;
 
+            // Calcular gastos si están incluidos
+            $gastosIds = $datosCredito['gas_ids'] ?? [];
+            $totalGastos = 0;
+            $gastosPorCuota = 0;
+
+            if (!empty($gastosIds)) {
+                $gastos = \App\Models\Gasto::whereIn('id_gasto', $gastosIds)->get();
+                foreach ($gastos as $gasto) {
+                    if ($gasto->tipo === 'FIJO') {
+                        $totalGastos += $gasto->monto;
+                    } else {
+                        $totalGastos += ($montoAprobado * $gasto->porcentaje) / 100;
+                    }
+                }
+                $gastosPorCuota = round($totalGastos / $numeroCuotas, 2);
+            }
+
             // Cálculo tipo "flat"
             $tasaMensual = $tasaInteres / 100;
             $interesPorCuota = round($montoAprobado * $tasaMensual, 2);
@@ -2670,10 +2987,12 @@ class CreditoPrendarioController extends Controller
                     if ($i === 1) {
                          $fechaVencimiento = $fechaPrimerPago->copy();
                     } else {
-                         $fechaVencimiento = $fechaPrimerPago->copy()->addDays(($i - 1) * $diasEntreCuotas);
+                         // Sumar meses en lugar de días para mantener el mismo día del mes
+                         $fechaVencimiento = $fechaPrimerPago->copy()->addMonths($i - 1);
                     }
                 } else {
-                    $fechaVencimiento = $fechaDesembolso->copy()->addDays(($i - 1) * $diasEntreCuotas);
+                    // Sumar meses en lugar de días para mantener el mismo día del mes
+                    $fechaVencimiento = $fechaDesembolso->copy()->addMonths($i - 1);
                 }
 
                 if ($i === 1 && $diasGracia > 0 && !$fechaPrimerPago) {
@@ -2685,7 +3004,13 @@ class CreditoPrendarioController extends Controller
                     $abonoCapital = $saldoCapital;
                 }
 
-                $totalCuota = $abonoCapital + $interesPorCuota;
+                // Ajustar gastos en la última cuota si hay diferencia por redondeo
+                $gastosEstaCuota = $gastosPorCuota;
+                if ($i === $numeroCuotas && $totalGastos > 0) {
+                    $gastosEstaCuota = $totalGastos - ($gastosPorCuota * ($numeroCuotas - 1));
+                }
+
+                $totalCuota = $abonoCapital + $interesPorCuota + $gastosEstaCuota;
 
                 $cuota = (object)[
                     'numero_cuota' => $i,
@@ -2693,6 +3018,7 @@ class CreditoPrendarioController extends Controller
                     'capital_proyectado' => $abonoCapital,
                     'interes_proyectado' => $interesPorCuota,
                     'mora_proyectada' => 0,
+                    'otros_proyectados' => $gastosEstaCuota,
                     'monto_cuota_proyectado' => $totalCuota,
                     'estado' => 'pendiente'
                 ];

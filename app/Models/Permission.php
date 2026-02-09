@@ -42,13 +42,16 @@ class Permission extends Model
         'usuarios' => ['ver', 'crear', 'editar', 'eliminar', 'asignar_permisos'],
         'compras' => ['ver', 'crear', 'editar', 'eliminar'],
         'categorias_productos' => ['ver', 'crear', 'editar', 'eliminar', 'toggle_activa'],
+        'gastos' => ['ver', 'crear', 'editar', 'eliminar', 'asignar_credito'],
+        'auditoria' => ['ver', 'exportar'], // Solo para superadmin
     ];
 
     /**
      * Permisos por rol por defecto
      */
     public static array $permisosPorRol = [
-        'administrador' => '*', // Todos los permisos
+        'superadmin' => '*', // Todos los permisos, acceso a auditoría y cambio de sucursales
+        'administrador' => '*', // Todos los permisos excepto auditoría
         'cajero' => [
             'dashboard' => ['ver'],
             'clientes' => ['ver', 'crear'],
@@ -58,6 +61,7 @@ class Permission extends Model
             'cobros' => ['realizar', 'ver', 'imprimir_recibo'],
             'prendas' => ['ver'],
             'historial' => ['ver'],
+            'gastos' => ['ver', 'asignar_credito'],
         ],
         'tasador' => [
             'dashboard' => ['ver'],
@@ -87,6 +91,7 @@ class Permission extends Model
             'caja' => ['ver_movimientos'],
             'historial' => ['ver'],
             'categorias_productos' => ['ver', 'crear', 'editar'],
+            'gastos' => ['ver', 'crear', 'editar', 'asignar_credito'],
         ],
     ];
 }

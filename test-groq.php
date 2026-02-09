@@ -2,7 +2,23 @@
 
 require __DIR__.'/vendor/autoload.php';
 
+// 🔐 Cargar variables de entorno desde .env
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
+$dotenv->load();
+
 echo "🧪 Probando conexión con GROQ API...\n\n";
+
+// ✅ Obtener API key desde variable de entorno
+$apiKey = $_ENV['GROQ_API_KEY'] ?? getenv('GROQ_API_KEY');
+
+if (empty($apiKey) || $apiKey === 'your_groq_api_key_here') {
+    echo "❌ ERROR: GROQ_API_KEY no configurada en el archivo .env\n";
+    echo "💡 Configura tu API key en el archivo .env:\n";
+    echo "   GROQ_API_KEY=tu_api_key_aqui\n\n";
+    exit(1);
+}
+
+echo "🔑 API Key cargada desde variable de entorno\n\n";
 
 try {
     $client = new \GuzzleHttp\Client();
@@ -10,7 +26,7 @@ try {
     $response = $client->post('https://api.groq.com/openai/v1/chat/completions', [
         'timeout' => 15,
         'headers' => [
-            'Authorization' => 'Bearer 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',
+            'Authorization' => 'Bearer ' . $apiKey, // ✅ Usar variable de entorno
             'Content-Type' => 'application/json',
         ],
         'json' => [
@@ -55,5 +71,6 @@ try {
 }
 
 echo "\n✅ Test completado\n";
+
 
 

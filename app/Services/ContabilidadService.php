@@ -8,6 +8,7 @@ use App\Models\Contabilidad\CtbNomenclatura;
 use App\Models\Contabilidad\CtbTipoPoliza;
 use App\Models\CreditoMovimiento;
 use App\Models\Venta;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -237,6 +238,7 @@ class ContabilidadService
             throw new \Exception('No se encontró el tipo de póliza PI (Póliza de Ingresos)');
         }
 
+        /** @var \App\Models\CtbTipoPoliza $tipoPoliza */
         // Crear el asiento
         $diario = CtbDiario::create([
             'numero_comprobante' => CtbDiario::generarNumeroComprobante('PI', $venta->sucursal_id),
@@ -249,7 +251,7 @@ class ContabilidadService
             'fecha_documento' => $venta->fecha_venta ?? now(),
             'fecha_contabilizacion' => now()->toDateString(),
             'sucursal_id' => $venta->sucursal_id,
-            'usuario_id' => $venta->vendedor_id ?? auth()->id(),
+            'usuario_id' => $venta->vendedor_id ?? Auth::id(),
             'estado' => 'registrado',
             'editable' => false,
         ]);

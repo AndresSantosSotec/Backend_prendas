@@ -215,7 +215,9 @@ class VentaController extends Controller
                 });
             }
 
-            $perPage = $request->get('per_page', 50);
+            // Validar rango de paginación (mínimo 10, máximo 100)
+            $perPage = (int) $request->get('per_page', 10);
+            $perPage = max(10, min(100, $perPage)); // Asegurar rango 10-100
             $ventas = $query->orderBy('fecha_venta', 'desc')->paginate($perPage);
 
             return response()->json([
@@ -399,9 +401,9 @@ class VentaController extends Controller
     {
         try {
             $venta = Venta::with(['detalles.prenda', 'pagos.metodoPago', 'vendedor', 'sucursal', 'cliente', 'moneda'])->findOrFail($id);
-            
+
             $pdf = Pdf::loadView('reports.venta', compact('venta'));
-            
+
             return $pdf->stream("Venta_{$venta->codigo_venta}.pdf");
         } catch (\Exception $e) {
             Log::error('Error al generar PDF de venta: ' . $e->getMessage());
@@ -581,8 +583,12 @@ class VentaController extends Controller
                 $query->whereBetween('fecha_vencimiento', [now(), now()->addDays(7)]);
             }
 
+            // Validar rango de paginación (mínimo 10, máximo 100)
+            $perPage = (int) ($request->per_page ?? 10);
+            $perPage = max(10, min(100, $perPage)); // Asegurar rango 10-100
+
             $ventas = $query->orderBy('fecha_vencimiento', 'asc')
-                ->paginate($request->per_page ?? 20);
+                ->paginate($perPage);
 
             // Agregar resumen a cada venta
             $ventas->getCollection()->transform(function ($venta) {

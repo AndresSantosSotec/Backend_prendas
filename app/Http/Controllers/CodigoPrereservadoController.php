@@ -24,23 +24,27 @@ class CodigoPrereservadoController extends Controller
         $request->validate([
             'session_token' => 'required|string|max:100',
             'cliente_id' => 'nullable|string|max:50', // Puede ser UUID o ID entero
+            'sucursal_id' => 'nullable|integer', // ID de sucursal/agencia
         ]);
 
         try {
             $usuarioId = Auth::id();
             $sessionToken = $request->session_token;
             $clienteId = $request->cliente_id;
+            $sucursalId = $request->sucursal_id ?? 1;
 
             Log::info('Reservando códigos', [
                 'session_token' => $sessionToken,
                 'usuario_id' => $usuarioId,
-                'cliente_id' => $clienteId
+                'cliente_id' => $clienteId,
+                'sucursal_id' => $sucursalId
             ]);
 
             $reserva = CodigoPrereservado::reservarCodigos(
                 sessionToken: $sessionToken,
                 usuarioId: $usuarioId,
                 clienteId: $clienteId,
+                sucursalId: $sucursalId,
                 horasExpiracion: 24 // Los códigos expiran en 24 horas si no se usan
             );
 

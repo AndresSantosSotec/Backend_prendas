@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\AuthSecurityService;
+use App\Services\AuditoriaService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
@@ -25,7 +26,7 @@ class AuthController extends Controller
     public function login(Request $request): JsonResponse
     {
         $ip = $request->ip();
-        
+
         // Verificar si la IP está bloqueada
         if ($this->securityService->isIpBlocked($ip)) {
             Log::warning('Intento de login desde IP bloqueada', ['ip' => $ip]);
@@ -50,7 +51,7 @@ class AuthController extends Controller
         }
 
         $credentials = $request->only('username', 'password');
-        
+
         // Buscar por username o email
         $user = User::where('username', $credentials['username'])
             ->orWhere('email', $credentials['username'])
@@ -79,14 +80,14 @@ class AuthController extends Controller
         // Verificar contraseña
         if (!Hash::check($credentials['password'], $user->password)) {
             $this->securityService->recordFailedAttempt($user, $ip);
-            
+
             $attemptsLeft = AuthSecurityService::MAX_FAILED_ATTEMPTS - $user->fresh()->failed_login_attempts;
             $message = 'Credenciales inválidas';
-            
+
             if ($attemptsLeft > 0 && $attemptsLeft <= 3) {
                 $message .= ". {$attemptsLeft} intentos restantes.";
             }
-            
+
             return response()->json([
                 'success' => false,
                 'message' => $message,
@@ -109,6 +110,9 @@ class AuthController extends Controller
 
         // Login exitoso - limpiar intentos fallidos
         $this->securityService->clearFailedAttempts($user, $ip);
+
+        // Registrar login en auditoría
+        AuditoriaService::logLogin($user);
 
         // Crear token de autenticación (Sanctum) con nombre identificador
         $tokenName = 'auth-token-' . now()->timestamp;
@@ -159,12 +163,15 @@ class AuthController extends Controller
     public function logout(Request $request): JsonResponse
     {
         $user = $request->user();
-        
+
         Log::info('Logout de usuario', [
             'user_id' => $user->id,
             'username' => $user->username,
             'ip' => $request->ip()
         ]);
+
+        // Registrar logout en auditoría
+        AuditoriaService::logLogout($user);
 
         $request->user()->currentAccessToken()->delete();
 
@@ -180,7 +187,7 @@ class AuthController extends Controller
     public function logoutAll(Request $request): JsonResponse
     {
         $user = $request->user();
-        
+
         $this->securityService->revokeAllTokens($user);
 
         return response()->json([
@@ -248,6 +255,9 @@ class AuthController extends Controller
         $currentTokenId = $request->user()->currentAccessToken()->id;
         $user->tokens()->where('id', '!=', $currentTokenId)->delete();
 
+        // Registrar cambio de contraseña en auditoría
+        AuditoriaService::logCambioContrasena($user);
+
         Log::info('Contraseña cambiada exitosamente', [
             'user_id' => $user->id,
             'username' => $user->username,
@@ -266,10 +276,10 @@ class AuthController extends Controller
     public function refreshToken(Request $request): JsonResponse
     {
         $user = $request->user();
-        
+
         // Revocar token actual
         $request->user()->currentAccessToken()->delete();
-        
+
         // Crear nuevo token
         $tokenName = 'auth-token-' . now()->timestamp;
         $token = $user->createToken($tokenName, ['*'], now()->addHours(24))->plainTextToken;
@@ -288,15 +298,78 @@ class AuthController extends Controller
      */
     private function formatUser(User $user): array
     {
-        return [
+        $data = [
             'id' => (string) $user->id,
             'nombre' => $user->name,
             'username' => $user->username,
             'email' => $user->email,
             'rol' => $user->rol,
             'activo' => $user->activo,
-            'permisos' => $user->getFormattedPermissions(),
-            'last_login_at' => $user->last_login_at?->toISOString(),
+            'sucursal_id' => $user->sucursal_id,
         ];
+
+        // Cargar permisos si existen
+        if ($user->relationLoaded('permissions')) {
+            $data['permisos'] = $user->permissions->map(function ($permiso) {
+                return [
+                    'id' => $permiso->id,
+                    'modulo' => $permiso->modulo,
+                    'accion' => $permiso->accion,
+                ];
+            });
+        } else {
+            $data['permisos'] = [];
+        }
+
+        return $data;
+    }
+
+    /**
+     * Cambiar sucursal activa (superadmin y administrador)
+     */
+    public function cambiarSucursal(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        // SuperAdmin y Administrador pueden cambiar de sucursal
+        if (!in_array($user->rol, ['superadmin', 'administrador'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para cambiar de sucursal'
+            ], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'sucursal_id' => 'nullable|exists:sucursales,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error de validación',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $sucursalAnterior = $user->_sucursal_activa ?? $user->sucursal_id;
+        $sucursalNueva = $request->sucursal_id;
+
+        // Registrar cambio en auditoría
+        AuditoriaService::logCambioSucursal($user, $sucursalAnterior, $sucursalNueva);
+
+        Log::info('Usuario cambió de sucursal', [
+            'user_id' => $user->id,
+            'rol' => $user->rol,
+            'sucursal_anterior' => $sucursalAnterior,
+            'sucursal_nueva' => $sucursalNueva
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Sucursal cambiada exitosamente',
+            'data' => [
+                'sucursal_id' => $sucursalNueva
+            ]
+        ]);
     }
 }

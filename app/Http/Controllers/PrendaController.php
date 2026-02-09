@@ -146,8 +146,9 @@ class PrendaController extends Controller
         $orderDir = $request->get('order_dir', 'desc');
         $query->orderBy($orderBy, $orderDir);
 
-        // Paginación optimizada con chunks
-        $perPage = min((int) $request->get('per_page', 20), 100);
+        // Paginación optimizada con chunks (mínimo 10, máximo 100)
+        $perPage = (int) $request->get('per_page', 10);
+        $perPage = max(10, min(100, $perPage)); // Asegurar rango 10-100
         $page = (int) $request->get('page', 1);
 
         // Usar cursor pagination para mejor performance en datasets grandes
@@ -381,7 +382,7 @@ class PrendaController extends Controller
             'valor_venta' => 'sometimes|numeric|min:0',
             'precio_venta' => 'sometimes|numeric|min:0',
             'ubicacion_fisica' => 'sometimes|string|max:255',
-            'estado' => 'sometimes|in:en_custodia,recuperada,en_venta,vendida,perdida,dañada',
+            'estado' => 'sometimes|in:en_custodia,recuperada,en_venta,vendida,perdida,dañada,en_evaluacion,extraviada,danada',
         ]);
 
         if ($validator->fails()) {
@@ -391,6 +392,42 @@ class PrendaController extends Controller
                 'message' => 'Error de validación',
                 'errors' => $validator->errors(),
             ], 422);
+        }
+
+        // 🔒 VALIDACIÓN ESPECIAL: Si se está cambiando a "en_venta", verificar estado del crédito
+        if ($request->has('estado') && $request->estado === 'en_venta' && $prenda->credito_prendario_id) {
+            $prenda->load('creditoPrendario');
+
+            if ($prenda->creditoPrendario) {
+                $estadoCredito = $prenda->creditoPrendario->estado;
+                $estadosPermitidos = ['vencido', 'en_mora', 'cancelado', 'incobrable'];
+
+                // ⚠️ LÓGICA FLEXIBLE: Permitir si está vencido AUNQUE el estado sea "vigente"
+                $fechaVencimiento = $prenda->creditoPrendario->fecha_vencimiento;
+                $estaVencidoPorFecha = $fechaVencimiento && $fechaVencimiento->isPast();
+
+                if (!in_array($estadoCredito, $estadosPermitidos) && !$estaVencidoPorFecha) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "No se puede marcar en venta. El crédito está '{$estadoCredito}' y no ha vencido. Primero cambie el estado del crédito a 'vencido' o espere a la fecha de vencimiento.",
+                        'credito_estado' => $estadoCredito,
+                        'fecha_vencimiento' => $fechaVencimiento?->format('Y-m-d'),
+                    ], 422);
+                }
+
+                // ✅ Si está vencido por fecha pero aún dice "vigente", actualizar automáticamente
+                if ($estadoCredito === 'vigente' && $estaVencidoPorFecha) {
+                    $prenda->creditoPrendario->update([
+                        'estado' => 'vencido',
+                        'fecha_vencimiento' => $fechaVencimiento
+                    ]);
+
+                    Log::info('UPDATE PRENDA - Crédito actualizado automáticamente a vencido', [
+                        'credito_id' => $prenda->creditoPrendario->id,
+                        'fecha_vencimiento' => $fechaVencimiento
+                    ]);
+                }
+            }
         }
 
         // Actualizar solo los campos que vienen en el request
@@ -639,7 +676,9 @@ class PrendaController extends Controller
 
         $query->orderBy('fecha_ingreso', 'desc');
 
-        $perPage = (int) $request->get('per_page', 20);
+        // Validar rango de paginación (mínimo 10, máximo 100)
+        $perPage = (int) $request->get('per_page', 10);
+        $perPage = max(10, min(100, $perPage)); // Asegurar rango 10-100
 
         // Usar paginate para obtener metadata de paginación
         $prendas = $query->paginate($perPage);

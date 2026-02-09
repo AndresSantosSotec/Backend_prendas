@@ -213,13 +213,15 @@
     <table>
         <thead>
             <tr>
-                <th class="text-center" width="10%">No.</th>
-                <th width="20%">Vencimiento</th>
-                <th class="text-right" width="15%">Capital</th>
-                <th class="text-right" width="15%">Interés</th>
-                <th class="text-right" width="15%">Mora</th>
-                <th class="text-right" width="15%">Total</th>
-                <th class="text-center" width="10%">Estado</th>
+                <th class="text-center" width="7%">No.</th>
+                <th width="13%">Vencimiento</th>
+                <th class="text-right" width="12%">Capital</th>
+                <th class="text-right" width="12%">Interés</th>
+                <th class="text-right" width="12%">Mora</th>
+                <th class="text-right" width="12%">Otros</th>
+                <th class="text-right" width="12%">Total</th>
+                <th class="text-right" width="12%">Saldo</th>
+                <th class="text-center" width="8%">Estado</th>
             </tr>
         </thead>
         <tbody>
@@ -227,19 +229,27 @@
                 $totalCapital = 0;
                 $totalInteres = 0;
                 $totalMora = 0;
+                $totalOtros = 0;
                 $totalGeneral = 0;
+                $saldoPendiente = $credito->monto_aprobado ?? $credito->monto_solicitado;
             @endphp
             @foreach($planPagos as $cuota)
                 @php
                     $capital = $cuota->capital_proyectado ?? 0;
                     $interes = $cuota->interes_proyectado ?? 0;
                     $mora = $cuota->mora_proyectada ?? 0;
-                    $totalCuota = $cuota->monto_cuota_proyectado ?? ($capital + $interes + $mora);
+                    // Soportar tanto créditos reales (otros_cargos_proyectados) como simulaciones (otros_proyectados)
+                    $otros = $cuota->otros_cargos_proyectados ?? $cuota->otros_proyectados ?? 0;
+                    $totalCuota = $cuota->monto_cuota_proyectado ?? ($capital + $interes + $mora + $otros);
 
                     $totalCapital += $capital;
                     $totalInteres += $interes;
                     $totalMora += $mora;
+                    $totalOtros += $otros;
                     $totalGeneral += $totalCuota;
+
+                    // Calcular saldo restante después de esta cuota
+                    $saldoDespuesCuota = $saldoPendiente - $capital;
 
                     $estadoClass = match($cuota->estado) {
                         'pagada' => 'status-paid',
@@ -253,20 +263,30 @@
                     <td class="text-right">Q {{ number_format($capital, 2, '.', ',') }}</td>
                     <td class="text-right">Q {{ number_format($interes, 2, '.', ',') }}</td>
                     <td class="text-right">Q {{ number_format($mora, 2, '.', ',') }}</td>
+                    <td class="text-right">Q {{ number_format($otros, 2, '.', ',') }}</td>
                     <td class="text-right amount-value" style="font-size: 11px;">Q {{ number_format($totalCuota, 2, '.', ',') }}</td>
+                    <td class="text-right" style="font-weight: bold; color: {{ $saldoDespuesCuota <= 0 ? '#166534' : '#1e293b' }};">
+                        Q {{ number_format($saldoDespuesCuota, 2, '.', ',') }}
+                    </td>
                     <td class="text-center">
                         <span class="status-badge {{ $estadoClass }}">
                             {{ $cuota->estado }}
                         </span>
                     </td>
                 </tr>
+                @php
+                    // Actualizar saldo para la siguiente iteración
+                    $saldoPendiente = $saldoDespuesCuota;
+                @endphp
             @endforeach
             <tr class="total-row">
                 <td colspan="2" class="text-right">TOTALES</td>
                 <td class="text-right">Q {{ number_format($totalCapital, 2, '.', ',') }}</td>
                 <td class="text-right">Q {{ number_format($totalInteres, 2, '.', ',') }}</td>
                 <td class="text-right">Q {{ number_format($totalMora, 2, '.', ',') }}</td>
+                <td class="text-right">Q {{ number_format($totalOtros, 2, '.', ',') }}</td>
                 <td class="text-right">Q {{ number_format($totalGeneral, 2, '.', ',') }}</td>
+                <td class="text-right" style="color: #166534;">Q 0.00</td>
                 <td></td>
             </tr>
         </tbody>

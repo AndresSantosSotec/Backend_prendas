@@ -123,4 +123,20 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Security Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configuración de seguridad personalizada para la aplicación
+    |
+    */
+
+    'security' => [
+        'enable_audit_log' => env('SECURITY_ENABLE_AUDIT_LOG', true),
+        'enable_rate_limiting' => env('SECURITY_ENABLE_RATE_LIMITING', true),
+        'max_login_attempts' => env('SECURITY_MAX_LOGIN_ATTEMPTS', 5),
+        'lockout_minutes' => env('SECURITY_LOCKOUT_MINUTES', 15),
+    ],
+
 ];

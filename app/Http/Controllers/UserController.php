@@ -18,7 +18,7 @@ class UserController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = User::query();
+        $query = User::with('sucursal');
 
         // Filtros
         if ($request->has('activo') && $request->activo !== '') {
@@ -42,15 +42,16 @@ class UserController extends Controller
         $orderBy = $request->get('order_by', 'created_at');
         $orderDir = $request->get('order_dir', 'desc');
         $allowedOrderFields = ['name', 'email', 'rol', 'created_at', 'activo'];
-        
+
         if (in_array($orderBy, $allowedOrderFields)) {
             $query->orderBy($orderBy, $orderDir === 'asc' ? 'asc' : 'desc');
         } else {
             $query->orderBy('created_at', 'desc');
         }
 
-        // Paginación
-        $perPage = min((int) $request->get('per_page', 10), 100); // Máximo 100 por página
+        // Paginación con validación (mínimo 10, máximo 100)
+        $perPage = (int) $request->get('per_page', 10);
+        $perPage = max(10, min(100, $perPage)); // Asegurar rango 10-100
         $page = (int) $request->get('page', 1);
 
         // Clonar query para contar total filtrado
@@ -111,7 +112,7 @@ class UserController extends Controller
      */
     public function show(string $id): JsonResponse
     {
-        $user = User::find($id);
+        $user = User::with('sucursal')->find($id);
 
         if (!$user) {
             return response()->json([
@@ -131,13 +132,16 @@ class UserController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        $authUser = $request->user();
+
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'username' => 'required|string|max:255|unique:users,username|regex:/^[a-zA-Z0-9_]+$/',
             'email' => 'required|email|max:255|unique:users,email',
             'password' => AuthSecurityService::getPasswordValidationRules(),
-            'rol' => 'required|in:administrador,cajero,tasador,supervisor,vendedor',
+            'rol' => 'required|in:superadmin,administrador,cajero,tasador,supervisor,vendedor',
             'activo' => 'nullable|boolean',
+            'sucursal_id' => 'nullable|exists:sucursales,id',
         ], array_merge(
             AuthSecurityService::getPasswordValidationMessages(),
             ['username.regex' => 'El nombre de usuario solo puede contener letras, números y guiones bajos']
@@ -154,6 +158,18 @@ class UserController extends Controller
         $data = $validator->validated();
         $data['password'] = Hash::make($data['password']);
         $data['activo'] = $data['activo'] ?? true;
+
+        // 🏢 ASIGNACIÓN DE SUCURSAL
+        // SuperAdmin y Administrador pueden elegir la sucursal
+        // Otros roles heredan la sucursal del usuario que está creando
+        if (in_array($authUser->rol, ['superadmin', 'administrador']) && isset($data['sucursal_id'])) {
+            // SuperAdmin y Administrador pueden elegir la sucursal
+            $data['sucursal_id'] = $data['sucursal_id'];
+        } elseif (!in_array($authUser->rol, ['superadmin', 'administrador'])) {
+            // Otros roles: heredar su propia sucursal
+            $data['sucursal_id'] = $authUser->sucursal_id;
+        }
+        // Si es superadmin o administrador y no envió sucursal_id, se mantiene como null (puede ver todas)
 
         $user = User::create($data);
 
@@ -178,13 +194,16 @@ class UserController extends Controller
             ], 404);
         }
 
+        $authUser = $request->user();
+
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
             'username' => ['sometimes', 'required', 'string', 'max:255', Rule::unique('users')->ignore($user->id)],
             'email' => ['sometimes', 'required', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
             'password' => 'nullable|string|min:6',
-            'rol' => 'sometimes|required|in:administrador,cajero,tasador,supervisor,vendedor',
+            'rol' => 'sometimes|required|in:superadmin,administrador,cajero,tasador,supervisor,vendedor',
             'activo' => 'nullable|boolean',
+            'sucursal_id' => 'nullable|exists:sucursales,id',
         ]);
 
         if ($validator->fails()) {
@@ -202,6 +221,17 @@ class UserController extends Controller
             $data['password'] = Hash::make($data['password']);
         } else {
             unset($data['password']);
+        }
+
+        // 🏢 VALIDACIÓN DE CAMBIO DE SUCURSAL
+        // SuperAdmin y Administrador pueden cambiar la sucursal de un usuario
+        if (isset($data['sucursal_id'])) {
+            if (!in_array($authUser->rol, ['superadmin', 'administrador'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No tienes permisos para cambiar la sucursal de un usuario'
+                ], 403);
+            }
         }
 
         $user->update($data);
@@ -331,6 +361,12 @@ class UserController extends Controller
             'email' => $user->email,
             'rol' => $user->rol,
             'activo' => $user->activo,
+            'sucursal_id' => $user->sucursal_id,
+            'sucursal' => $user->sucursal ? [
+                'id' => (string) $user->sucursal->id,
+                'codigo' => $user->sucursal->codigo,
+                'nombre' => $user->sucursal->nombre,
+            ] : null,
             'creadoEn' => $user->created_at->toISOString(),
             'actualizadoEn' => $user->updated_at->toISOString(),
         ];

@@ -107,8 +107,9 @@ class ClienteController extends Controller
                 ->pluck('sucursal')
                 ->toArray();
 
-            // Paginación optimizada con chunks
-            $perPage = min((int) $request->get('per_page', 20), 100);
+            // Paginación optimizada con chunks (mínimo 10, máximo 100)
+            $perPage = (int) $request->get('per_page', 10);
+            $perPage = max(10, min(100, $perPage)); // Asegurar rango 10-100
             $page = (int) $request->get('page', 1);
 
             // Usar cursor pagination para mejor performance en datasets grandes
@@ -337,7 +338,7 @@ class ClienteController extends Controller
 
         // Estadísticas de créditos
         $creditos = CreditoPrendario::where('cliente_id', $cliente->id)->get();
-        
+
         $stats = [
             'total_historial' => $creditos->count(),
             'activos' => $creditos->whereIn('estado', ['vigente', 'en_mora', 'aprobado'])->count(),
@@ -355,6 +356,44 @@ class ClienteController extends Controller
         ];
 
         // Comportamiento de pago (Credit Score Simple)
+        $movimientosPago = \App\Models\CreditoMovimiento::whereIn('credito_prendario_id', $creditos->pluck('id'))
+            ->where('tipo_movimiento', '!=', 'desembolso')
+            ->get();
+
+        $pagosPuntuales = 0;
+        $pagosTotal = $movimientosPago->count();
+
+        // Calcular puntualidad - considera pagos a tiempo O adelantados
+        foreach ($movimientosPago as $mov) {
+            $cuota = \App\Models\CreditoPlanPago::find($mov->cuota_id);
+            if ($cuota) {
+                // Pago puntual = hecho antes o el mismo día del vencimiento
+                if ($mov->fecha_movimiento <= $cuota->fecha_vencimiento) {
+                    $pagosPuntuales++;
+                }
+            }
+        }
+
+        $tasaPuntualidad = $pagosTotal > 0 ? ($pagosPuntuales / $pagosTotal) * 100 : null;
+
+        $comportamiento = [
+            'pagos_puntuales' => $pagosPuntuales,
+            'pagos_total' => $pagosTotal,
+            'tasa_puntualidad' => $tasaPuntualidad,
+            'comportamiento' => 'SIN DATOS',
+        ];
+
+        if ($tasaPuntualidad !== null) {
+            if ($tasaPuntualidad >= 90) {
+                $comportamiento['comportamiento'] = 'Puntual';
+            } elseif ($tasaPuntualidad >= 70) {
+                $comportamiento['comportamiento'] = 'Regular';
+            } else {
+                $comportamiento['comportamiento'] = 'Moroso';
+            }
+        }
+
+        // Score de riesgo
         $score = [
             'puntos' => 100,
             'nivel' => 'Excelente',
@@ -364,7 +403,7 @@ class ClienteController extends Controller
         if ($stats['vencidos'] > 0) {
             $score['puntos'] -= ($stats['vencidos'] * 20);
         }
-        
+
         // Penalización por mora activa
         $creditosMora = $creditos->where('estado', 'en_mora')->count();
         if ($creditosMora > 0) {
@@ -379,12 +418,15 @@ class ClienteController extends Controller
             $score['color'] = 'orange';
         }
 
+        // Añadir saldo_pendiente_actual a stats
+        $stats['saldo_pendiente_actual'] = $stats['saldo_actual_total'];
+
         return response()->json([
             'success' => true,
             'data' => [
                 'cliente' => $this->formatCliente($cliente),
-                'resumen_financiero' => $stats,
-                'comportamiento' => $score,
+                'stats' => $stats, // Cambiar de resumen_financiero a stats
+                'comportamiento' => array_merge($comportamiento, $score),
                 'creditos_recientes' => $creditos->sortByDesc('fecha_solicitud')->take(5)->map(function($c) {
                     return [
                         'id' => (string) $c->id,
@@ -397,6 +439,124 @@ class ClienteController extends Controller
                 })->values()
             ]
         ]);
+    }
+
+    /**
+     * Generar y descargar ficha completa del cliente en PDF
+     */
+    public function descargarFichaCliente(string $id)
+    {
+        try {
+            $cliente = Cliente::findOrFail($id);
+
+            // Obtener todos los créditos del cliente (activos y archivados)
+            $creditos = \App\Models\CreditoPrendario::where('cliente_id', $id)
+                ->with(['prendas', 'planPagos', 'movimientos'])
+                ->get();
+
+            // Estadísticas financieras
+            $stats = [
+                'total_historial' => $creditos->count(),
+                'activos' => $creditos->where('estado', '!=', 'liquidado')->where('eliminado', false)->count(),
+                'liquidados' => $creditos->where('estado', 'liquidado')->count(),
+                'vencidos' => $creditos->where('estado', 'vencido')->count(),
+                'monto_total_prestado' => $creditos->sum('monto_aprobado'),
+                'saldo_actual_total' => $creditos->where('estado', '!=', 'liquidado')->sum(function($c) {
+                    return $c->capital_pendiente + ($c->interes_generado - $c->interes_pagado) + ($c->mora_generada - $c->mora_pagada);
+                }),
+            ];
+
+            // Comportamiento de pago
+            $movimientosPago = \App\Models\CreditoMovimiento::whereIn('credito_prendario_id', $creditos->pluck('id'))
+                ->where('tipo_movimiento', '!=', 'desembolso')
+                ->get();
+
+            $pagosPuntuales = 0;
+            $pagosTotal = $movimientosPago->count();
+
+            foreach ($movimientosPago as $mov) {
+                $cuota = \App\Models\CreditoPlanPago::find($mov->cuota_id);
+                if ($cuota && $mov->fecha_movimiento <= $cuota->fecha_vencimiento) {
+                    $pagosPuntuales++;
+                }
+            }
+
+            $tasaPuntualidad = $pagosTotal > 0 ? ($pagosPuntuales / $pagosTotal) * 100 : null;
+
+            $comportamiento = [
+                'pagos_puntuales' => $pagosPuntuales,
+                'pagos_total' => $pagosTotal,
+                'tasa_puntualidad' => $tasaPuntualidad,
+                'comportamiento' => 'SIN DATOS',
+            ];
+
+            if ($tasaPuntualidad !== null) {
+                if ($tasaPuntualidad >= 90) {
+                    $comportamiento['comportamiento'] = 'Puntual';
+                } elseif ($tasaPuntualidad >= 70) {
+                    $comportamiento['comportamiento'] = 'Regular';
+                } else {
+                    $comportamiento['comportamiento'] = 'Moroso';
+                }
+            }
+
+            // Score de riesgo
+            $score = [
+                'puntos' => 100,
+                'nivel' => 'Excelente',
+                'color' => 'green',
+            ];
+
+            if ($stats['vencidos'] > 0) {
+                $score['puntos'] -= ($stats['vencidos'] * 20);
+            }
+
+            $creditosMora = $creditos->where('estado', 'en_mora')->count();
+            if ($creditosMora > 0) {
+                $score['puntos'] -= ($creditosMora * 10);
+            }
+
+            if ($score['puntos'] < 40) {
+                $score['nivel'] = 'Riesgoso';
+                $score['color'] = 'red';
+            } elseif ($score['puntos'] < 70) {
+                $score['nivel'] = 'Regular';
+                $score['color'] = 'orange';
+            }
+
+            $data = [
+                'cliente' => $cliente,
+                'stats' => $stats,
+                'comportamiento' => array_merge($comportamiento, $score),
+                'creditos_activos' => $creditos->where('estado', '!=', 'liquidado')->where('eliminado', false)->sortByDesc('fecha_solicitud')->take(10),
+                'creditos_liquidados' => $creditos->where('estado', 'liquidado')->sortByDesc('fecha_solicitud')->take(5),
+                'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
+            ];
+
+            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('clientes.ficha', $data);
+            $pdf->setPaper('letter', 'portrait');
+
+            $nombreArchivo = 'Ficha_Cliente_' . ($cliente->codigo_cliente ?? $cliente->id) . '_' . date('Ymd') . '.pdf';
+
+            return $pdf->download($nombreArchivo);
+
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            Log::error('Cliente no encontrado para ficha PDF: ' . $id);
+            return response()->json([
+                'success' => false,
+                'message' => 'Cliente no encontrado'
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Error al generar ficha del cliente PDF: ' . $e->getMessage(), [
+                'cliente_id' => $id,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar la ficha del cliente',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
+        }
     }
 
     /**

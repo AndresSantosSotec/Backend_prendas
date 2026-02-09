@@ -52,6 +52,7 @@ class ChatbotController extends Controller
 
         try {
             // Llamar a GROQ API
+            /** @var \Illuminate\Http\Client\Response $response */
             $response = Http::timeout(15)
                 ->withHeaders([
                     'Authorization' => 'Bearer ' . $this->groqApiKey,

@@ -23,7 +23,7 @@ class PagoController extends Controller
     {
         try {
             $credito = CreditoPrendario::findOrFail($id);
-            
+
             $calculo = $this->pagoService->calcularDeudaAlDia($credito);
 
             return response()->json([
@@ -42,17 +42,19 @@ class PagoController extends Controller
     }
 
     /**
-     * Ejecutar un pago (Renovación, Parcial, Total).
+     * Ejecutar un pago (Cuota, Renovación, Adelanto, Abono/Parcial, Liquidación).
      */
     public function ejecutarPago(Request $request, string $id)
     {
         $request->validate([
-            'tipo' => 'required|in:RENOVACION,PARCIAL,LIQUIDACION',
+            'tipo' => 'required|in:CUOTA,RENOVACION,ADELANTO,PARCIAL,LIQUIDACION',
             'monto' => 'required|numeric|min:0.01',
             'metodo_pago' => 'nullable|string',
             'referencia' => 'nullable|string',
             'observaciones' => 'nullable|string',
-            'idempotency_key' => 'required|string|uuid'
+            'idempotency_key' => 'required|string|uuid',
+            'periodos' => 'nullable|integer|min:1|max:12', // Para RENOVACION
+            'cuotas' => 'nullable|integer|min:1|max:10', // Para ADELANTO
         ]);
 
         try {
