@@ -5,71 +5,104 @@
     <title>Reporte de Movimientos de Caja</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
-            font-size: 12px;
-            margin: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            margin: 15px;
+            color: #000;
+            line-height: 1.3;
         }
         .header {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 15px;
+            border: 2px solid #000;
+            padding: 10px;
         }
         .header h1 {
             margin: 0;
-            color: #333;
+            color: #000;
+            font-size: 18px;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+        .header p {
+            margin-top: 5px;
+            font-size: 10px;
         }
         .info-caja {
             background: #f5f5f5;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
+            padding: 12px;
+            border: 2px solid #000;
+            margin-bottom: 15px;
         }
         .info-row {
-            display: flex;
-            justify-content: space-between;
+            overflow: hidden;
             margin-bottom: 8px;
+        }
+        .info-row span {
+            display: inline-block;
+            margin-right: 20px;
         }
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
+            margin-top: 15px;
         }
         th {
-            background: #4A5568;
+            background: #000;
             color: white;
-            padding: 10px;
+            padding: 8px;
             text-align: left;
+            border: 1px solid #000;
+            font-size: 10px;
         }
         td {
-            border: 1px solid #ddd;
+            border: 1px solid #000;
             padding: 8px;
+            font-size: 10px;
         }
         tr:nth-child(even) {
-            background: #f9f9f9;
+            background: #f5f5f5;
         }
         .resumen {
-            margin-top: 30px;
-            background: #e8f5e9;
-            padding: 15px;
-            border-radius: 5px;
+            margin-top: 20px;
+            background: #f5f5f5;
+            padding: 12px;
+            border: 2px solid #000;
         }
         .resumen-row {
-            display: flex;
-            justify-content: space-between;
+            overflow: hidden;
             margin-bottom: 8px;
+            padding: 4px 0;
+            font-size: 10px;
+        }
+        .resumen-row span:first-child {
+            float: left;
             font-weight: bold;
         }
+        .resumen-row span:last-child {
+            float: right;
+            font-weight: bold;
+        }
+        .resumen-row.total {
+            border-top: 2px solid #000;
+            padding-top: 10px;
+            margin-top: 10px;
+            font-size: 11px;
+        }
         .footer {
-            margin-top: 30px;
+            margin-top: 20px;
             text-align: center;
-            font-size: 10px;
-            color: #666;
+            font-size: 9px;
+            color: #000;
+            border-top: 1px solid #000;
+            padding-top: 8px;
         }
         .ingreso {
-            color: #2e7d32;
+            color: #000;
             font-weight: bold;
         }
         .egreso {
-            color: #c62828;
+            color: #000;
             font-weight: bold;
         }
     </style>
@@ -145,7 +178,7 @@
             <span>Total Egresos:</span>
             <span class="egreso">Q {{ number_format($totalEgresos, 2) }}</span>
         </div>
-        <div class="resumen-row" style="border-top: 2px solid #333; padding-top: 10px; margin-top: 10px;">
+        <div class="resumen-row total">
             <span>Saldo Neto:</span>
             <span>Q {{ number_format($saldoNeto, 2) }}</span>
         </div>

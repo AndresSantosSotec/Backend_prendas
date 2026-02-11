@@ -5,79 +5,91 @@
     <title>Consolidado de Cajas</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Courier New', monospace;
             font-size: 11px;
-            margin: 20px;
+            margin: 15px;
+            color: #000;
+            line-height: 1.3;
         }
         .header {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 15px;
+            border: 2px solid #000;
+            padding: 10px;
         }
         .header h1 {
             margin: 0;
-            color: #333;
+            color: #000;
+            font-size: 18px;
+            font-weight: bold;
+            letter-spacing: 1px;
         }
-        .estadisticas {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-            margin-bottom: 30px;
+        .header p {
+            margin-top: 5px;
+            font-size: 10px;
         }
         .stat-card {
             background: #f5f5f5;
-            padding: 15px;
-            border-radius: 5px;
+            padding: 12px;
+            border: 2px solid #000;
             text-align: center;
         }
         .stat-card h3 {
-            margin: 0 0 10px 0;
-            font-size: 12px;
-            color: #666;
+            margin: 0 0 8px 0;
+            font-size: 9px;
+            color: #000;
+            font-weight: bold;
+            text-transform: uppercase;
         }
         .stat-card .value {
-            font-size: 24px;
+            font-size: 12px;
             font-weight: bold;
-            color: #333;
+            color: #000;
         }
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
+            margin-top: 15px;
         }
         th {
-            background: #4A5568;
+            background: #000;
             color: white;
             padding: 8px;
             text-align: left;
             font-size: 10px;
+            border: 1px solid #000;
         }
         td {
-            border: 1px solid #ddd;
+            border: 1px solid #000;
             padding: 6px;
             font-size: 10px;
         }
         tr:nth-child(even) {
-            background: #f9f9f9;
+            background: #f5f5f5;
         }
         .footer {
-            margin-top: 30px;
+            margin-top: 20px;
             text-align: center;
             font-size: 9px;
-            color: #666;
+            color: #000;
+            border-top: 1px solid #000;
+            padding-top: 8px;
         }
         .estado-abierta {
-            background: #4caf50;
-            color: white;
+            background: #f5f5f5;
+            color: #000;
             padding: 3px 8px;
-            border-radius: 3px;
+            border: 1px solid #000;
             font-size: 9px;
+            font-weight: bold;
         }
         .estado-cerrada {
-            background: #757575;
-            color: white;
+            background: #e0e0e0;
+            color: #000;
             padding: 3px 8px;
-            border-radius: 3px;
+            border: 1px solid #000;
             font-size: 9px;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -99,34 +111,50 @@
         @endif
     </div>
 
-    <div class="estadisticas">
-        <div class="stat-card">
-            <h3>Total Cajas</h3>
-            <div class="value">{{ $estadisticas['total_cajas'] }}</div>
-        </div>
-        <div class="stat-card">
-            <h3>Cajas Abiertas</h3>
-            <div class="value" style="color: #4caf50;">{{ $estadisticas['cajas_abiertas'] }}</div>
-        </div>
-        <div class="stat-card">
-            <h3>Cajas Cerradas</h3>
-            <div class="value" style="color: #757575;">{{ $estadisticas['cajas_cerradas'] }}</div>
-        </div>
-        <div class="stat-card">
-            <h3>Total Saldo Inicial</h3>
-            <div class="value" style="font-size: 18px;">Q {{ number_format($estadisticas['total_saldo_inicial'], 2) }}</div>
-        </div>
-        <div class="stat-card">
-            <h3>Total Saldo Final</h3>
-            <div class="value" style="font-size: 18px;">Q {{ number_format($estadisticas['total_saldo_final'], 2) }}</div>
-        </div>
-        <div class="stat-card">
-            <h3>Diferencia Total</h3>
-            <div class="value" style="font-size: 18px; color: {{ $estadisticas['total_diferencia'] >= 0 ? '#4caf50' : '#f44336' }};">
-                Q {{ number_format($estadisticas['total_diferencia'], 2) }}
-            </div>
-        </div>
-    </div>
+    <table style="width:100%; border-collapse: collapse; margin-bottom:15px;">
+        <tr>
+            <td style="width:33.33%; padding:5px;">
+                <div class="stat-card">
+                    <h3>Total Cajas</h3>
+                    <div class="value">{{ $estadisticas['total_cajas'] }}</div>
+                </div>
+            </td>
+            <td style="width:33.33%; padding:5px;">
+                <div class="stat-card">
+                    <h3>Cajas Abiertas</h3>
+                    <div class="value">{{ $estadisticas['cajas_abiertas'] }}</div>
+                </div>
+            </td>
+            <td style="width:33.33%; padding:5px;">
+                <div class="stat-card">
+                    <h3>Cajas Cerradas</h3>
+                    <div class="value">{{ $estadisticas['cajas_cerradas'] }}</div>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td style="width:33.33%; padding:5px;">
+                <div class="stat-card">
+                    <h3>Total Saldo Inicial</h3>
+                    <div class="value" style="font-size: 14px;">Q {{ number_format($estadisticas['total_saldo_inicial'], 2) }}</div>
+                </div>
+            </td>
+            <td style="width:33.33%; padding:5px;">
+                <div class="stat-card">
+                    <h3>Total Saldo Final</h3>
+                    <div class="value" style="font-size: 14px;">Q {{ number_format($estadisticas['total_saldo_final'], 2) }}</div>
+                </div>
+            </td>
+            <td style="width:33.33%; padding:5px;">
+                <div class="stat-card">
+                    <h3>Diferencia Total</h3>
+                    <div class="value" style="font-size: 14px;">
+                        Q {{ number_format($estadisticas['total_diferencia'], 2) }}
+                    </div>
+                </div>
+            </td>
+        </tr>
+    </table>
 
     <table>
         <thead>

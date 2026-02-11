@@ -9,11 +9,11 @@
             margin: 0cm 0cm;
         }
         body {
-            font-family: 'Helvetica', 'Arial', sans-serif;
-            font-size: 10px;
-            color: #444;
-            line-height: 1.5;
-            margin-top: 3cm;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: #000;
+            line-height: 1.3;
+            margin-top: 2cm;
             margin-bottom: 2cm;
             margin-left: 2cm;
             margin-right: 2cm;
@@ -24,11 +24,11 @@
             left: 0cm;
             right: 0cm;
             height: 2.5cm;
-            background-color: #f8f9fa;
-            color: #333;
+            background-color: #fff;
+            color: #000;
             text-align: center;
             line-height: 30px;
-            border-bottom: 3px solid #2563eb;
+            border-bottom: 2px solid #000;
         }
         footer {
             position: fixed;
@@ -36,18 +36,18 @@
             left: 0cm;
             right: 0cm;
             height: 1.5cm;
-            background-color: #f8f9fa;
-            color: #666;
+            background-color: #fff;
+            color: #000;
             text-align: center;
             line-height: 1.5cm;
-            border-top: 1px solid #ddd;
+            border-top: 1px solid #000;
             font-size: 9px;
         }
         .document-title {
             text-align: center;
-            font-size: 16px;
+            font-size: 18px;
             font-weight: bold;
-            color: #2563eb;
+            color: #000;
             margin-top: 10px;
             margin-bottom: 20px;
             text-transform: uppercase;
@@ -61,31 +61,31 @@
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
         th {
-            background-color: #f1f5f9;
-            color: #475569;
+            background-color: #000;
+            color: #fff;
             font-weight: bold;
             text-transform: uppercase;
-            font-size: 9px;
+            font-size: 10px;
             padding: 10px 8px;
-            border-bottom: 2px solid #e2e8f0;
+            border: 1px solid #000;
             text-align: left;
         }
         td {
             padding: 8px;
-            border-bottom: 1px solid #e2e8f0;
-            color: #334155;
+            border: 1px solid #000;
+            color: #000;
             vertical-align: middle;
-            font-size: 9px;
+            font-size: 10px;
         }
         .text-right { text-align: right; }
         .text-center { text-align: center; }
-        
-        tr:nth-child(even) { background-color: #f8fafc; }
-        
+
+        tr:nth-child(even) { background-color: #f5f5f5; }
+
         .status-badge {
             padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 8px;
+            border: 1px solid #000;
+            font-size: 9px;
             font-weight: bold;
             text-transform: uppercase;
         }

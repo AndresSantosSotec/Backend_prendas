@@ -17,6 +17,7 @@ use App\Http\Controllers\ReciboController;
 use App\Http\Controllers\ReporteCajaController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\CompraController;
+use App\Http\Controllers\Api\ReporteComprasController;
 use App\Http\Controllers\AuditoriaController;
 use Illuminate\Support\Facades\DB;
 
@@ -295,8 +296,29 @@ Route::prefix('v1')->group(function () {
             Route::post('/ventas/{id}/certificar', [\App\Http\Controllers\VentaController::class, 'certificar']);
             Route::delete('/ventas/{id}', [\App\Http\Controllers\VentaController::class, 'destroy']);
 
-            // Compras
+            // Compras Directas
+            Route::get('/compras', [CompraController::class, 'index']);
+            Route::get('/compras/stats/general', [CompraController::class, 'stats']);
             Route::post('/compras', [CompraController::class, 'store']);
+            Route::get('/compras/{id}', [CompraController::class, 'show']);
+            Route::put('/compras/{id}', [CompraController::class, 'update']);
+            Route::delete('/compras/{id}', [CompraController::class, 'destroy']);
+            Route::post('/compras/{id}/cancelar', [CompraController::class, 'cancel']);
+            Route::get('/compras/{id}/recibo-pdf', [CompraController::class, 'generarReciboPDF']);
+
+            // Reportes de Compras
+            Route::get('/reportes/compras/pdf', [ReporteComprasController::class, 'generarPDF']);
+            Route::get('/reportes/compras/excel', [ReporteComprasController::class, 'generarExcel']);
+            Route::get('/reportes/compras/vista-previa', [ReporteComprasController::class, 'vistaPrevia']);
+
+            // Cotizaciones
+            Route::get('/cotizaciones', [\App\Http\Controllers\CotizacionController::class, 'index']);
+            Route::post('/cotizaciones', [\App\Http\Controllers\CotizacionController::class, 'store']);
+            Route::get('/cotizaciones/{id}', [\App\Http\Controllers\CotizacionController::class, 'show']);
+            Route::put('/cotizaciones/{id}', [\App\Http\Controllers\CotizacionController::class, 'update']);
+            Route::delete('/cotizaciones/{id}', [\App\Http\Controllers\CotizacionController::class, 'destroy']);
+            Route::get('/cotizaciones/{id}/pdf', [\App\Http\Controllers\CotizacionController::class, 'generarPDF']);
+            Route::post('/cotizaciones/{id}/convertir', [\App\Http\Controllers\CotizacionController::class, 'convertirAVenta']);
 
             // Caja
             Route::get('/cajas', [CajaController::class, 'index']);
@@ -335,8 +357,10 @@ Route::prefix('v1')->group(function () {
 
     // 🔒 Rutas de Descargas con Rate Limiting y Autenticación
     Route::middleware(['auth:sanctum', 'throttle.downloads'])->group(function () {
-        Route::get('/ventas/{id}/pdf', [\App\Http\Controllers\VentaController::class, 'generarPDF']);
+        // Rutas específicas de exportar ANTES de las rutas con parámetros {id}
         Route::get('/ventas/exportar/excel', [\App\Http\Controllers\VentaController::class, 'exportarExcel']);
+        Route::get('/ventas/exportar/pdf', [\App\Http\Controllers\VentaController::class, 'exportarPDF']);
+        Route::get('/ventas/{id}/pdf', [\App\Http\Controllers\VentaController::class, 'generarPDF']);
         Route::get('/creditos-prendarios/{id}/plan-pagos/pdf', [CreditoPrendarioController::class, 'descargarPlanPagos']);
         Route::get('/creditos-prendarios/{id}/contrato/pdf', [CreditoPrendarioController::class, 'descargarContrato']);
         Route::get('/creditos-prendarios/{id}/recibo/pdf', [CreditoPrendarioController::class, 'descargarRecibo']);

@@ -432,6 +432,58 @@ class VentaController extends Controller
     }
 
     /**
+     * Exportar listado a PDF
+     */
+    public function exportarPDF(Request $request)
+    {
+        try {
+            $filtros = $request->all();
+
+            $query = Venta::with(['cliente', 'vendedor', 'sucursal']);
+
+            if (!empty($filtros['estado']) && $filtros['estado'] !== 'todas') {
+                $query->where('estado', $filtros['estado']);
+            }
+
+            if (!empty($filtros['busqueda'])) {
+                $busqueda = $filtros['busqueda'];
+                $query->where(function($q) use ($busqueda) {
+                    $q->where('codigo_venta', 'like', "%{$busqueda}%")
+                      ->orWhere('cliente_nombre', 'like', "%{$busqueda}%")
+                      ->orWhere('cliente_nit', 'like', "%{$busqueda}%");
+                });
+            }
+
+            if (!empty($filtros['fecha_desde'])) {
+                $query->whereDate('fecha_venta', '>=', $filtros['fecha_desde']);
+            }
+
+            if (!empty($filtros['fecha_hasta'])) {
+                $query->whereDate('fecha_venta', '<=', $filtros['fecha_hasta']);
+            }
+
+            $ventas = $query->orderBy('fecha_venta', 'desc')->get();
+
+            $totales = [
+                'subtotal' => $ventas->sum('subtotal'),
+                'descuentos' => $ventas->sum('total_descuentos'),
+                'total' => $ventas->sum('total_final'),
+            ];
+
+            $pdf = Pdf::loadView('reports.ventas-listado', compact('ventas', 'filtros', 'totales'));
+            $pdf->setPaper('letter', 'landscape');
+
+            return $pdf->download('Listado_Ventas_' . date('Ymd_His') . '.pdf');
+        } catch (\Exception $e) {
+            Log::error('Error al exportar PDF de ventas: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al exportar a PDF: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Obtener estadísticas de ventas
      */
     public function estadisticas(Request $request)

@@ -11,40 +11,47 @@
             box-sizing: border-box;
         }
         body {
-            font-family: Arial, sans-serif;
-            font-size: 9pt;
-            color: #333;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: #000;
+            line-height: 1.3;
         }
         .header {
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
             padding-bottom: 10px;
-            border-bottom: 2px solid #D32F2F;
+            border: 2px solid #000;
+            padding: 10px;
         }
         .header h1 {
-            color: #D32F2F;
-            font-size: 18pt;
+            color: #000;
+            font-size: 18px;
             margin-bottom: 5px;
+            font-weight: bold;
+            letter-spacing: 1px;
         }
         .header h2 {
-            color: #555;
-            font-size: 12pt;
+            color: #000;
+            font-size: 11px;
             font-weight: normal;
         }
         .info-section {
-            margin-bottom: 15px;
+            margin-bottom: 12px;
             padding: 10px;
             background-color: #f5f5f5;
-            border-radius: 4px;
+            border: 2px solid #000;
         }
         .info-row {
-            display: flex;
-            justify-content: space-between;
+            overflow: hidden;
             margin-bottom: 5px;
+        }
+        .info-row span {
+            display: inline-block;
+            margin-right: 20px;
         }
         .info-label {
             font-weight: bold;
-            color: #666;
+            color: #000;
         }
         table {
             width: 100%;
@@ -52,22 +59,22 @@
             margin-top: 10px;
         }
         thead {
-            background-color: #D32F2F;
+            background-color: #000;
             color: white;
         }
         th {
             padding: 8px 5px;
             text-align: left;
-            font-size: 8pt;
-            border: 1px solid #ddd;
+            font-size: 10px;
+            border: 1px solid #000;
         }
         td {
             padding: 6px 5px;
-            border: 1px solid #ddd;
-            font-size: 8pt;
+            border: 1px solid #000;
+            font-size: 10px;
         }
         tbody tr:nth-child(even) {
-            background-color: #f9f9f9;
+            background-color: #f5f5f5;
         }
         .text-right {
             text-align: right;
@@ -78,36 +85,43 @@
         .footer {
             margin-top: 20px;
             padding-top: 10px;
-            border-top: 1px solid #ddd;
+            border-top: 1px solid #000;
             text-align: center;
-            font-size: 8pt;
-            color: #777;
+            font-size: 9px;
+            color: #000;
         }
         .summary {
             margin-top: 15px;
             padding: 15px;
-            background-color: #ffebee;
-            border-left: 4px solid #D32F2F;
+            background-color: #f5f5f5;
+            border: 2px solid #000;
         }
-        .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
+        .summary h3 {
+            margin-bottom: 15px;
+            color: #000;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            border-bottom: 1px solid #000;
+            padding-bottom: 5px;
         }
         .summary-item {
-            padding: 8px;
+            padding: 10px;
             background-color: white;
-            border-radius: 4px;
+            border: 1px solid #000;
+            text-align: center;
         }
         .summary-label {
-            font-size: 9pt;
-            color: #666;
-            margin-bottom: 3px;
+            font-size: 9px;
+            color: #000;
+            margin-bottom: 5px;
+            font-weight: bold;
+            text-transform: uppercase;
         }
         .summary-value {
-            font-size: 14pt;
+            font-size: 11px;
             font-weight: bold;
-            color: #D32F2F;
+            color: #000;
         }
     </style>
 </head>
@@ -174,25 +188,37 @@
     </table>
 
     <div class="summary">
-        <h3 style="margin-bottom: 15px; color: #D32F2F;">Resumen General</h3>
-        <div class="summary-grid">
-            <div class="summary-item">
-                <div class="summary-label">Total Bóvedas Activas</div>
-                <div class="summary-value">{{ $totales['total_bovedas'] }}</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-label">Saldo Total Consolidado</div>
-                <div class="summary-value">Q{{ number_format($totales['saldo_consolidado'], 2) }}</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-label">Total de Entradas</div>
-                <div class="summary-value">Q{{ number_format($totales['total_entradas'], 2) }}</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-label">Total de Salidas</div>
-                <div class="summary-value">Q{{ number_format($totales['total_salidas'], 2) }}</div>
-            </div>
-        </div>
+        <h3>Resumen General</h3>
+        <table style="width:100%; border-collapse: collapse;">
+            <tr>
+                <td style="width:50%; padding:5px;">
+                    <div class="summary-item">
+                        <div class="summary-label">Total Bovedas Activas</div>
+                        <div class="summary-value">{{ $totales['total_bovedas'] }}</div>
+                    </div>
+                </td>
+                <td style="width:50%; padding:5px;">
+                    <div class="summary-item">
+                        <div class="summary-label">Saldo Total Consolidado</div>
+                        <div class="summary-value">Q{{ number_format($totales['saldo_consolidado'], 2) }}</div>
+                    </div>
+                </td>
+            </tr>
+            <tr>
+                <td style="width:50%; padding:5px;">
+                    <div class="summary-item">
+                        <div class="summary-label">Total de Entradas</div>
+                        <div class="summary-value">Q{{ number_format($totales['total_entradas'], 2) }}</div>
+                    </div>
+                </td>
+                <td style="width:50%; padding:5px;">
+                    <div class="summary-item">
+                        <div class="summary-label">Total de Salidas</div>
+                        <div class="summary-value">Q{{ number_format($totales['total_salidas'], 2) }}</div>
+                    </div>
+                </td>
+            </tr>
+        </table>
     </div>
     @else
     <p style="text-align: center; padding: 40px; color: #999;">No hay bóvedas registradas</p>

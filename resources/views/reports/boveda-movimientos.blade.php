@@ -11,24 +11,28 @@
             box-sizing: border-box;
         }
         body {
-            font-family: Arial, sans-serif;
-            font-size: 10pt;
-            color: #333;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: #000;
+            line-height: 1.3;
         }
         .header {
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
             padding-bottom: 10px;
-            border-bottom: 2px solid #2E7D32;
+            border: 2px solid #000;
+            padding: 10px;
         }
         .header h1 {
-            color: #2E7D32;
-            font-size: 18pt;
+            color: #000;
+            font-size: 18px;
             margin-bottom: 5px;
+            font-weight: bold;
+            letter-spacing: 1px;
         }
         .header h2 {
-            color: #555;
-            font-size: 14pt;
+            color: #000;
+            font-size: 12px;
             font-weight: normal;
         }
         .info-section {
@@ -52,22 +56,22 @@
             margin-top: 10px;
         }
         thead {
-            background-color: #2E7D32;
+            background-color: #000;
             color: white;
         }
         th {
             padding: 8px 5px;
             text-align: left;
-            font-size: 9pt;
-            border: 1px solid #ddd;
+            font-size: 10px;
+            border: 1px solid #000;
         }
         td {
             padding: 6px 5px;
-            border: 1px solid #ddd;
-            font-size: 9pt;
+            border: 1px solid #000;
+            font-size: 10px;
         }
         tbody tr:nth-child(even) {
-            background-color: #f9f9f9;
+            background-color: #f5f5f5;
         }
         .text-right {
             text-align: right;
@@ -78,25 +82,16 @@
         .badge {
             display: inline-block;
             padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 8pt;
+            border: 1px solid #000;
+            font-size: 9px;
             font-weight: bold;
         }
-        .badge-entrada {
-            background-color: #4CAF50;
-            color: white;
-        }
-        .badge-salida {
-            background-color: #F44336;
-            color: white;
-        }
-        .badge-aprobado {
-            background-color: #2196F3;
-            color: white;
-        }
+        .badge-entrada,
+        .badge-salida,
+        .badge-aprobado,
         .badge-pendiente {
-            background-color: #FF9800;
-            color: white;
+            background-color: #f5f5f5;
+            color: #000;
         }
         .footer {
             margin-top: 20px;
@@ -109,13 +104,20 @@
         .summary {
             margin-top: 15px;
             padding: 10px;
-            background-color: #e8f5e9;
-            border-left: 4px solid #2E7D32;
+            background-color: #f5f5f5;
+            border: 2px solid #000;
         }
         .summary-row {
-            display: flex;
-            justify-content: space-between;
+            overflow: hidden;
             margin-bottom: 5px;
+            padding: 4px 0;
+            font-size: 10px;
+        }
+        .summary-row strong:first-child {
+            float: left;
+        }
+        .summary-row strong:last-child {
+            float: right;
         }
     </style>
 </head>
