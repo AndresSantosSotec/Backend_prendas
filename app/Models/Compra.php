@@ -2,17 +2,62 @@
 
 namespace App\Models;
 
+use App\Services\ContabilidadService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Traits\Auditable;
+use Illuminate\Support\Facades\Log;
 
 class Compra extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, Auditable;
+
+    protected string $auditoriaModulo = 'compras';
+    public static bool $auditarDeshabilitado = false;
 
     protected $table = 'compras';
+
+    /**
+     * Boot del modelo - Eventos para asientos contables automáticos
+     */
+    protected static function booted()
+    {
+        // Generar asiento contable automático después de crear la compra
+        static::created(function ($compra) {
+            // Solo generar asiento si está habilitado en configuración
+            if (!config('contabilidad.auto_asientos', false)) {
+                return;
+            }
+
+            if (!config('contabilidad.auto_asientos_por_operacion.compra_directa', false)) {
+                return;
+            }
+
+            try {
+                $service = app(ContabilidadService::class);
+                $asiento = $service->generarAsientoAutomatico($compra, 'compra_directa');
+
+                if (config('contabilidad.log_asientos', true)) {
+                    Log::info("Asiento contable de compra generado automáticamente", [
+                        'compra_id' => $compra->id,
+                        'asiento_id' => $asiento->id,
+                        'numero_comprobante' => $asiento->numero_comprobante,
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::error("Error al generar asiento contable de compra", [
+                    'compra_id' => $compra->id,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+
+                // No lanzar la excepción para no afectar el flujo principal
+            }
+        });
+    }
 
     protected $fillable = [
         'cliente_id',

@@ -6,10 +6,14 @@ use App\Enums\EstadoVenta;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Traits\Auditable;
 
 class Venta extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, Auditable;
+
+    protected string $auditoriaModulo = 'ventas';
+    public static bool $auditarDeshabilitado = false;
 
     protected $fillable = [
         // Campos anteriores

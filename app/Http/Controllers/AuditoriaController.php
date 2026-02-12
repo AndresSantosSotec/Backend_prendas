@@ -80,7 +80,7 @@ class AuditoriaController extends Controller
             });
         }
 
-        $perPage = $request->get('per_page', 50);
+        $perPage = $request->get('per_page', 20);
         $logs = $query->paginate($perPage);
 
         return response()->json([
@@ -239,6 +239,111 @@ class AuditoriaController extends Controller
         return response()->json([
             'success' => true,
             'data' => $acciones
+        ]);
+    }
+
+    /**
+     * Test de auditoría - crea registros de prueba para verificar el sistema
+     * Solo accesible para superadmin
+     */
+    public function test(Request $request): JsonResponse
+    {
+        if ($request->user()->rol !== 'superadmin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permiso para ejecutar este test'
+            ], 403);
+        }
+
+        $resultados = [];
+
+        // Test 1: Log directo vía middleware HTTP (esta misma petición ya genera uno)
+        $resultados[] = [
+            'test' => 'Middleware HTTP',
+            'descripcion' => 'Esta petición POST ya genera un log automáticamente',
+            'status' => 'ok'
+        ];
+
+        // Test 2: Log manual vía AuditoriaService
+        try {
+            \App\Services\AuditoriaService::log(
+                modulo: 'test',
+                accion: 'test_manual',
+                descripcion: 'Test de auditoría manual desde endpoint de prueba',
+                datosAnteriores: ['campo_ejemplo' => 'valor_anterior'],
+                datosNuevos: ['campo_ejemplo' => 'valor_nuevo']
+            );
+            $resultados[] = [
+                'test' => 'AuditoriaService::log()',
+                'descripcion' => 'Log manual creado exitosamente',
+                'status' => 'ok'
+            ];
+        } catch (\Exception $e) {
+            $resultados[] = [
+                'test' => 'AuditoriaService::log()',
+                'descripcion' => $e->getMessage(),
+                'status' => 'error'
+            ];
+        }
+
+        // Test 3: Crear y eliminar un registro de prueba (trigger Auditable trait)
+        try {
+            // Crear un gasto de prueba que será auditado automáticamente
+            $gasto = \App\Models\Gasto::create([
+                'sucursal_id' => $request->user()->sucursal_id ?? 1,
+                'user_id' => $request->user()->id,
+                'concepto' => 'TEST_AUDITORIA_' . time(),
+                'monto' => 0.01,
+                'tipo' => 'caja',
+                'fecha' => now()->format('Y-m-d'),
+                'descripcion' => 'Este gasto se crea y elimina para probar auditoría automática',
+            ]);
+
+            $resultados[] = [
+                'test' => 'Auditable Trait - CREATE',
+                'descripcion' => "Gasto #{$gasto->id} creado (auditado automáticamente)",
+                'status' => 'ok'
+            ];
+
+            // Actualizar el gasto
+            $gasto->monto = 0.02;
+            $gasto->save();
+
+            $resultados[] = [
+                'test' => 'Auditable Trait - UPDATE',
+                'descripcion' => "Gasto #{$gasto->id} actualizado (auditado automáticamente)",
+                'status' => 'ok'
+            ];
+
+            // Eliminar el gasto
+            $gastoId = $gasto->id;
+            $gasto->delete();
+
+            $resultados[] = [
+                'test' => 'Auditable Trait - DELETE',
+                'descripcion' => "Gasto #{$gastoId} eliminado (auditado automáticamente)",
+                'status' => 'ok'
+            ];
+
+        } catch (\Exception $e) {
+            $resultados[] = [
+                'test' => 'Auditable Trait',
+                'descripcion' => $e->getMessage(),
+                'status' => 'error'
+            ];
+        }
+
+        // Contar logs recientes
+        $logsRecientes = AuditoriaLog::where('created_at', '>=', now()->subMinutes(5))
+            ->where('user_id', $request->user()->id)
+            ->count();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Tests de auditoría ejecutados',
+            'resultados' => $resultados,
+            'logs_ultimos_5min' => $logsRecientes,
+            'hint' => 'Ve al módulo de Auditoría para ver los logs generados'
         ]);
     }
 }

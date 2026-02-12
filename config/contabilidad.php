@@ -26,6 +26,7 @@ return [
         'desembolso_credito' => env('CONTABILIDAD_AUTO_DESEMBOLSO', false),
         'pago_credito' => env('CONTABILIDAD_AUTO_PAGO', false),
         'venta_prenda' => env('CONTABILIDAD_AUTO_VENTA', false),
+        'compra_directa' => env('CONTABILIDAD_AUTO_COMPRA', false),
     ],
 
     /**

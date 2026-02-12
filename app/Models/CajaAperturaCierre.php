@@ -7,10 +7,14 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use App\Models\User;
 use App\Models\Sucursal;
 use App\Models\MovimientoCaja;
+use App\Traits\Auditable;
 
 class CajaAperturaCierre extends Model
 {
-    use HasFactory;
+    use HasFactory, Auditable;
+
+    protected string $auditoriaModulo = 'caja';
+    public static bool $auditarDeshabilitado = false;
 
     protected $table = 'caja_apertura_cierres';
 

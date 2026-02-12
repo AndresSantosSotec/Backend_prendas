@@ -19,6 +19,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\Api\ReporteComprasController;
 use App\Http\Controllers\AuditoriaController;
+use App\Http\Controllers\ContabilidadController;
 use Illuminate\Support\Facades\DB;
 
 /*
@@ -102,6 +103,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/estadisticas', [AuditoriaController::class, 'estadisticas']);
             Route::get('/modulos', [AuditoriaController::class, 'modulos']);
             Route::get('/acciones', [AuditoriaController::class, 'acciones']);
+            Route::post('/test', [AuditoriaController::class, 'test']);
             Route::get('/{id}', [AuditoriaController::class, 'show']);
         });
 
@@ -378,6 +380,36 @@ Route::prefix('v1')->group(function () {
         Route::middleware('throttle:30,1')->prefix('chatbot')->group(function () {
             Route::post('/consultar', [\App\Http\Controllers\ChatbotController::class, 'consultar']);
             Route::get('/estadisticas', [\App\Http\Controllers\ChatbotController::class, 'estadisticas']);
+        });
+
+        // ==================== CONTABILIDAD ====================
+        Route::prefix('contabilidad')->group(function () {
+            // Dashboard contable
+            Route::get('/dashboard', [ContabilidadController::class, 'dashboard']);
+
+            // Plan de cuentas (Nomenclatura)
+            Route::get('/nomenclatura', [ContabilidadController::class, 'nomenclatura']);
+            Route::get('/nomenclatura/arbol', [ContabilidadController::class, 'nomenclaturaArbol']);
+            Route::post('/nomenclatura', [ContabilidadController::class, 'crearCuenta']);
+            Route::put('/nomenclatura/{id}', [ContabilidadController::class, 'actualizarCuenta']);
+
+            // Tipos de póliza
+            Route::get('/tipos-poliza', [ContabilidadController::class, 'tiposPoliza']);
+
+            // Libro Diario (Asientos)
+            Route::get('/diario', [ContabilidadController::class, 'diario']);
+            Route::get('/diario/{id}', [ContabilidadController::class, 'verAsiento']);
+
+            // Balance de comprobación
+            Route::get('/balance-comprobacion', [ContabilidadController::class, 'balanceComprobacion']);
+            Route::get('/balance-comprobacion/pdf', [ContabilidadController::class, 'balanceComprobacionPdf']);
+
+            // Libro Mayor
+            Route::get('/libro-mayor', [ContabilidadController::class, 'libroMayor']);
+            Route::get('/libro-mayor/pdf', [ContabilidadController::class, 'libroMayorPdf']);
+
+            // Reportes PDF
+            Route::get('/libro-diario/pdf', [ContabilidadController::class, 'libroDiarioPdf']);
         });
 });
 

@@ -36,14 +36,13 @@ class Permission extends Model
         'prendas' => ['ver', 'editar', 'cambiar_estado', 'vender'],
         'ventas' => ['ver', 'tasar', 'vender', 'apartar', 'crear_plan_pago', 'modificar_precio', 'aplicar_descuento'],
         'caja' => ['abrir', 'cerrar', 'ver_movimientos'],
-        'cobros' => ['realizar', 'ver', 'imprimir_recibo'],
-        'historial' => ['ver'],
         'reportes' => ['generar', 'exportar'],
         'usuarios' => ['ver', 'crear', 'editar', 'eliminar', 'asignar_permisos'],
         'compras' => ['ver', 'crear', 'editar', 'eliminar'],
         'categorias_productos' => ['ver', 'crear', 'editar', 'eliminar', 'toggle_activa'],
         'gastos' => ['ver', 'crear', 'editar', 'eliminar', 'asignar_credito'],
         'auditoria' => ['ver', 'exportar'], // Solo para superadmin
+        'boveda' => ['ver', 'transferir', 'ver_movimientos'],
     ];
 
     /**
@@ -58,9 +57,7 @@ class Permission extends Model
             'creditos' => ['ver', 'crear'],
             'compras' => ['ver', 'crear'],
             'caja' => ['abrir', 'cerrar', 'ver_movimientos'],
-            'cobros' => ['realizar', 'ver', 'imprimir_recibo'],
             'prendas' => ['ver'],
-            'historial' => ['ver'],
             'gastos' => ['ver', 'asignar_credito'],
         ],
         'tasador' => [
@@ -70,7 +67,6 @@ class Permission extends Model
             'prendas' => ['ver'],
             'ventas' => ['ver', 'tasar'],
             'compras' => ['ver', 'crear'],
-            'historial' => ['ver'],
         ],
         'vendedor' => [
             'dashboard' => ['ver'],
@@ -78,7 +74,6 @@ class Permission extends Model
             'ventas' => ['ver', 'vender', 'apartar', 'crear_plan_pago', 'aplicar_descuento'],
             'compras' => ['ver'],
             'prendas' => ['ver'],
-            'historial' => ['ver'],
         ],
         'supervisor' => [
             'dashboard' => ['ver'],
@@ -89,7 +84,6 @@ class Permission extends Model
             'ventas' => ['ver', 'modificar_precio', 'aplicar_descuento'],
             'reportes' => ['generar', 'exportar'],
             'caja' => ['ver_movimientos'],
-            'historial' => ['ver'],
             'categorias_productos' => ['ver', 'crear', 'editar'],
             'gastos' => ['ver', 'crear', 'editar', 'asignar_credito'],
         ],

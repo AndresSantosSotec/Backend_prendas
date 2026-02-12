@@ -8,10 +8,14 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Models\Sucursal;
 use App\Models\User;
 use App\Models\BovedaMovimiento;
+use App\Traits\Auditable;
 
 class Boveda extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, Auditable;
+
+    protected string $auditoriaModulo = 'boveda';
+    public static bool $auditarDeshabilitado = false;
 
     protected $table = 'bovedas';
 

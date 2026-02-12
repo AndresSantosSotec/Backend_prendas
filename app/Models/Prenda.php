@@ -6,10 +6,14 @@ use App\Enums\EstadoPrenda;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Traits\Auditable;
 
 class Prenda extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, Auditable;
+
+    protected string $auditoriaModulo = 'prendas';
+    public static bool $auditarDeshabilitado = false;
 
     protected $fillable = [
         'credito_prendario_id',

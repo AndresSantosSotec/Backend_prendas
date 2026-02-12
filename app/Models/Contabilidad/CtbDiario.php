@@ -5,6 +5,7 @@ namespace App\Models\Contabilidad;
 use App\Models\CreditoPrendario;
 use App\Models\CreditoMovimiento;
 use App\Models\Venta;
+use App\Models\Compra;
 use App\Models\CajaAperturaCierre;
 use App\Models\Sucursal;
 use App\Models\Moneda;
@@ -28,6 +29,7 @@ class CtbDiario extends Model
         'credito_prendario_id',
         'movimiento_credito_id',
         'venta_id',
+        'compra_id',
         'caja_id',
         'numero_documento',
         'glosa',
@@ -90,6 +92,14 @@ class CtbDiario extends Model
     public function venta(): BelongsTo
     {
         return $this->belongsTo(Venta::class);
+    }
+
+    /**
+     * Compra relacionada
+     */
+    public function compra(): BelongsTo
+    {
+        return $this->belongsTo(Compra::class);
     }
 
     /**

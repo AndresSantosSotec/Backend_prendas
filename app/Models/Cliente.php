@@ -5,10 +5,15 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Traits\Auditable;
 
 class Cliente extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, Auditable;
+
+    protected string $auditoriaModulo = 'clientes';
+    protected array $auditoriaIgnorar = ['fotografia', 'updated_at'];
+    public static bool $auditarDeshabilitado = false;
 
     protected $fillable = [
         'codigo_cliente',

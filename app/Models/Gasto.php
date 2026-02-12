@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use App\Traits\Auditable;
 
 /**
  * Modelo Gasto
@@ -27,7 +28,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  */
 class Gasto extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, Auditable;
+
+    protected string $auditoriaModulo = 'gastos';
+    public static bool $auditarDeshabilitado = false;
 
     protected $table = 'gastos';
     protected $primaryKey = 'id_gasto';

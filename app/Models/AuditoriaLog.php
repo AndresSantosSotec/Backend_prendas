@@ -29,12 +29,16 @@ class AuditoriaLog extends Model
         'metodo_http',
         'url',
         'descripcion',
+        'codigo_respuesta',
+        'tiempo_respuesta_ms',
     ];
 
     protected $casts = [
         'datos_anteriores' => 'array',
         'datos_nuevos' => 'array',
         'created_at' => 'datetime',
+        'codigo_respuesta' => 'integer',
+        'tiempo_respuesta_ms' => 'float',
     ];
 
     /**

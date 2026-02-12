@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use App\Traits\Auditable;
 
 /**
  * @method bool hasPermission(string $modulo, string $accion)
@@ -19,7 +20,11 @@ use Laravel\Sanctum\HasApiTokens;
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable, HasApiTokens;
+    use HasFactory, Notifiable, HasApiTokens, Auditable;
+
+    protected string $auditoriaModulo = 'usuarios';
+    protected array $auditoriaIgnorar = ['password', 'remember_token', 'api_token', 'updated_at'];
+    public static bool $auditarDeshabilitado = false;
 
     /**
      * The attributes that are mass assignable.

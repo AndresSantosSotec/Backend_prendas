@@ -4,10 +4,14 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\Auditable;
 
 class Apartado extends Model
 {
-    use HasFactory;
+    use HasFactory, Auditable;
+
+    protected string $auditoriaModulo = 'apartados';
+    public static bool $auditarDeshabilitado = false;
 
     protected $fillable = [
         'venta_id',

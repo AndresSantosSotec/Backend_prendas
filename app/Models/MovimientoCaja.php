@@ -4,10 +4,14 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\Auditable;
 
 class MovimientoCaja extends Model
 {
-    use HasFactory;
+    use HasFactory, Auditable;
+
+    protected string $auditoriaModulo = 'caja';
+    public static bool $auditarDeshabilitado = false;
 
     protected $table = 'movimiento_cajas';
 
