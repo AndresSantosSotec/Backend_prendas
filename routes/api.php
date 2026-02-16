@@ -133,6 +133,7 @@ Route::prefix('v1')->group(function () {
             Route::delete('/usuarios/{id}', [UserController::class, 'destroy']);
             Route::post('/usuarios/{id}/toggle-activo', [UserController::class, 'toggleActivo']);
             Route::post('/usuarios/{id}/cambiar-password', [UserController::class, 'changePassword']);
+            Route::post('/usuarios/{id}/foto', [UserController::class, 'uploadPhoto']); // Nueva ruta para foto de perfil
 
 
             // Clientes

@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 class UserController extends Controller
@@ -18,7 +19,13 @@ class UserController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $authUser = $request->user();
         $query = User::with('sucursal');
+
+        // 🔒 PROTECCIÓN DE VISTA: Ocultar superadmins a usuarios no-superadmin
+        if ($authUser->rol !== 'superadmin') {
+            $query->where('rol', '!=', 'superadmin');
+        }
 
         // Filtros
         if ($request->has('activo') && $request->activo !== '') {
@@ -64,8 +71,14 @@ class UserController extends Controller
         // Se pueden omitir con ?skip_stats=1 para mejorar rendimiento en navegación de páginas
         $stats = null;
         if (!$request->boolean('skip_stats')) {
-            // Una sola consulta agregada en lugar de 6 consultas separadas
-            $statsRaw = User::selectRaw('
+            $statsQuery = User::query();
+
+            // 🔒 PROTECCIÓN DE VISTA EN ESTADÍSTICAS
+            if ($authUser->rol !== 'superadmin') {
+                $statsQuery->where('rol', '!=', 'superadmin');
+            }
+
+            $statsRaw = $statsQuery->selectRaw('
                 COUNT(*) as total,
                 SUM(CASE WHEN activo = 1 THEN 1 ELSE 0 END) as activos,
                 SUM(CASE WHEN activo = 0 THEN 1 ELSE 0 END) as inactivos,
@@ -156,6 +169,15 @@ class UserController extends Controller
         }
 
         $data = $validator->validated();
+        
+        // 🔒 PROTECCIÓN DE ROL: Solo superadmin puede crear otro superadmin
+        if ($data['rol'] === 'superadmin' && $authUser->rol !== 'superadmin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para crear un Super Administrador'
+            ], 403);
+        }
+
         $data['password'] = Hash::make($data['password']);
         $data['activo'] = $data['activo'] ?? true;
 
@@ -195,6 +217,14 @@ class UserController extends Controller
         }
 
         $authUser = $request->user();
+
+        // 🔒 PROTECCIÓN: No modificar superadmins si no eres superadmin
+        if ($user->rol === 'superadmin' && $authUser->rol !== 'superadmin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para modificar a un Super Administrador'
+            ], 403);
+        }
 
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
@@ -257,6 +287,15 @@ class UserController extends Controller
             ], 404);
         }
 
+        // 🔒 PROTECCIÓN: No eliminar superadmins si no eres superadmin
+        $authUser = request()->user();
+        if ($user->rol === 'superadmin' && $authUser->rol !== 'superadmin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para eliminar a un Super Administrador'
+            ], 403);
+        }
+
         // No permitir eliminar el último administrador
         if ($user->rol === 'administrador') {
             $adminCount = User::where('rol', 'administrador')->count();
@@ -288,6 +327,15 @@ class UserController extends Controller
                 'success' => false,
                 'message' => 'Usuario no encontrado'
             ], 404);
+        }
+
+        // 🔒 PROTECCIÓN: No desactivar superadmins si no eres superadmin
+        $authUser = request()->user();
+        if ($user->rol === 'superadmin' && $authUser->rol !== 'superadmin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para desactivar a un Super Administrador'
+            ], 403);
         }
 
         // No permitir desactivar el último administrador activo
@@ -327,6 +375,15 @@ class UserController extends Controller
             ], 404);
         }
 
+        // 🔒 PROTECCIÓN: No cambiar password de superadmins si no eres superadmin
+        $authUser = $request->user();
+        if ($user->rol === 'superadmin' && $authUser->rol !== 'superadmin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para cambiar la contraseña de un Super Administrador'
+            ], 403);
+        }
+
         $validator = Validator::make($request->all(), [
             'password' => AuthSecurityService::getPasswordValidationRules(),
             'password_confirmation' => 'required|string|same:password',
@@ -350,6 +407,80 @@ class UserController extends Controller
     }
 
     /**
+     * Subir foto de perfil
+     */
+    public function uploadPhoto(Request $request, string $id): JsonResponse
+    {
+        $user = User::find($id);
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Usuario no encontrado'
+            ], 404);
+        }
+
+        $authUser = $request->user();
+
+        // 🔒 PROTECCIÓN: Superadmin
+        if ($user->rol === 'superadmin' && $authUser->rol !== 'superadmin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'No autorizado para modificar foto de Super Administrador'
+            ], 403);
+        }
+
+        // Validar permisos: Mismo usuario O Admin (para otros)
+        if ($authUser->id != $user->id && !in_array($authUser->rol, ['superadmin', 'administrador'])) {
+             return response()->json([
+                'success' => false,
+                'message' => 'No autorizado'
+            ], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'foto' => 'required|image|mimes:jpeg,png,jpg,webp|max:5120|dimensions:min_width=200,min_height=200',
+        ], [
+            'foto.dimensions' => 'La imagen debe tener al menos 200x200 píxeles.'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Imagen inválida',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        if ($request->hasFile('foto')) {
+            // Eliminar anterior si existe
+            if ($user->foto_url) {
+                $oldPath = str_replace('/storage/', '', $user->foto_url);
+                if (Storage::disk('public')->exists($oldPath)) {
+                    Storage::disk('public')->delete($oldPath);
+                }
+            }
+
+            $path = $request->file('foto')->store('usuarios/fotos', 'public');
+            $user->foto_url = Storage::url($path);
+            $user->save();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Foto de perfil actualizada exitosamente',
+                'data' => [
+                    'foto_url' => $user->foto_url
+                ]
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'No se recibió ninguna imagen'
+        ], 400);
+    }
+
+    /**
      * Formatear usuario para respuesta
      */
     private function formatUser(User $user): array
@@ -359,6 +490,7 @@ class UserController extends Controller
             'nombre' => $user->name,
             'username' => $user->username,
             'email' => $user->email,
+            'foto_url' => $user->foto_url,
             'rol' => $user->rol,
             'activo' => $user->activo,
             'sucursal_id' => $user->sucursal_id,
