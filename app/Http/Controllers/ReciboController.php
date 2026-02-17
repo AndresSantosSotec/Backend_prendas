@@ -22,7 +22,7 @@ class ReciboController extends Controller
         $query = Recibo::with(['cliente', 'usuario', 'sucursal']);
 
         // Filtros por permisos
-        if ($user->rol !== 'administrador' && $user->rol !== 'gerente') {
+        if (!in_array($user->rol, ['superadmin', 'administrador', 'gerente'])) {
             $query->where('sucursal_id', $user->sucursal_id);
         }
 
@@ -131,7 +131,7 @@ class ReciboController extends Controller
             ->findOrFail($id);
 
         // Verificar permisos
-        if ($user->rol !== 'administrador' && $user->rol !== 'gerente' &&
+        if (!in_array($user->rol, ['superadmin', 'administrador', 'gerente']) &&
             $recibo->sucursal_id != $user->sucursal_id) {
             return response()->json(['error' => 'No tienes permisos para ver este recibo'], 403);
         }
@@ -154,8 +154,7 @@ class ReciboController extends Controller
 
         // Verificar permisos
         if (!$user->hasPermission('recibos', 'anular') &&
-            $user->rol !== 'administrador' &&
-            $user->rol !== 'gerente') {
+            !in_array($user->rol, ['superadmin', 'administrador', 'gerente'])) {
             return response()->json(['error' => 'No tienes permisos para anular recibos'], 403);
         }
 
@@ -208,7 +207,7 @@ class ReciboController extends Controller
             ->findOrFail($id);
 
         // Verificar permisos
-        if ($user->rol !== 'administrador' && $user->rol !== 'gerente' &&
+        if (!in_array($user->rol, ['superadmin', 'administrador', 'gerente']) &&
             $recibo->sucursal_id != $user->sucursal_id) {
             return response()->json(['error' => 'No tienes permisos para ver este recibo'], 403);
         }
@@ -239,7 +238,7 @@ class ReciboController extends Controller
             ->emitidos();
 
         // Filtrar por sucursal si no es admin
-        if ($user->rol !== 'administrador') {
+        if (!in_array($user->rol, ['superadmin', 'administrador'])) {
             $query->where('sucursal_id', $user->sucursal_id);
         } elseif ($request->sucursal_id) {
             $query->where('sucursal_id', $request->sucursal_id);

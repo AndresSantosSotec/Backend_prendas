@@ -99,7 +99,7 @@
             font-weight: bold;
             color: #000;
         }
-        
+
         table.data-table {
             width: 100%;
             border-collapse: collapse;
@@ -121,7 +121,7 @@
             border-bottom: 1px solid #e2e8f0;
             font-size: 9px;
         }
-        
+
         .clause-item {
             margin-bottom: 12px;
             line-height: 1.5;
@@ -131,7 +131,7 @@
             color: #2563eb;
             margin-right: 5px;
         }
-        
+
         .signatures {
             margin-top: 60px;
             width: 100%;
@@ -160,7 +160,7 @@
 </head>
 <body>
     <header>
-        <div class="brand-title">{{ $sucursal->nombre ?? 'Casa de Empeño' }}</div>
+        <div class="brand-title">{{ $sucursal->nombre ?? 'DigiPrenda' }}</div>
         <div class="brand-subtitle">{{ $sucursal->direccion ?? 'Contrato de Servicios Prendarios' }}</div>
     </header>
 

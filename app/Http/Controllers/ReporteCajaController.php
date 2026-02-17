@@ -57,24 +57,30 @@ class ReporteCajaController extends Controller
      */
     public function consolidado(Request $request)
     {
-        // Verificar que el usuario sea administrador
-        if (Auth::user()->rol !== 'administrador') {
+        // Verificar que el usuario sea administrador o superadmin
+        if (!in_array(Auth::user()->rol, ['administrador', 'superadmin'])) {
             return response()->json(['error' => 'No autorizado'], 403);
         }
 
         $request->validate([
             'fecha_inicio' => 'nullable|date',
             'fecha_fin' => 'nullable|date',
+            'fecha_desde' => 'nullable|date',
+            'fecha_hasta' => 'nullable|date',
         ]);
 
         $query = CajaAperturaCierre::with(['movimientos', 'user']);
 
-        if ($request->fecha_inicio) {
-            $query->whereDate('fecha_apertura', '>=', $request->fecha_inicio);
+        // Soportar ambos formatos de parámetros de fecha
+        $fechaInicio = $request->fecha_inicio ?? $request->fecha_desde;
+        $fechaFin = $request->fecha_fin ?? $request->fecha_hasta;
+
+        if ($fechaInicio) {
+            $query->whereDate('fecha_apertura', '>=', $fechaInicio);
         }
 
-        if ($request->fecha_fin) {
-            $query->whereDate('fecha_apertura', '<=', $request->fecha_fin);
+        if ($fechaFin) {
+            $query->whereDate('fecha_apertura', '<=', $fechaFin);
         }
 
         $cajas = $query->orderBy('fecha_apertura', 'desc')->get();
@@ -100,14 +106,56 @@ class ReporteCajaController extends Controller
     public function reportePDF(Request $request)
     {
         $request->validate([
-            'caja_id' => 'required|exists:caja_apertura_cierres,id',
+            'caja_id' => 'nullable|exists:caja_apertura_cierres,id',
+            'fecha_desde' => 'nullable|date',
+            'fecha_hasta' => 'nullable|date',
         ]);
 
-        $caja = CajaAperturaCierre::with(['movimientos.user', 'user'])->findOrFail($request->caja_id);
+        // Si se envía caja_id específico
+        if ($request->caja_id) {
+            $caja = CajaAperturaCierre::with(['movimientos.user', 'user'])->findOrFail($request->caja_id);
 
-        $movimientos = $caja->movimientos;
+            $movimientos = $caja->movimientos;
+            $totalIngresos = $movimientos->whereIn('tipo', ['incremento', 'ingreso_pago'])->sum('monto');
+            $totalEgresos = $movimientos->whereIn('tipo', ['decremento', 'egreso_desembolso'])->sum('monto');
+
+            $data = [
+                'caja' => $caja,
+                'movimientos' => $movimientos,
+                'totalIngresos' => $totalIngresos,
+                'totalEgresos' => $totalEgresos,
+                'saldoNeto' => $totalIngresos - $totalEgresos,
+                'fecha_generacion' => now()->format('d/m/Y H:i:s'),
+            ];
+
+            $pdf = Pdf::loadView('reportes.caja-movimientos', $data);
+            return $pdf->download('reporte-caja-' . $caja->id . '.pdf');
+        }
+
+        // Si se envían fechas, generar reporte por rango
+        $query = MovimientoCaja::with(['user', 'caja']);
+
+        if ($request->fecha_desde) {
+            $query->whereDate('created_at', '>=', $request->fecha_desde);
+        }
+        if ($request->fecha_hasta) {
+            $query->whereDate('created_at', '<=', $request->fecha_hasta);
+        }
+        if ($request->sucursal_id) {
+            $query->whereHas('caja', function ($q) use ($request) {
+                $q->where('sucursal_id', $request->sucursal_id);
+            });
+        }
+
+        $movimientos = $query->orderBy('created_at', 'desc')->get();
         $totalIngresos = $movimientos->whereIn('tipo', ['incremento', 'ingreso_pago'])->sum('monto');
         $totalEgresos = $movimientos->whereIn('tipo', ['decremento', 'egreso_desembolso'])->sum('monto');
+
+        // Obtener la primera caja relacionada para el template
+        $caja = CajaAperturaCierre::with(['user'])
+            ->when($request->fecha_desde, fn($q) => $q->whereDate('fecha_apertura', '>=', $request->fecha_desde))
+            ->when($request->fecha_hasta, fn($q) => $q->whereDate('fecha_apertura', '<=', $request->fecha_hasta))
+            ->first();
 
         $data = [
             'caja' => $caja,
@@ -119,7 +167,7 @@ class ReporteCajaController extends Controller
         ];
 
         $pdf = Pdf::loadView('reportes.caja-movimientos', $data);
-        return $pdf->download('reporte-caja-' . $caja->id . '.pdf');
+        return $pdf->download('reporte-caja-movimientos.pdf');
     }
 
     /**
@@ -127,24 +175,30 @@ class ReporteCajaController extends Controller
      */
     public function consolidadoPDF(Request $request)
     {
-        // Verificar que el usuario sea administrador
-        if (Auth::user()->rol !== 'administrador') {
+        // Verificar que el usuario sea administrador o superadmin
+        if (!in_array(Auth::user()->rol, ['administrador', 'superadmin'])) {
             return response()->json(['error' => 'No autorizado'], 403);
         }
 
         $request->validate([
             'fecha_inicio' => 'nullable|date',
             'fecha_fin' => 'nullable|date',
+            'fecha_desde' => 'nullable|date',
+            'fecha_hasta' => 'nullable|date',
         ]);
 
         $query = CajaAperturaCierre::with(['movimientos', 'user']);
 
-        if ($request->fecha_inicio) {
-            $query->whereDate('fecha_apertura', '>=', $request->fecha_inicio);
+        // Soportar ambos formatos de parámetros de fecha
+        $fechaInicio = $request->fecha_inicio ?? $request->fecha_desde;
+        $fechaFin = $request->fecha_fin ?? $request->fecha_hasta;
+
+        if ($fechaInicio) {
+            $query->whereDate('fecha_apertura', '>=', $fechaInicio);
         }
 
-        if ($request->fecha_fin) {
-            $query->whereDate('fecha_apertura', '<=', $request->fecha_fin);
+        if ($fechaFin) {
+            $query->whereDate('fecha_apertura', '<=', $fechaFin);
         }
 
         $cajas = $query->orderBy('fecha_apertura', 'desc')->get();
@@ -161,8 +215,8 @@ class ReporteCajaController extends Controller
         $data = [
             'cajas' => $cajas,
             'estadisticas' => $estadisticas,
-            'fecha_inicio' => $request->fecha_inicio,
-            'fecha_fin' => $request->fecha_fin,
+            'fecha_inicio' => $fechaInicio,
+            'fecha_fin' => $fechaFin,
             'fecha_generacion' => now()->format('d/m/Y H:i:s'),
         ];
 

@@ -166,7 +166,7 @@
 <body>
     <div class="header">
         <h1>LIBRO MAYOR</h1>
-        <h2>Sistema de Gestión de Empeños</h2>
+        <h2>DigiPrenda</h2>
         <div class="periodo">
             Del {{ \Carbon\Carbon::parse($fechaInicio)->format('d/m/Y') }} al {{ \Carbon\Carbon::parse($fechaFin)->format('d/m/Y') }}
         </div>
@@ -267,7 +267,7 @@
     </div>
 
     <div class="footer">
-        <p>Documento generado automáticamente - Sistema de Gestión de Empeños</p>
+        <p>Documento generado automáticamente - DigiPrenda</p>
         <p>D = Saldo Deudor | A = Saldo Acreedor</p>
         <p>Este documento es válido sin firma ni sello</p>
     </div>

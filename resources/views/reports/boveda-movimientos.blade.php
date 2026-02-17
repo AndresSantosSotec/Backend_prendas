@@ -221,7 +221,7 @@
     @endif
 
     <div class="footer">
-        <p>MicroSystem Plus - Sistema de Gestión de Empeños</p>
+        <p>DigiPrenda - Sistema de Gestión de Empeños</p>
         <p>Documento generado el {{ $fecha_generacion }}</p>
     </div>
 </body>

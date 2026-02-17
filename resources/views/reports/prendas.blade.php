@@ -93,7 +93,7 @@
 </head>
 <body>
     <header>
-        <div style="font-size: 18px; font-weight: bold; padding-top: 15px;">Casa de Empeño</div>
+        <div style="font-size: 18px; font-weight: bold; padding-top: 15px;">DigiPrenda</div>
         <div style="font-size: 10px; color: #666;">Reporte de Inventario de Prendas</div>
     </header>
 

@@ -34,7 +34,7 @@
 <body>
     <div class="header">
         <h1>LISTADO DE VENTAS</h1>
-        <p>Sistema de Empeños - Reporte generado el {{ now()->format('d/m/Y H:i:s') }}</p>
+        <p>DigiPrenda - Reporte generado el {{ now()->format('d/m/Y H:i:s') }}</p>
     </div>
 
     <div class="filters">
@@ -107,7 +107,7 @@
     </div>
 
     <div class="footer">
-        Sistema de Gestión de Empeños - {{ now()->format('Y') }}
+        DigiPrenda - {{ now()->format('Y') }}
     </div>
 </body>
 </html>

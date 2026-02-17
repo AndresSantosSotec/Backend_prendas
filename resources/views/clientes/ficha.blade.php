@@ -216,7 +216,7 @@
 </head>
 <body>
     <header>
-        <div class="brand-title">Microsystem Plus</div>
+        <div class="brand-title">DigiPrenda</div>
         <div class="brand-subtitle">Sistema de Créditos Prendarios</div>
     </header>
 

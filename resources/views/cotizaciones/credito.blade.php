@@ -230,7 +230,7 @@
 <body>
     <!-- Encabezado -->
     <div class="encabezado">
-        <div class="empresa">{{ $cotizacion->sucursal->nombre ?? 'CASA DE EMPEÑOS' }}</div>
+        <div class="empresa">{{ $cotizacion->sucursal->nombre ?? 'DIGIPRENDA' }}</div>
         <div style="font-size: 10px;">
             {{ $cotizacion->sucursal->direccion ?? '' }}<br>
             Tel: {{ $cotizacion->sucursal->telefono ?? '' }}

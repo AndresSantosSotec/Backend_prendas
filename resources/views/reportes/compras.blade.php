@@ -229,13 +229,13 @@
             <td style="width:25%; padding:5px;">
                 <div class="stat-box green">
                     <div class="stat-label">Total Invertido</div>
-                    <div class="stat-value">${{ number_format($estadisticas['total_invertido'], 2) }}</div>
+                    <div class="stat-value">Q{{ number_format($estadisticas['total_invertido'], 2) }}</div>
                 </div>
             </td>
             <td style="width:25%; padding:5px;">
                 <div class="stat-box blue">
                     <div class="stat-label">Valor Inventario</div>
-                    <div class="stat-value">${{ number_format($estadisticas['valor_inventario'], 2) }}</div>
+                    <div class="stat-value">Q{{ number_format($estadisticas['valor_inventario'], 2) }}</div>
                 </div>
             </td>
             <td style="width:25%; padding:5px;">
@@ -281,8 +281,8 @@
                         <br><span style="color: #666; font-size: 7px;">{{ $compra->marca }}{{ $compra->modelo ? ' - ' . $compra->modelo : '' }}</span>
                     @endif
                 </td>
-                <td class="text-right">${{ number_format($compra->monto_pagado, 2) }}</td>
-                <td class="text-right">${{ number_format($compra->precio_venta_sugerido, 2) }}</td>
+                <td class="text-right">Q{{ number_format($compra->monto_pagado, 2) }}</td>
+                <td class="text-right">Q{{ number_format($compra->precio_venta_sugerido, 2) }}</td>
                 <td class="text-center" style="color: {{ $compra->margen_esperado >= 0 ? '#28a745' : '#dc3545' }}; font-weight: bold;">
                     {{ number_format($compra->margen_esperado, 1) }}%
                 </td>
@@ -310,7 +310,7 @@
     <!-- Footer -->
     <div class="footer">
         <p>
-            Sistema de Gestión de Empeños - Reporte generado por: {{ $usuario->nombre ?? 'Sistema' }}
+            DigiPrenda - Reporte generado por: {{ $usuario->nombre ?? 'Sistema' }}
         </p>
         <p>Página {PAGE_NUM} de {PAGE_COUNT}</p>
     </div>
