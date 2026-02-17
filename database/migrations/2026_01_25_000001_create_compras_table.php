@@ -11,7 +11,13 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Verificar si la tabla ya existe
+        if (Schema::hasTable('compras')) {
+            return;
+        }
+
         Schema::create('compras', function (Blueprint $table) {
+            $table->engine = 'InnoDB';
             $table->id();
 
             // --- Relaciones ---
