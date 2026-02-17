@@ -9,6 +9,9 @@ use App\Models\VentaPago;
 use App\Models\MetodoPago;
 use App\Models\Cliente;
 use App\Models\Sucursal;
+use App\Models\VentaCredito;
+use App\Models\VentaCreditoPlanPago;
+use App\Models\VentaCreditoMovimiento;
 use App\Enums\EstadoPrenda;
 use App\Enums\EstadoVenta;
 use App\Services\ContabilidadService;
@@ -181,24 +184,31 @@ class VentaMultiPrendaService
             // 6. Registrar pagos
             $totalPagado = $this->registrarPagos($venta, $data['pagos'] ?? []);
 
-            // 6.1. Configurar apartado o plan de pagos si aplica
+            // 6.1. Configurar según tipo de venta
+            $tipoVenta = $data['tipo_venta'] ?? 'contado';
             $saldoPendiente = $venta->total_final - $totalPagado;
 
-            if ($data['tipo_venta'] === 'apartado' && $totalPagado > 0) {
-                $venta->update([
-                    'enganche' => $totalPagado,
-                    'saldo_pendiente' => $saldoPendiente,
-                    'plazo_dias' => $data['plazo_dias'] ?? 30,
-                    'fecha_vencimiento' => now()->addDays($data['plazo_dias'] ?? 30),
-                ]);
+            // CRÉDITO: enganche + cuotas con interés flat
+            if ($tipoVenta === 'credito') {
+                $this->configurarCredito($venta, $data, $totalPagado);
             }
 
-            if ($data['tipo_venta'] === 'plan_pagos') {
+            // APARTADO: anticipo + fecha límite
+            if ($tipoVenta === 'apartado') {
+                $this->configurarApartado($venta, $data, $totalPagado);
+            }
+
+            // PLAN_PAGOS (legacy, mantener compatibilidad)
+            if ($tipoVenta === 'plan_pagos') {
                 $this->configurarPlanPagos($venta, $data, $totalPagado, $saldoPendiente);
             }
 
+            // Recalcular saldo pendiente después de configuración
+            $venta->refresh();
+            $saldoPendiente = ($venta->total_credito ?: $venta->total_final) - $venta->total_pagado;
+
             // 7. Determinar estado final
-            $estado = $this->determinarEstadoVenta($venta, $totalPagado, $data['tipo_venta']);
+            $estado = $this->determinarEstadoVenta($venta, $totalPagado, $tipoVenta);
 
             $venta->update([
                 'total_pagado' => $totalPagado,
@@ -451,9 +461,14 @@ class VentaMultiPrendaService
      */
     private function determinarEstadoVenta(Venta $venta, float $totalPagado, string $tipoVenta): string
     {
-        // Si es apartado o plan de pagos, usar su estado específico
+        // Si es apartado, usar estado apartado
         if ($tipoVenta === 'apartado') {
             return EstadoVenta::APARTADO->value;
+        }
+
+        // Si es crédito, usar estado plan_pagos (mismo concepto)
+        if ($tipoVenta === 'credito') {
+            return EstadoVenta::PLAN_PAGOS->value;
         }
 
         if ($tipoVenta === 'plan_pagos') {
@@ -477,6 +492,7 @@ class VentaMultiPrendaService
             // Solo estados válidos de la BD: en_custodia, recuperada, en_venta, vendida, perdida, deteriorada, devuelta
             $nuevoEstado = match($venta->tipo_venta) {
                 'contado' => $estadoVenta === 'pagada' ? EstadoPrenda::VENDIDA->value : EstadoPrenda::EN_VENTA->value,
+                'credito' => EstadoPrenda::EN_VENTA->value, // Sigue en venta hasta completar pago
                 'apartado' => EstadoPrenda::EN_VENTA->value, // Sigue en venta hasta completar pago
                 'plan_pagos' => EstadoPrenda::EN_VENTA->value, // Sigue en venta hasta completar pago
                 default => EstadoPrenda::EN_VENTA->value
@@ -592,7 +608,198 @@ class VentaMultiPrendaService
     }
 
     /**
-     * Configurar venta como plan de pagos
+     * Configurar venta a CRÉDITO (enganche + cuotas con interés flat)
+     *
+     * Fórmula FLAT:
+     * saldoFinanciar = totalVenta - enganche
+     * interesTotal = saldoFinanciar × (tasaMensual/100) × numeroCuotas
+     * totalCredito = saldoFinanciar + interesTotal
+     * cuotaMensual = totalCredito / numeroCuotas
+     *
+     * Crea:
+     * 1. Registro en venta_creditos
+     * 2. Plan de pagos en venta_credito_plan_pagos
+     * 3. Movimiento de enganche en venta_credito_movimientos
+     */
+    private function configurarCredito(Venta $venta, array $data, float $enganchePagado): void
+    {
+        $enganche = $data['enganche'] ?? $enganchePagado;
+        $numeroCuotas = $data['numero_cuotas'] ?? 3;
+        $tasaInteresMensual = $data['tasa_interes_mensual'] ?? 5;
+        $frecuenciaPago = $data['frecuencia_pago'] ?? 'mensual';
+
+        // Cálculos FLAT
+        $saldoFinanciar = $venta->total_final - $enganche;
+        $interesTotal = $saldoFinanciar * ($tasaInteresMensual / 100) * $numeroCuotas;
+        $totalCredito = $saldoFinanciar + $interesTotal;
+        $cuotaMensual = $numeroCuotas > 0 ? $totalCredito / $numeroCuotas : $totalCredito;
+
+        // Actualizar la venta con datos del crédito
+        $venta->update([
+            'enganche' => $enganche,
+            'numero_cuotas' => $numeroCuotas,
+            'tasa_interes' => $tasaInteresMensual,
+            'intereses' => $interesTotal,
+            'interes_total' => $interesTotal,
+            'total_credito' => $totalCredito,
+            'monto_cuota' => $cuotaMensual,
+            'frecuencia_pago' => $frecuenciaPago,
+            'cuotas_pagadas' => 0,
+            'total_pagado' => $enganchePagado,
+            'saldo_pendiente' => $totalCredito,
+            'fecha_proximo_pago' => now()->addMonth(),
+            'fecha_vencimiento' => now()->addMonths($numeroCuotas),
+        ]);
+
+        // ========== CREAR VENTA_CREDITO ==========
+        $ventaCredito = VentaCredito::create([
+            'numero_credito' => VentaCredito::generarNumeroCredito(),
+            'venta_id' => $venta->id,
+            'cliente_id' => $venta->cliente_id,
+            'sucursal_id' => $venta->sucursal_id,
+            'vendedor_id' => $venta->vendedor_id ?? Auth::id(),
+            'aprobado_por_id' => Auth::id(),
+            'estado' => 'vigente',
+            'fecha_credito' => now(),
+            'fecha_aprobacion' => now(),
+            'fecha_primer_pago' => now()->addMonth(),
+            'fecha_vencimiento' => now()->addMonths($numeroCuotas),
+            'monto_venta' => $venta->total_final,
+            'enganche' => $enganche,
+            'saldo_financiar' => $saldoFinanciar,
+            'interes_total' => $interesTotal,
+            'total_credito' => $totalCredito,
+            'capital_pendiente' => $saldoFinanciar,
+            'capital_pagado' => 0,
+            'interes_pendiente' => $interesTotal,
+            'interes_pagado' => 0,
+            'mora_generada' => 0,
+            'mora_pagada' => 0,
+            'saldo_actual' => $totalCredito,
+            'tasa_interes' => $tasaInteresMensual,
+            'tasa_mora' => 0, // Se puede configurar
+            'tipo_interes' => 'flat',
+            'frecuencia_pago' => $frecuenciaPago,
+            'numero_cuotas' => $numeroCuotas,
+            'monto_cuota' => $cuotaMensual,
+            'dias_gracia' => 0,
+            'dias_mora' => 0,
+            'cuotas_vencidas' => 0,
+            'cuotas_pagadas' => 0,
+        ]);
+
+        // ========== CREAR PLAN DE PAGOS ==========
+        $capitalPorCuota = $saldoFinanciar / $numeroCuotas;
+        $interesPorCuota = $interesTotal / $numeroCuotas;
+        $saldoCapitalRestante = $saldoFinanciar;
+
+        for ($i = 1; $i <= $numeroCuotas; $i++) {
+            $fechaVencimiento = match($frecuenciaPago) {
+                'semanal' => now()->addWeeks($i),
+                'quincenal' => now()->addWeeks($i * 2),
+                'mensual' => now()->addMonths($i),
+                default => now()->addMonths($i),
+            };
+
+            $saldoCapitalRestante -= $capitalPorCuota;
+
+            VentaCreditoPlanPago::create([
+                'venta_credito_id' => $ventaCredito->id,
+                'numero_cuota' => $i,
+                'fecha_vencimiento' => $fechaVencimiento,
+                'estado' => 'pendiente',
+                'capital_proyectado' => round($capitalPorCuota, 2),
+                'interes_proyectado' => round($interesPorCuota, 2),
+                'mora_proyectada' => 0,
+                'otros_cargos_proyectados' => 0,
+                'monto_cuota_proyectado' => round($cuotaMensual, 2),
+                'capital_pagado' => 0,
+                'interes_pagado' => 0,
+                'mora_pagada' => 0,
+                'otros_cargos_pagados' => 0,
+                'monto_total_pagado' => 0,
+                'capital_pendiente' => round($capitalPorCuota, 2),
+                'interes_pendiente' => round($interesPorCuota, 2),
+                'mora_pendiente' => 0,
+                'otros_cargos_pendientes' => 0,
+                'monto_pendiente' => round($cuotaMensual, 2),
+                'saldo_capital_credito' => round(max($saldoCapitalRestante, 0), 2),
+                'dias_mora' => 0,
+                'permite_pago_parcial' => true,
+                'tipo_modificacion' => 'original',
+            ]);
+        }
+
+        // ========== REGISTRAR MOVIMIENTO DE ENGANCHE ==========
+        if ($enganchePagado > 0) {
+            VentaCreditoMovimiento::create([
+                'venta_credito_id' => $ventaCredito->id,
+                'usuario_id' => Auth::id(),
+                'sucursal_id' => $venta->sucursal_id,
+                'numero_movimiento' => VentaCreditoMovimiento::generarNumeroMovimiento(),
+                'tipo_movimiento' => 'enganche',
+                'fecha_movimiento' => now(),
+                'fecha_registro' => now(),
+                'monto_total' => $enganchePagado,
+                'capital' => 0, // el enganche no aplica a capital del crédito
+                'interes' => 0,
+                'mora' => 0,
+                'otros_cargos' => 0,
+                'saldo_capital' => $saldoFinanciar,
+                'saldo_interes' => $interesTotal,
+                'saldo_mora' => 0,
+                'saldo_total' => $totalCredito,
+                'forma_pago' => 'efectivo', // Se puede mejorar para usar el real
+                'concepto' => "Enganche de venta a crédito {$venta->codigo_venta}",
+                'estado' => 'activo',
+                'moneda' => 'GTQ',
+                'tipo_cambio' => 1,
+            ]);
+        }
+
+        Log::info("Crédito de venta creado: {$ventaCredito->numero_credito}", [
+            'venta_id' => $venta->id,
+            'enganche' => $enganche,
+            'saldo_financiar' => $saldoFinanciar,
+            'interes_total' => $interesTotal,
+            'total_credito' => $totalCredito,
+            'cuota_mensual' => $cuotaMensual,
+            'num_cuotas' => $numeroCuotas,
+            'plan_pagos_creados' => $numeroCuotas
+        ]);
+    }
+
+    /**
+     * Configurar venta como APARTADO (anticipo + fecha límite)
+     */
+    private function configurarApartado(Venta $venta, array $data, float $anticipoPagado): void
+    {
+        $anticipo = $data['anticipo'] ?? $anticipoPagado;
+        $diasApartado = $data['dias_apartado'] ?? 15;
+
+        $saldoPendiente = $venta->total_final - $anticipo;
+        $fechaLimite = now()->addDays($diasApartado);
+
+        $venta->update([
+            'anticipo_apartado' => $anticipo,
+            'enganche' => $anticipo, // También guardamos como enganche para compatibilidad
+            'dias_apartado' => $diasApartado,
+            'plazo_dias' => $diasApartado,
+            'saldo_pendiente' => $saldoPendiente,
+            'total_pagado' => $anticipoPagado,
+            'fecha_vencimiento' => $fechaLimite,
+        ]);
+
+        Log::info("Apartado configurado para venta {$venta->codigo_venta}", [
+            'anticipo' => $anticipo,
+            'dias' => $diasApartado,
+            'saldo_pendiente' => $saldoPendiente,
+            'fecha_limite' => $fechaLimite->format('Y-m-d')
+        ]);
+    }
+
+    /**
+     * Configurar venta como plan de pagos (legacy)
      */
     private function configurarPlanPagos(Venta $venta, array $data, float $enganche, float $saldo): void
     {

@@ -145,7 +145,10 @@ class VentaController extends Controller
     {
         $request->validate([
             'cliente_id' => 'nullable|exists:clientes,id',
-            'tipo_venta' => 'required|in:contado,apartado,plan_pago',
+            'consumidor_final' => 'nullable|boolean',
+            'tipo_venta' => 'required|in:contado,credito,apartado,plan_pagos',
+            'sucursal_id' => 'nullable|exists:sucursales,id',
+            'tipo_comprobante' => 'nullable|in:FEL,RECIBO,NOTA',
             'items' => 'required|array|min:1',
             'items.*.prenda_id' => 'required|exists:prendas,id',
             'items.*.descuento' => 'nullable|numeric|min:0',
@@ -154,6 +157,13 @@ class VentaController extends Controller
             'pagos.*.monto' => 'required|numeric|min:0',
             'pagos.*.referencia' => 'nullable|string|max:100',
             'observaciones' => 'nullable|string|max:1000',
+            // Campos específicos para crédito
+            'enganche' => 'nullable|numeric|min:0',
+            'numero_cuotas' => 'nullable|integer|min:1|max:60',
+            'tasa_interes_mensual' => 'nullable|numeric|min:0|max:100',
+            // Campos específicos para apartado
+            'anticipo' => 'nullable|numeric|min:0',
+            'dias_apartado' => 'nullable|integer|min:1|max:365',
         ]);
 
         try {

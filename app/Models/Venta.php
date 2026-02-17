@@ -68,6 +68,11 @@ class Venta extends Model
         'intereses',
         'tasa_interes',
         'fecha_liquidacion',
+        // Campos específicos para crédito y apartado
+        'interes_total',
+        'total_credito',
+        'anticipo_apartado',
+        'dias_apartado',
     ];
 
     protected $casts = [
@@ -92,6 +97,10 @@ class Venta extends Model
         'monto_cuota' => 'decimal:2',
         'intereses' => 'decimal:2',
         'tasa_interes' => 'decimal:2',
+        'interes_total' => 'decimal:2',
+        'total_credito' => 'decimal:2',
+        'anticipo_apartado' => 'decimal:2',
+        'dias_apartado' => 'integer',
         'consumidor_final' => 'boolean',
         'certificada' => 'boolean',
         'cuotas_pagadas' => 'integer',
@@ -144,6 +153,11 @@ class Venta extends Model
     public function apartado()
     {
         return $this->hasOne(Apartado::class);
+    }
+
+    public function ventaCredito()
+    {
+        return $this->hasOne(VentaCredito::class);
     }
 
     // Scopes
