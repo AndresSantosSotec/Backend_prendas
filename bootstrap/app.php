@@ -26,6 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'throttle.downloads' => \App\Http\Middleware\ThrottleDownloads::class,
             'sucursal.scope' => \App\Http\Middleware\SucursalScope::class,
+            'superadmin' => \App\Http\Middleware\EnsureSuperAdmin::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [
@@ -44,5 +45,25 @@ return Application::configure(basePath: dirname(__DIR__))
 
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->report(function (\Throwable $e) {
+            try {
+                \App\Models\SystemErrorLog::create([
+                    'user_id' => auth()->id(),
+                    'message' => $e->getMessage(),
+                    'exception' => get_class($e),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'trace' => collect($e->getTrace())->slice(0, 10)->toArray(),
+                    'url' => request()->fullUrl(),
+                    'method' => request()->method(),
+                    'ip_address' => request()->ip(),
+                    'user_agent' => request()->userAgent(),
+                    'input_data' => request()->except(['password', 'password_confirmation']),
+                    'status_code' => method_exists($e, 'getStatusCode') ? $e->getStatusCode() : 500,
+                ]);
+            } catch (\Exception $ex) {
+                // Si falla el log en BD, al menos que se guarde en archivo
+                \Illuminate\Support\Facades\Log::error('Error registrando excepción en BD: ' . $ex->getMessage());
+            }
+        });
     })->create();

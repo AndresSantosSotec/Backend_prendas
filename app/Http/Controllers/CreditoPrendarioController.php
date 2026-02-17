@@ -14,6 +14,7 @@ use App\Models\IdempotencyKey;
 use App\Models\AuditoriaCredito;
 use App\Models\CodigoPrereservado;
 use App\Services\CajaService;
+use App\Services\ContabilidadAutomaticaService;
 use App\Enums\EstadoCredito;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -32,6 +33,13 @@ use Picqer\Barcode\BarcodeGeneratorPNG;
  */
 class CreditoPrendarioController extends Controller
 {
+    protected $contabilidadService;
+
+    public function __construct(ContabilidadAutomaticaService $contabilidadService)
+    {
+        $this->contabilidadService = $contabilidadService;
+    }
+
     /**
      * Listar todos los créditos prendarios con paginación y filtros
      */
@@ -1697,6 +1705,22 @@ class CreditoPrendarioController extends Controller
                 $resultado
             );
 
+            // Registrar asiento contable automático
+            try {
+                $this->contabilidadService->registrarAsiento('credito_desembolso', [
+                    'sucursal_id' => $credito->sucursal_id,
+                    'usuario_id' => Auth::id(),
+                    'monto' => $credito->monto_aprobado,
+                    'credito_prendario_id' => $credito->id,
+                    'movimiento_credito_id' => $movimiento->id,
+                    'numero_documento' => $movimiento->numero_movimiento,
+                    'glosa' => "Desembolso crédito #{$credito->numero_credito} - {$credito->cliente->nombres}",
+                    'fecha_documento' => $movimiento->fecha_movimiento,
+                ]);
+            } catch (\Exception $contError) {
+                Log::warning('Error al registrar asiento contable para desembolso: ' . $contError->getMessage());
+            }
+
             DB::commit();
 
             return response()->json([
@@ -1938,6 +1962,50 @@ class CreditoPrendarioController extends Controller
                 $movimiento->id,
                 $resultado
             );
+
+            // Registrar asientos contables automáticos (capital, interés, mora)
+            try {
+                if ($montoCapital > 0) {
+                    $this->contabilidadService->registrarAsiento('credito_pago_capital', [
+                        'sucursal_id' => $credito->sucursal_id,
+                        'usuario_id' => Auth::id(),
+                        'monto' => $montoCapital,
+                        'credito_prendario_id' => $credito->id,
+                        'movimiento_credito_id' => $movimiento->id,
+                        'numero_documento' => $movimiento->numero_movimiento,
+                        'glosa' => "Pago capital crédito #{$credito->numero_credito} - Cuota {$cuota->numero_cuota}",
+                        'fecha_documento' => $movimiento->fecha_movimiento,
+                    ]);
+                }
+
+                if ($montoInteres > 0) {
+                    $this->contabilidadService->registrarAsiento('credito_pago_interes', [
+                        'sucursal_id' => $credito->sucursal_id,
+                        'usuario_id' => Auth::id(),
+                        'monto' => $montoInteres,
+                        'credito_prendario_id' => $credito->id,
+                        'movimiento_credito_id' => $movimiento->id,
+                        'numero_documento' => $movimiento->numero_movimiento,
+                        'glosa' => "Pago interés crédito #{$credito->numero_credito} - Cuota {$cuota->numero_cuota}",
+                        'fecha_documento' => $movimiento->fecha_movimiento,
+                    ]);
+                }
+
+                if ($montoMora > 0) {
+                    $this->contabilidadService->registrarAsiento('credito_pago_mora', [
+                        'sucursal_id' => $credito->sucursal_id,
+                        'usuario_id' => Auth::id(),
+                        'monto' => $montoMora,
+                        'credito_prendario_id' => $credito->id,
+                        'movimiento_credito_id' => $movimiento->id,
+                        'numero_documento' => $movimiento->numero_movimiento,
+                        'glosa' => "Pago mora crédito #{$credito->numero_credito} - Cuota {$cuota->numero_cuota}",
+                        'fecha_documento' => $movimiento->fecha_movimiento,
+                    ]);
+                }
+            } catch (\Exception $contError) {
+                Log::warning('Error al registrar asientos contables para pago: ' . $contError->getMessage());
+            }
 
             DB::commit();
 

@@ -3,19 +3,25 @@
 namespace App\Http\Controllers;
 
 use App\Services\CompraService;
+use App\Services\ContabilidadAutomaticaService;
 use App\Http\Resources\CompraResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 class CompraController extends Controller
 {
     protected $compraService;
+    protected $contabilidadService;
 
-    public function __construct(CompraService $compraService)
-    {
+    public function __construct(
+        CompraService $compraService,
+        ContabilidadAutomaticaService $contabilidadService
+    ) {
         $this->compraService = $compraService;
+        $this->contabilidadService = $contabilidadService;
     }
 
     /**
@@ -73,6 +79,21 @@ class CompraController extends Controller
 
         try {
             $compra = $this->compraService->procesarCompraDirecta($request->all());
+
+            // Registrar asiento contable automático
+            try {
+                $this->contabilidadService->registrarAsiento('compra_directa', [
+                    'sucursal_id' => $compra->sucursal_id,
+                    'usuario_id' => Auth::id(),
+                    'monto' => $compra->monto_pagado,
+                    'compra_id' => $compra->id,
+                    'numero_documento' => $compra->numero_compra,
+                    'glosa' => "Compra directa #{$compra->numero_compra} - {$compra->descripcion}",
+                    'fecha_documento' => $compra->fecha_compra,
+                ]);
+            } catch (\Exception $contError) {
+                Log::warning('Error al registrar asiento contable para compra: ' . $contError->getMessage());
+            }
 
             return response()->json([
                 'success' => true,

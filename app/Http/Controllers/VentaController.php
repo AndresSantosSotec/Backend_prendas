@@ -7,10 +7,12 @@ use App\Models\Venta;
 use App\Services\VentaService;
 use App\Services\VentaMultiPrendaService;
 use App\Services\VentaCreditoService;
+use App\Services\ContabilidadAutomaticaService;
 use App\Http\Resources\PrendaResource;
 use App\Exports\VentasExport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Maatwebsite\Excel\Facades\Excel;
@@ -20,15 +22,18 @@ class VentaController extends Controller
     protected $ventaService;
     protected $ventaMultiPrendaService;
     protected $ventaCreditoService;
+    protected $contabilidadService;
 
     public function __construct(
         VentaService $ventaService,
         VentaMultiPrendaService $ventaMultiPrendaService,
-        VentaCreditoService $ventaCreditoService
+        VentaCreditoService $ventaCreditoService,
+        ContabilidadAutomaticaService $contabilidadService
     ) {
         $this->ventaService = $ventaService;
         $this->ventaMultiPrendaService = $ventaMultiPrendaService;
         $this->ventaCreditoService = $ventaCreditoService;
+        $this->contabilidadService = $contabilidadService;
     }
 
     /**
@@ -168,6 +173,30 @@ class VentaController extends Controller
 
         try {
             $venta = $this->ventaMultiPrendaService->crearVenta($request->all());
+
+            // Registrar asiento contable automático según tipo de venta
+            try {
+                $tipoAsiento = match ($venta->tipo_venta) {
+                    'contado' => 'venta_contado',
+                    'credito' => 'venta_enganche',
+                    'apartado' => 'venta_enganche', // Similar a crédito
+                    default => 'venta_contado'
+                };
+
+                $this->contabilidadService->registrarAsiento($tipoAsiento, [
+                    'sucursal_id' => $venta->sucursal_id,
+                    'usuario_id' => Auth::id(),
+                    'monto' => $venta->total,
+                    'venta_id' => $venta->id,
+                    'numero_documento' => $venta->codigo_venta,
+                    'glosa' => "Venta {$venta->tipo_venta} #{$venta->codigo_venta}",
+                    'fecha_documento' => $venta->fecha_venta,
+                    'monto_efectivo' => $venta->tipo_venta === 'contado' ? $venta->total : ($venta->enganche ?? 0),
+                    'monto_credito' => $venta->tipo_venta === 'credito' ? ($venta->total - ($venta->enganche ?? 0)) : 0,
+                ]);
+            } catch (\Exception $contError) {
+                Log::warning('Error al registrar asiento contable para venta: ' . $contError->getMessage());
+            }
 
             return response()->json([
                 'success' => true,
@@ -673,6 +702,98 @@ class VentaController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al cargar ventas pendientes'
+            ], 500);
+        }
+    }
+
+    /**
+     * Generar PDF del plan de pagos de un crédito
+     *
+     * @param string $id ID de la venta
+     * @return \Illuminate\Http\Response
+     */
+    public function generarPDFPlanPagos(string $id)
+    {
+        try {
+            // Obtener la venta con sus relaciones
+            $venta = Venta::with([
+                'cliente',
+                'vendedor',
+                'sucursal',
+                'moneda',
+                'ventaCredito'
+            ])->findOrFail($id);
+
+            // Validar que sea una venta a crédito
+            if ($venta->tipo_venta !== 'credito') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Esta venta no es a crédito'
+                ], 400);
+            }
+
+            // Validar que tenga registro de crédito
+            if (!$venta->ventaCredito) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se encontró información del crédito'
+                ], 404);
+            }
+
+            $credito = $venta->ventaCredito;
+
+            // Obtener el plan de pagos
+            $planPagos = $credito->planPagos()
+                ->orderBy('numero_cuota', 'asc')
+                ->get();
+
+            // Generar PDF
+            $pdf = Pdf::loadView('reports.plan-pagos-credito', compact('venta', 'credito', 'planPagos'));
+            $pdf->setPaper('letter', 'portrait');
+
+            return $pdf->stream("Plan_Pagos_{$credito->numero_credito}.pdf");
+        } catch (\Exception $e) {
+            Log::error('Error al generar PDF del plan de pagos: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el PDF: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Generar recibo POS (formato térmico 80mm)
+     *
+     * @param string $id ID de la venta
+     * @return \Illuminate\Http\Response
+     */
+    public function generarReciboPOS(string $id)
+    {
+        try {
+            // Obtener la venta con sus relaciones
+            $venta = Venta::with([
+                'detalles',
+                'pagos.metodoPago',
+                'cliente',
+                'vendedor',
+                'sucursal',
+                'moneda',
+                'ventaCredito',
+                'apartado'
+            ])->findOrFail($id);
+
+            // Generar PDF formato POS (80mm)
+            $pdf = Pdf::loadView('reports.recibo-pos', compact('venta'));
+
+            // Configurar papel de 80mm con altura automática (adaptativa)
+            $pdf->setPaper([0, 0, 226.77, 841.89], 'portrait'); // 80mm de ancho en puntos
+
+            return $pdf->stream("Recibo_POS_{$venta->codigo_venta}.pdf");
+        } catch (\Exception $e) {
+            Log::error('Error al generar recibo POS: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el recibo: ' . $e->getMessage()
             ], 500);
         }
     }

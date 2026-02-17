@@ -27,10 +27,9 @@ class UpdateClienteRequest extends FormRequest
         return [
             'nombres' => 'sometimes|required|string|max:255',
             'apellidos' => 'sometimes|required|string|max:255',
-            // Validar que el DPI no exista en otros clientes no eliminados (excepto el actual)
+            // DPI es opcional, validar unique solo si se proporciona
             'dpi' => [
-                'sometimes',
-                'required',
+                'nullable',
                 'string',
                 'max:20',
                 Rule::unique('clientes', 'dpi')
@@ -40,7 +39,7 @@ class UpdateClienteRequest extends FormRequest
             'nit' => 'nullable|string|max:20',
             'fecha_nacimiento' => 'sometimes|required|date|before:today',
             'genero' => 'sometimes|required|in:masculino,femenino,otro',
-            'telefono' => 'sometimes|required|string|max:20',
+            'telefono' => 'nullable|string|max:20',
             'telefono_secundario' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
             'direccion' => 'sometimes|required|string',
@@ -65,7 +64,6 @@ class UpdateClienteRequest extends FormRequest
             'nombres.max' => 'Los nombres no pueden exceder 255 caracteres',
             'apellidos.required' => 'Los apellidos son obligatorios',
             'apellidos.max' => 'Los apellidos no pueden exceder 255 caracteres',
-            'dpi.required' => 'El DPI (Documento Personal de Identificación) es obligatorio',
             'dpi.unique' => 'Ya existe otro cliente registrado con este número de DPI. Por favor, verifique el número ingresado.',
             'dpi.max' => 'El DPI no puede exceder 20 caracteres',
             'nit.max' => 'El NIT no puede exceder 20 caracteres',
@@ -74,7 +72,6 @@ class UpdateClienteRequest extends FormRequest
             'fecha_nacimiento.before' => 'La fecha de nacimiento debe ser anterior a hoy',
             'genero.required' => 'El género es obligatorio',
             'genero.in' => 'El género debe ser: masculino, femenino u otro',
-            'telefono.required' => 'El teléfono es obligatorio',
             'telefono.max' => 'El teléfono no puede exceder 20 caracteres',
             'telefono_secundario.max' => 'El teléfono secundario no puede exceder 20 caracteres',
             'email.email' => 'El correo electrónico no tiene un formato válido',

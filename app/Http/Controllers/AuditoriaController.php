@@ -110,8 +110,8 @@ class AuditoriaController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'fecha_desde' => 'required|date',
-            'fecha_hasta' => 'required|date|after_or_equal:fecha_desde',
+            'fecha_desde' => 'nullable|date',
+            'fecha_hasta' => 'nullable|date|after_or_equal:fecha_desde',
         ]);
 
         if ($validator->fails()) {
@@ -122,8 +122,8 @@ class AuditoriaController extends Controller
             ], 422);
         }
 
-        $fechaDesde = $request->fecha_desde . ' 00:00:00';
-        $fechaHasta = $request->fecha_hasta . ' 23:59:59';
+        $fechaDesde = ($request->fecha_desde ?? now()->subDays(30)->toDateString()) . ' 00:00:00';
+        $fechaHasta = ($request->fecha_hasta ?? now()->toDateString()) . ' 23:59:59';
 
         // Total de acciones
         $totalAcciones = AuditoriaLog::whereBetween('created_at', [$fechaDesde, $fechaHasta])->count();

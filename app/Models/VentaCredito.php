@@ -62,6 +62,11 @@ class VentaCredito extends Model
         'cuotas_pagadas',
         'observaciones',
         'numero_contrato',
+        'gasto_seguro',
+        'gasto_estudio',
+        'gasto_apertura',
+        'gasto_otros',
+        'total_gastos',
     ];
 
     protected $casts = [
@@ -86,6 +91,11 @@ class VentaCredito extends Model
         'tasa_interes' => 'decimal:2',
         'tasa_mora' => 'decimal:2',
         'monto_cuota' => 'decimal:2',
+        'gasto_seguro' => 'decimal:2',
+        'gasto_estudio' => 'decimal:2',
+        'gasto_apertura' => 'decimal:2',
+        'gasto_otros' => 'decimal:2',
+        'total_gastos' => 'decimal:2',
     ];
 
     // ==================== RELACIONES ====================

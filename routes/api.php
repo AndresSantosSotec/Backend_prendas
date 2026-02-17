@@ -20,6 +20,9 @@ use App\Http\Controllers\CompraController;
 use App\Http\Controllers\Api\ReporteComprasController;
 use App\Http\Controllers\AuditoriaController;
 use App\Http\Controllers\ContabilidadController;
+use App\Http\Controllers\ParametrizacionCuentasController;
+use App\Http\Controllers\NomenclaturaController;
+use App\Http\Controllers\DiarioContableController;
 use Illuminate\Support\Facades\DB;
 
 /*
@@ -32,21 +35,20 @@ use Illuminate\Support\Facades\DB;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
-
+    /*Rutas de salud API */
     Route::get('/ping', function () {
         return response()->json([
             'status' => 'success',
             'message' => 'Pong'
         ]);
     });
-
-Route::prefix('v1')->group(function () {
-    // 🔒 Rutas públicas de autenticación con rate limiting estricto
-    Route::middleware('throttle:5,1')->group(function () {
-        Route::post('/auth/login', [AuthController::class, 'login']);
+    Route::get('/version', function () {
+        return response()->json([
+            'status' => 'success',
+            'version' => '1.0.0'
+        ]);
     });
-
-    Route::get('/ping', function () {
+        Route::get('/ping', function () {
         return response()->json([
             'status' => 'success',
             'message' => 'Pong'
@@ -82,6 +84,13 @@ Route::prefix('v1')->group(function () {
         }
     });
 
+Route::prefix('v1')->group(function () {
+    // 🔒 Rutas públicas de autenticación con rate limiting estricto
+    Route::middleware('throttle:5,1')->group(function () {
+        Route::post('/auth/login', [AuthController::class, 'login']);
+    });
+
+
     // Rutas protegidas
     Route::middleware('auth:sanctum')->group(function () {
         // Dashboard
@@ -105,6 +114,13 @@ Route::prefix('v1')->group(function () {
             Route::get('/acciones', [AuditoriaController::class, 'acciones']);
             Route::post('/test', [AuditoriaController::class, 'test']);
             Route::get('/{id}', [AuditoriaController::class, 'show']);
+        });
+
+        // Errores de Sistema (solo superadmin)
+        Route::prefix('system-errors')->group(function () {
+            Route::get('/', [\App\Http\Controllers\SystemErrorController::class, 'index']);
+            Route::get('/{id}', [\App\Http\Controllers\SystemErrorController::class, 'show']);
+            Route::post('/clear', [\App\Http\Controllers\SystemErrorController::class, 'clear']);
         });
 
         // Sucursales (sin scope - el superadmin gestiona todas las sucursales)
@@ -286,6 +302,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/ventas', [\App\Http\Controllers\VentaController::class, 'index']);
             Route::get('/ventas/prendas-disponibles', [\App\Http\Controllers\VentaController::class, 'prendasEnVenta']);
             Route::get('/ventas/estadisticas', [\App\Http\Controllers\VentaController::class, 'estadisticas']);
+            Route::get('/ventas/{id}/plan-pagos-pdf', [\App\Http\Controllers\VentaController::class, 'generarPDFPlanPagos']); // PDF Plan de Pagos
+            Route::get('/ventas/{id}/recibo-pos', [\App\Http\Controllers\VentaController::class, 'generarReciboPOS']); // Recibo POS 80mm
             Route::get('/ventas/{id}', [\App\Http\Controllers\VentaController::class, 'show']);
             Route::get('/ventas/{id}/resumen-pagos', [\App\Http\Controllers\VentaController::class, 'resumenPagos']); // Resumen de pagos
             Route::post('/ventas', [\App\Http\Controllers\VentaController::class, 'store']); // NUEVO: crear venta multi-prenda
@@ -411,6 +429,35 @@ Route::prefix('v1')->group(function () {
 
             // Reportes PDF
             Route::get('/libro-diario/pdf', [ContabilidadController::class, 'libroDiarioPdf']);
+
+            // ========== PARAMETRIZACIÓN DE CUENTAS ==========
+            Route::prefix('parametrizacion-cuentas')->group(function () {
+                Route::get('/', [ParametrizacionCuentasController::class, 'index']);
+                Route::get('/operacion/{tipo}', [ParametrizacionCuentasController::class, 'getPorOperacion']);
+                Route::get('/tipos-operacion', [ParametrizacionCuentasController::class, 'getTiposOperacion']);
+                Route::post('/', [ParametrizacionCuentasController::class, 'store']);
+                Route::put('/{id}', [ParametrizacionCuentasController::class, 'update']);
+                Route::delete('/{id}', [ParametrizacionCuentasController::class, 'destroy']);
+                Route::post('/{id}/toggle', [ParametrizacionCuentasController::class, 'toggle']);
+                Route::post('/batch', [ParametrizacionCuentasController::class, 'updateBatch']);
+            });
+
+            // ========== ASIENTOS CONTABLES ==========
+            Route::prefix('asientos')->group(function () {
+                Route::get('/', [DiarioContableController::class, 'index']);
+                Route::get('/{id}', [DiarioContableController::class, 'show']);
+                Route::post('/{id}/anular', [DiarioContableController::class, 'anular']);
+                Route::post('/manual', [DiarioContableController::class, 'registrarManual']);
+                Route::get('/estadisticas', [DiarioContableController::class, 'estadisticas']);
+            });
+        });
+
+        // ========== MIGRACIONES (SOLO SUPERADMIN) ==========
+        Route::middleware('auth:sanctum')->prefix('migraciones')->group(function () {
+             Route::get('/', [\App\Http\Controllers\MigracionController::class, 'index']);
+             Route::get('/plantilla/{modelo}', [\App\Http\Controllers\MigracionController::class, 'downloadTemplate']);
+             Route::post('/upload', [\App\Http\Controllers\MigracionController::class, 'upload']);
+             Route::post('/execute', [\App\Http\Controllers\MigracionController::class, 'execute']);
         });
 });
 

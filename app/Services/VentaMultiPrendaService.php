@@ -610,10 +610,11 @@ class VentaMultiPrendaService
     /**
      * Configurar venta a CRÉDITO (enganche + cuotas con interés flat)
      *
-     * Fórmula FLAT:
+     * Fórmula FLAT CON GASTOS:
      * saldoFinanciar = totalVenta - enganche
      * interesTotal = saldoFinanciar × (tasaMensual/100) × numeroCuotas
-     * totalCredito = saldoFinanciar + interesTotal
+     * totalGastos = seguro + estudio + apertura + otros
+     * totalCredito = saldoFinanciar + interesTotal + totalGastos
      * cuotaMensual = totalCredito / numeroCuotas
      *
      * Crea:
@@ -628,10 +629,17 @@ class VentaMultiPrendaService
         $tasaInteresMensual = $data['tasa_interes_mensual'] ?? 5;
         $frecuenciaPago = $data['frecuencia_pago'] ?? 'mensual';
 
-        // Cálculos FLAT
+        // Gastos adicionales
+        $gastoSeguro = $data['gasto_seguro'] ?? 0;
+        $gastoEstudio = $data['gasto_estudio'] ?? 0;
+        $gastoApertura = $data['gasto_apertura'] ?? 0;
+        $gastoOtros = $data['gasto_otros'] ?? 0;
+        $totalGastos = $gastoSeguro + $gastoEstudio + $gastoApertura + $gastoOtros;
+
+        // Cálculos FLAT CON GASTOS
         $saldoFinanciar = $venta->total_final - $enganche;
         $interesTotal = $saldoFinanciar * ($tasaInteresMensual / 100) * $numeroCuotas;
-        $totalCredito = $saldoFinanciar + $interesTotal;
+        $totalCredito = $saldoFinanciar + $interesTotal + $totalGastos;
         $cuotaMensual = $numeroCuotas > 0 ? $totalCredito / $numeroCuotas : $totalCredito;
 
         // Actualizar la venta con datos del crédito
@@ -678,6 +686,11 @@ class VentaMultiPrendaService
             'saldo_actual' => $totalCredito,
             'tasa_interes' => $tasaInteresMensual,
             'tasa_mora' => 0, // Se puede configurar
+            'gasto_seguro' => $gastoSeguro,
+            'gasto_estudio' => $gastoEstudio,
+            'gasto_apertura' => $gastoApertura,
+            'gasto_otros' => $gastoOtros,
+            'total_gastos' => $totalGastos,
             'tipo_interes' => 'flat',
             'frecuencia_pago' => $frecuenciaPago,
             'numero_cuotas' => $numeroCuotas,
@@ -691,6 +704,7 @@ class VentaMultiPrendaService
         // ========== CREAR PLAN DE PAGOS ==========
         $capitalPorCuota = $saldoFinanciar / $numeroCuotas;
         $interesPorCuota = $interesTotal / $numeroCuotas;
+        $gastosPorCuota = $totalGastos / $numeroCuotas;
         $saldoCapitalRestante = $saldoFinanciar;
 
         for ($i = 1; $i <= $numeroCuotas; $i++) {
@@ -711,7 +725,7 @@ class VentaMultiPrendaService
                 'capital_proyectado' => round($capitalPorCuota, 2),
                 'interes_proyectado' => round($interesPorCuota, 2),
                 'mora_proyectada' => 0,
-                'otros_cargos_proyectados' => 0,
+                'otros_cargos_proyectados' => round($gastosPorCuota, 2),
                 'monto_cuota_proyectado' => round($cuotaMensual, 2),
                 'capital_pagado' => 0,
                 'interes_pagado' => 0,
@@ -721,7 +735,7 @@ class VentaMultiPrendaService
                 'capital_pendiente' => round($capitalPorCuota, 2),
                 'interes_pendiente' => round($interesPorCuota, 2),
                 'mora_pendiente' => 0,
-                'otros_cargos_pendientes' => 0,
+                'otros_cargos_pendientes' => round($gastosPorCuota, 2),
                 'monto_pendiente' => round($cuotaMensual, 2),
                 'saldo_capital_credito' => round(max($saldoCapitalRestante, 0), 2),
                 'dias_mora' => 0,

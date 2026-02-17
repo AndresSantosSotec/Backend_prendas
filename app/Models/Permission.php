@@ -43,6 +43,8 @@ class Permission extends Model
         'gastos' => ['ver', 'crear', 'editar', 'eliminar', 'asignar_credito'],
         'auditoria' => ['ver', 'exportar'], // Solo para superadmin
         'boveda' => ['ver', 'transferir', 'ver_movimientos'],
+        'migracion' => ['ver', 'importar', 'descargar_plantilla'],
+        'contabilidad' => ['ver', 'configurar', 'asientos', 'reportes'],
     ];
 
     /**
