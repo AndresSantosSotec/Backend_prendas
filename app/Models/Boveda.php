@@ -162,7 +162,7 @@ class Boveda extends Model
             ->selectRaw("
                 COALESCE(SUM(
                     CASE
-                        WHEN tipo_movimiento IN ('entrada', 'transferencia_entrada') THEN monto
+                        WHEN tipo_movimiento IN ('entrada', 'transferencia_entrada', 'ingreso_cierre_diario') THEN monto
                         WHEN tipo_movimiento IN ('salida', 'transferencia_salida') THEN -monto
                         ELSE 0
                     END
@@ -198,6 +198,7 @@ class Boveda extends Model
             $denominaciones = $mov->desglose_denominaciones;
             if (!is_array($denominaciones)) continue;
 
+            // Los ingresos por cierre diario también suman al desglose
             $multiplicador = $mov->esEntrada() ? 1 : -1;
 
             foreach ($denominaciones as $valor => $cantidad) {

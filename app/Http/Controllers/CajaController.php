@@ -5,6 +5,9 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\CajaAperturaCierre;
 use App\Models\MovimientoCaja;
+use App\Http\Requests\CloseCashRegisterRequest;
+use App\Http\Resources\CashRegisterClosureResource;
+use App\Services\CashRegisterClosureService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -12,6 +15,12 @@ use Carbon\Carbon;
 
 class CajaController extends Controller
 {
+    protected CashRegisterClosureService $closureService;
+
+    public function __construct(CashRegisterClosureService $closureService)
+    {
+        $this->closureService = $closureService;
+    }
     /**
      * Obtener historial de aperturas y cierres (para el mes actual o filtro)
      */
@@ -207,6 +216,44 @@ class CajaController extends Controller
         $caja->save();
 
         return response()->json(['message' => 'Caja cerrada correctamente', 'caja' => $caja]);
+    }
+
+    /**
+     * Cerrar caja con opción de transferir el saldo final a una bóveda destino.
+     *
+     * Endpoint REST nuevo orientado a React:
+     *  POST /api/v1/cash-registers/{id}/close
+     */
+    public function closeWithVault(CloseCashRegisterRequest $request, $id)
+    {
+        $caja = CajaAperturaCierre::findOrFail($id);
+        $user = Auth::user();
+
+        // Reutilizar la misma regla de permisos que el cierre clásico:
+        // solo el dueño de la caja o un administrador pueden cerrarla
+        if ($caja->user_id !== $user->id && $user->rol !== 'administrador') {
+            return response()->json(['error' => 'No tienes permiso para cerrar esta caja.'], 403);
+        }
+
+        if ($caja->estado === 'cerrada') {
+            return response()->json(['error' => 'La caja ya está cerrada.'], 400);
+        }
+
+        // Ejecutar lógica de cierre + (opcional) transferencia a bóveda en una transacción
+        [$cajaCerrada, $movimientoBoveda] = $this->closureService->closeAndTransferToVault($caja, [
+            'monto_total_efectivo' => $request->input('monto_total_efectivo'),
+            'desglose_denominaciones' => $request->input('desglose_denominaciones', []),
+            'enviar_a_boveda' => $request->boolean('enviar_a_boveda'),
+            'boveda_destino_id' => $request->input('boveda_destino_id'),
+            'cajero_id' => $request->input('cajero_id') ?? $caja->user_id,
+            'observaciones' => $request->input('observaciones'),
+        ]);
+
+        // Respuesta normalizada vía Resource para que el frontend tenga estructura estable
+        return new CashRegisterClosureResource([
+            'caja' => $cajaCerrada,
+            'boveda_movimiento' => $movimientoBoveda,
+        ]);
     }
 
     /**

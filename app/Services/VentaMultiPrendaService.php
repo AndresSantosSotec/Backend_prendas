@@ -174,7 +174,10 @@ class VentaMultiPrendaService
                 'estado' => 'pendiente', // se cambia después según pagos
                 'observaciones' => $data['observaciones'] ?? 'Venta generada desde módulo NuevaVenta por ' . (Auth::user()->name ?? 'admin'),
                 'consumidor_final' => $esConsumidorFinal,
-                'tipo_documento' => $data['tipo_comprobante'] ?? 'NOTA',
+                'tipo_documento' => in_array(
+                    $data['tipo_comprobante'] ?? 'NOTA',
+                    ['NOTA', 'FACTURA', 'RECIBO', 'COTIZACION', 'FEL']
+                ) ? ($data['tipo_comprobante'] ?? 'NOTA') : 'NOTA',
                 'moneda_id' => $data['moneda_id'] ?? 1, // Por defecto GTQ
             ]);
 

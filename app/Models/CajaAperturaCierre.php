@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use App\Models\User;
 use App\Models\Sucursal;
 use App\Models\MovimientoCaja;
+use App\Models\Boveda;
 use App\Traits\Auditable;
 
 class CajaAperturaCierre extends Model
@@ -30,11 +31,15 @@ class CajaAperturaCierre extends Model
         'resultado_arqueo',
         'detalles_arqueo',
         'estado',
+        'boveda_destino_id',   // ← FK a la bóveda receptora del cierre diario
     ];
 
     protected $casts = [
         'detalles_arqueo' => 'array',
-        'fecha_cierre' => 'datetime',
+        'fecha_cierre'    => 'datetime',
+        'saldo_inicial'   => 'decimal:2',
+        'saldo_final'     => 'decimal:2',
+        'diferencia'      => 'decimal:2',
     ];
 
     public function user()
@@ -50,5 +55,13 @@ class CajaAperturaCierre extends Model
     public function movimientos()
     {
         return $this->hasMany(MovimientoCaja::class, 'caja_id');
+    }
+
+    /**
+     * Bóveda a la que se transfirió el saldo al cerrar.
+     */
+    public function bovedaDestino()
+    {
+        return $this->belongsTo(Boveda::class, 'boveda_destino_id');
     }
 }

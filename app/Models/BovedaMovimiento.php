@@ -106,7 +106,12 @@ class BovedaMovimiento extends Model
 
     public function scopeEntradas($query)
     {
-        return $query->whereIn('tipo_movimiento', ['entrada', 'transferencia_entrada']);
+        // Considerar también ingresos por cierre diario como entradas
+        return $query->whereIn('tipo_movimiento', [
+            'entrada',
+            'transferencia_entrada',
+            'ingreso_cierre_diario',
+        ]);
     }
 
     public function scopeSalidas($query)
@@ -127,7 +132,12 @@ class BovedaMovimiento extends Model
 
     public function esEntrada()
     {
-        return in_array($this->tipo_movimiento, ['entrada', 'transferencia_entrada']);
+        // Los ingresos por cierre diario se tratan contablemente como entradas
+        return in_array($this->tipo_movimiento, [
+            'entrada',
+            'transferencia_entrada',
+            'ingreso_cierre_diario',
+        ]);
     }
 
     public function esSalida()
@@ -209,6 +219,7 @@ class BovedaMovimiento extends Model
             'salida' => 'Salida',
             'transferencia_entrada' => 'Transferencia Entrada',
             'transferencia_salida' => 'Transferencia Salida',
+            'ingreso_cierre_diario' => 'Ingreso por Cierre Diario',
         ];
 
         return $labels[$this->tipo_movimiento] ?? $this->tipo_movimiento;

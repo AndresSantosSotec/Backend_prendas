@@ -346,6 +346,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/cajas/check-estado', [CajaController::class, 'checkEstado']);
             Route::post('/cajas/abrir', [CajaController::class, 'abrir']);
             Route::post('/cajas/{id}/cerrar', [CajaController::class, 'cerrar']);
+            // Nuevo endpoint REST para cierre de caja con opción de envío a bóveda
+            Route::post('/cash-registers/{id}/close', [CajaController::class, 'closeWithVault']);
             Route::get('/cajas/{id}/movimientos', [CajaController::class, 'getMovimientos']);
             Route::post('/cajas/movimientos', [CajaController::class, 'registrarMovimiento']);
             Route::put('/cajas/{id}', [CajaController::class, 'update']);

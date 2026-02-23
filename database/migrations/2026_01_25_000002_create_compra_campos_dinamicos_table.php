@@ -17,6 +17,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (Schema::hasTable('compra_campos_dinamicos')) {
+            return; // La tabla ya existe, no hacer nada
+        }
+
         Schema::create('compra_campos_dinamicos', function (Blueprint $table) {
             $table->id();
 
