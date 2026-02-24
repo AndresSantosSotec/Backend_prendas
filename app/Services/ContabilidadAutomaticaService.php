@@ -286,6 +286,9 @@ class ContabilidadAutomaticaService
             'venta_credito' => 'venta_prenda',
             'venta_enganche' => 'venta_prenda',
             'venta_abono' => 'venta_prenda',
+            // Nuevos tipos para ventas a crédito con plan de pagos
+            'venta_credito_enganche' => 'venta_prenda',
+            'venta_credito_abono' => 'venta_prenda',
             'compra_directa' => 'compra',
             'caja_apertura' => 'caja',
             'caja_cierre' => 'caja',
@@ -312,6 +315,9 @@ class ContabilidadAutomaticaService
             'venta_contado' => "Venta al contado - Recibo " . $codigo,
             'venta_enganche' => "Venta a crédito - Enganche - Recibo " . $codigo,
             'venta_abono' => "Abono a venta a crédito - Recibo " . $codigo,
+            // Nuevos tipos para ventas a crédito con plan de pagos
+            'venta_credito_enganche' => "Venta a crédito con plan de pagos - Enganche - " . $codigo,
+            'venta_credito_abono' => "Abono a cuota de venta a crédito - " . $codigo,
             'compra_directa' => "Compra directa de prenda - " . $codigo,
             'caja_apertura' => "Apertura de caja - " . $codigo,
             'caja_cierre' => "Cierre de caja - " . $codigo,

@@ -227,6 +227,10 @@ class VentaController extends Controller
             if ($request->has('estado') && $request->estado !== 'todas') {
                 if ($request->estado === 'devueltas') {
                     $query->where('estado', 'devuelta');
+                } elseif ($request->estado === 'pendiente') {
+                    // Para la vista "Pendientes" del frontend queremos incluir también
+                    // ventas en estado "apartado" y "plan_pagos", ya que siguen abiertas.
+                    $query->whereIn('estado', ['pendiente', 'apartado', 'plan_pagos']);
                 } else {
                     $query->where('estado', $request->estado);
                 }

@@ -317,6 +317,14 @@ Route::prefix('v1')->group(function () {
             Route::post('/ventas/{id}/certificar', [\App\Http\Controllers\VentaController::class, 'certificar']);
             Route::delete('/ventas/{id}', [\App\Http\Controllers\VentaController::class, 'destroy']);
 
+            // Planes de Pago de Ventas (Ventas a Crédito)
+            Route::post('/ventas/{id}/generar-plan', [\App\Http\Controllers\VentaPlanPagoController::class, 'generarPlan']); // Generar plan de pagos
+            Route::get('/ventas/apartados', [\App\Http\Controllers\VentaPlanPagoController::class, 'listarApartados']); // Listar apartados
+            Route::get('/ventas/planes-pago', [\App\Http\Controllers\VentaPlanPagoController::class, 'listarPlanesPago']); // Listar planes activos
+            Route::get('/ventas/{id}/plan-pago', [\App\Http\Controllers\VentaPlanPagoController::class, 'obtenerDetallePlan']); // Detalle del plan
+            Route::post('/ventas/cuotas/{cuotaId}/pagar', [\App\Http\Controllers\VentaPlanPagoController::class, 'pagarCuota']); // Pagar cuota
+            Route::get('/ventas/planes-pago/resumen', [\App\Http\Controllers\VentaPlanPagoController::class, 'resumenGeneral']); // Estadísticas
+
             // Compras Directas
             Route::get('/compras', [CompraController::class, 'index']);
             Route::get('/compras/stats/general', [CompraController::class, 'stats']);
