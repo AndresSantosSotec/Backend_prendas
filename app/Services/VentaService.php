@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Prenda;
 use App\Models\CreditoPrendario;
 use App\Models\Venta;
+use App\Models\VentaDetalle;
 use App\Models\CajaAperturaCierre;
 use App\Services\CajaService;
 use Carbon\Carbon;
@@ -20,9 +21,19 @@ class VentaService
     {
         $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente'])
             ->where('estado', '=', 'en_venta')
-            ->whereNotNull('valor_venta')
-            ->where('valor_venta', '>', 0);
+            ->where(function ($q) {
+                $q->where('valor_venta', '>', 0)
+                    ->orWhere('precio_venta', '>', 0);
+            });
 
+        // Excluir prendas que ya están en una venta activa (apartado, plan_pagos, pendiente, pagada)
+        // para que no aparezcan como seleccionables en nueva venta
+        $query->whereNotIn('id', VentaDetalle::query()
+            ->select('prenda_id')
+            ->whereNotNull('prenda_id')
+            ->whereHas('venta', function ($q) {
+                $q->whereNotIn('estado', ['cancelada', 'anulada', 'devuelta']);
+            }));
         // Filtros
         if (!empty($filtros['busqueda'])) {
             $busqueda = $filtros['busqueda'];

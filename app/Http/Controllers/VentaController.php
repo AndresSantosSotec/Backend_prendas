@@ -234,6 +234,9 @@ class VentaController extends Controller
                 } else {
                     $query->where('estado', $request->estado);
                 }
+            } else {
+                // Por defecto excluir apartados del listado general: solo aparecen en tab Apartados
+                $query->where('estado', '!=', 'apartado');
             }
 
             if ($request->has('fecha_desde')) {
@@ -751,8 +754,9 @@ class VentaController extends Controller
                 ->orderBy('numero_cuota', 'asc')
                 ->get();
 
+            $fechaGeneracion = now()->format('d/m/Y H:i');
             // Generar PDF
-            $pdf = Pdf::loadView('reports.plan-pagos-credito', compact('venta', 'credito', 'planPagos'));
+            $pdf = Pdf::loadView('reports.plan-pagos-credito', compact('venta', 'credito', 'planPagos', 'fechaGeneracion'));
             $pdf->setPaper('letter', 'portrait');
 
             return $pdf->stream("Plan_Pagos_{$credito->numero_credito}.pdf");

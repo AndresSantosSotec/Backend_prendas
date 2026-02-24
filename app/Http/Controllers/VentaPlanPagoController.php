@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\Venta;
+use App\Models\Apartado;
 use App\Models\VentaCredito;
 use App\Models\VentaCreditoPlanPago;
 use App\Services\VentaPlanPagoService;
+use App\Http\Requests\PagarMultipleCuotasRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -50,7 +52,7 @@ class VentaPlanPagoController extends Controller
             'fecha_primera_cuota' => 'nullable|date|after:today',
             'dias_gracia' => 'nullable|integer|min:0|max:30',
             'tasa_mora' => 'nullable|numeric|min:0|max:100',
-            'caja_id' => 'required|exists:cajas,id',
+            'caja_id' => 'required|exists:caja_apertura_cierres,id',
             'observaciones' => 'nullable|string|max:500',
         ]);
 
@@ -87,11 +89,22 @@ class VentaPlanPagoController extends Controller
     public function listarApartados(Request $request)
     {
         try {
-            // Ventas en estado apartado que NO tienen plan de crédito generado
-            $query = Venta::with(['cliente', 'detalles.prenda', 'vendedor', 'sucursal'])
-                ->where('estado', 'apartado')
-                ->whereDoesntHave('ventaCredito')
-                ->where('saldo_pendiente', '>', 0);
+            // 1) Ventas con estado o tipo_venta = apartado, sin plan de crédito (sin venta_credito).
+            // 2) Ventas que tengan un registro activo en la tabla apartados (flujo alternativo).
+            // No filtrar por saldo_pendiente para no excluir ninguna venta en apartado; el front deshabilita pago si saldo <= 0.
+            $idsConApartadoActivo = Apartado::where('estado', 'activo')->pluck('venta_id')->toArray();
+
+            $query = Venta::with(['cliente', 'detalles.prenda', 'vendedor', 'sucursal', 'apartado'])
+                ->where(function ($q) use ($idsConApartadoActivo) {
+                    $q->where(function ($q2) {
+                        $q2->where('estado', 'apartado')
+                            ->orWhere('tipo_venta', 'apartado');
+                    })
+                    ->whereDoesntHave('ventaCredito');
+                    if (!empty($idsConApartadoActivo)) {
+                        $q->orWhereIn('id', $idsConApartadoActivo);
+                    }
+                });
 
             // Filtros opcionales
             if ($request->has('cliente_id')) {
@@ -301,8 +314,10 @@ class VentaPlanPagoController extends Controller
     {
         $request->validate([
             'monto' => 'required|numeric|min:0.01',
-            'caja_id' => 'required|exists:cajas,id',
+            'caja_id' => 'required|exists:caja_apertura_cierres,id',
             'observacion' => 'nullable|string|max:500',
+            'generar_nueva_cuota_restante' => 'nullable|boolean',
+            'gasto_refinanciamiento' => 'nullable|numeric|min:0',
         ]);
 
         try {
@@ -320,6 +335,49 @@ class VentaPlanPagoController extends Controller
         } catch (\Exception $e) {
             Log::error('Error al registrar pago de cuota: ' . $e->getMessage(), [
                 'cuota_id' => $cuotaId,
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    /**
+     * POST /api/ventas/cuotas/pagar-multiple
+     * Registrar pago de varias cuotas en una sola operación (un ingreso a caja y un asiento).
+     *
+     * Body: { cuota_ids: [1, 2, 3], caja_id: 1, observacion?: string }
+     */
+    public function pagarMultipleCuotas(PagarMultipleCuotasRequest $request)
+    {
+        try {
+            $cuotaIds = $request->validated()['cuota_ids'];
+            $cajaId = (int) $request->validated()['caja_id'];
+            $observacion = $request->validated()['observacion'] ?? null;
+
+            $resultado = $this->planPagoService->pagarMultiple($cuotaIds, $cajaId, $observacion);
+
+            return response()->json([
+                'success' => true,
+                'message' => $resultado['venta_completada']
+                    ? '¡Crédito liquidado completamente!'
+                    : 'Pago de ' . $resultado['cuotas_pagadas'] . ' cuota(s) registrado correctamente.',
+                'data' => [
+                    'cuotas_pagadas' => $resultado['cuotas_pagadas'],
+                    'cuotas_adelantadas' => $resultado['cuotas_adelantadas'],
+                    'total_pagado' => $resultado['total_pagado'],
+                    'nuevo_saldo_venta' => $resultado['nuevo_saldo_venta'],
+                    'venta_completada' => $resultado['venta_completada'],
+                    'detalle' => $resultado['detalle'],
+                    'ventaCredito' => $resultado['ventaCredito'],
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error al registrar pago múltiple de cuotas: ' . $e->getMessage(), [
+                'cuota_ids' => $request->input('cuota_ids'),
                 'trace' => $e->getTraceAsString(),
             ]);
 
