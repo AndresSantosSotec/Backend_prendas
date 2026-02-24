@@ -87,9 +87,8 @@ class VentaPlanPagoController extends Controller
     public function listarApartados(Request $request)
     {
         try {
-            // Ventas en estado apartado que NO tienen plan generado
+            // Ventas en estado apartado que NO tienen plan de crédito generado
             $query = Venta::with(['cliente', 'detalles.prenda', 'vendedor', 'sucursal'])
-                ->where('tipo_venta', 'apartado')
                 ->where('estado', 'apartado')
                 ->whereDoesntHave('ventaCredito')
                 ->where('saldo_pendiente', '>', 0);

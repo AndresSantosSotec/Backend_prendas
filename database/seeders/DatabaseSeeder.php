@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             UserSeeder::class,
             PermissionSeeder::class,
+            VentasPermisosSeeder::class, // Permisos ventas (aplicar_descuento, etc.)
             SucursalSeeder::class,
             CategoriaProductoSeeder::class,
             CamposDinamicosCategoriaSeeder::class,
