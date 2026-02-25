@@ -76,9 +76,9 @@ return new class extends Migration
                 $table->softDeletes();
 
                 // Índices
-                $table->index(['tipo_operacion', 'tipo_movimiento', 'activo']);
+                $table->index(['tipo_operacion', 'tipo_movimiento', 'activo'], 'idx_parametrizacion_operacion');
                 $table->index('cuenta_contable_id');
-                $table->index(['sucursal_id', 'tipo_operacion']);
+                $table->index(['sucursal_id', 'tipo_operacion'], 'idx_parametrizacion_sucursal');
                 $table->unique(['tipo_operacion', 'tipo_movimiento', 'sucursal_id', 'cuenta_contable_id', 'deleted_at'], 'unique_parametrizacion');
             });
         }
