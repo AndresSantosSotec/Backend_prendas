@@ -24,8 +24,8 @@ class CreateSuperAdminSeeder extends Seeder
         // Crear usuario SuperAdmin
         $superadmin = User::create([
             'name' => 'Super Administrador',
-            'email' => 'superadmin@empenios.com',
-            'password' => Hash::make('SuperAdmin2024!'),
+            'email' => 'andres@empenios.com',
+            'password' => Hash::make('2905Andres@'),
             'rol' => 'superadmin',
             'activo' => true,
             'sucursal_id' => null, // Sin sucursal - puede ver TODAS las sucursales
