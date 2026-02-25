@@ -96,6 +96,22 @@ return new class extends Migration
         $cuentas = $this->getCuentasIds();
         $polizas = $this->getPolizasIds();
 
+        // Verificar que existan las cuentas necesarias
+        $cuentasRequeridas = [
+            'caja', 'creditos_por_cobrar', 'intereses_por_cobrar', 
+            'ingresos_intereses', 'ingresos_mora', 'ingresos_comisiones',
+            'inventario_prendas_venta', 'ventas', 'caja_general', 'bancos'
+        ];
+
+        foreach ($cuentasRequeridas as $cuenta) {
+            if (!isset($cuentas[$cuenta])) {
+                echo "\n⚠️  ADVERTENCIA: No se encontró la cuenta contable '$cuenta'\n";
+                echo "   Las parametrizaciones por defecto no se insertarán.\n";
+                echo "   Ejecute primero los seeders de contabilidad y luego puede insertar las parametrizaciones manualmente.\n\n";
+                return;
+            }
+        }
+
         $parametrizaciones = [
             // ===== CRÉDITOS PRENDARIOS =====
             // Desembolso de crédito
