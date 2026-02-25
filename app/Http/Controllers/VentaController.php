@@ -174,25 +174,29 @@ class VentaController extends Controller
         try {
             $venta = $this->ventaMultiPrendaService->crearVenta($request->all());
 
-            // Registrar asiento contable automático según tipo de venta
+            // Registrar asiento contable automático según tipo de venta (como en créditos)
             try {
+                $total = (float) ($venta->total_final ?? 0);
+                $enganche = (float) ($venta->total_pagado ?? $venta->enganche ?? 0);
+                $saldoFinanciar = max(0, $total - $enganche);
+
                 $tipoAsiento = match ($venta->tipo_venta) {
                     'contado' => 'venta_contado',
                     'credito' => 'venta_enganche',
-                    'apartado' => 'venta_enganche', // Similar a crédito
+                    'apartado' => 'venta_enganche', // Mismo tratamiento que crédito: enganche + saldo por cobrar
                     default => 'venta_contado'
                 };
 
                 $this->contabilidadService->registrarAsiento($tipoAsiento, [
                     'sucursal_id' => $venta->sucursal_id,
                     'usuario_id' => Auth::id(),
-                    'monto' => $venta->total,
                     'venta_id' => $venta->id,
                     'numero_documento' => $venta->codigo_venta,
                     'glosa' => "Venta {$venta->tipo_venta} #{$venta->codigo_venta}",
-                    'fecha_documento' => $venta->fecha_venta,
-                    'monto_efectivo' => $venta->tipo_venta === 'contado' ? $venta->total : ($venta->enganche ?? 0),
-                    'monto_credito' => $venta->tipo_venta === 'credito' ? ($venta->total - ($venta->enganche ?? 0)) : 0,
+                    'fecha_documento' => $venta->fecha_venta ?? now(),
+                    'total' => $total,
+                    'enganche' => $enganche,
+                    'saldo_financiar' => $saldoFinanciar,
                 ]);
             } catch (\Exception $contError) {
                 Log::warning('Error al registrar asiento contable para venta: ' . $contError->getMessage());
@@ -617,6 +621,22 @@ class VentaController extends Controller
             $venta = Venta::with(['detalles.prenda', 'pagos'])->findOrFail($id);
 
             $resultado = $this->ventaCreditoService->registrarAbono($venta, $request->all());
+
+            // Movimiento contable por el abono (igual que en planes de pago / créditos)
+            try {
+                $monto = (float) $request->input('monto');
+                $this->contabilidadService->registrarAsiento('venta_abono', [
+                    'sucursal_id' => $venta->sucursal_id,
+                    'usuario_id' => Auth::id(),
+                    'venta_id' => $venta->id,
+                    'numero_documento' => $venta->codigo_venta,
+                    'glosa' => 'Abono apartado/crédito - ' . $venta->codigo_venta,
+                    'fecha_documento' => now(),
+                    'monto_abono' => $monto,
+                ]);
+            } catch (\Exception $contError) {
+                Log::warning('Error al registrar asiento contable por abono: ' . $contError->getMessage());
+            }
 
             return response()->json([
                 'success' => true,

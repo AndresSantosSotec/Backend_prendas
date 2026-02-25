@@ -6,7 +6,6 @@ use App\Models\Prenda;
 use App\Models\Venta;
 use App\Models\VentaDetalle;
 use App\Models\VentaPago;
-use App\Models\Apartado;
 use App\Models\MetodoPago;
 use App\Models\Cliente;
 use App\Models\Sucursal;
@@ -808,21 +807,8 @@ class VentaMultiPrendaService
             'fecha_vencimiento' => $fechaLimite,
         ]);
 
-        // Crear/actualizar registro en tabla apartados para que siempre aparezca en el listado del tab Apartados
-        Apartado::updateOrCreate(
-            ['venta_id' => $venta->id],
-            [
-                'cliente_id' => $venta->cliente_id,
-                'cliente_nombre' => $venta->cliente_nombre ?? $venta->cliente?->nombre_completo ?? 'Consumidor final',
-                'cliente_telefono' => $venta->cliente_telefono ?? $venta->cliente?->telefono,
-                'total_apartado' => $venta->total_final,
-                'anticipo' => $anticipo,
-                'saldo_pendiente' => max(0, $saldoPendiente),
-                'fecha_apartado' => $venta->fecha_venta ?? now(),
-                'fecha_limite' => $fechaLimite,
-                'estado' => $saldoPendiente <= 0 ? 'completado' : 'activo',
-            ]
-        );
+        // El listado del tab Apartados usa ventas con estado/tipo_venta = apartado (VentaPlanPagoController::listarApartados).
+        // No se escribe en la tabla apartados para evitar conflictos con la estructura antigua (precio_total, enganche, etc.).
 
         Log::info("Apartado configurado para venta {$venta->codigo_venta}", [
             'anticipo' => $anticipo,

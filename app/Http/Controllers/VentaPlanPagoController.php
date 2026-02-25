@@ -89,12 +89,11 @@ class VentaPlanPagoController extends Controller
     public function listarApartados(Request $request)
     {
         try {
-            // 1) Ventas con estado o tipo_venta = apartado, sin plan de crédito (sin venta_credito).
-            // 2) Ventas que tengan un registro activo en la tabla apartados (flujo alternativo).
-            // No filtrar por saldo_pendiente para no excluir ninguna venta en apartado; el front deshabilita pago si saldo <= 0.
+            // Solo apartados no liquidadas: igual que créditos, cuando se liquida pasan a Realizadas.
             $idsConApartadoActivo = Apartado::where('estado', 'activo')->pluck('venta_id')->toArray();
 
             $query = Venta::with(['cliente', 'detalles.prenda', 'vendedor', 'sucursal', 'apartado'])
+                ->where('estado', '!=', 'pagada')
                 ->where(function ($q) use ($idsConApartadoActivo) {
                     $q->where(function ($q2) {
                         $q2->where('estado', 'apartado')
@@ -104,6 +103,10 @@ class VentaPlanPagoController extends Controller
                     if (!empty($idsConApartadoActivo)) {
                         $q->orWhereIn('id', $idsConApartadoActivo);
                     }
+                })
+                ->where(function ($q) {
+                    $q->where('saldo_pendiente', '>', 0)
+                        ->orWhereRaw('COALESCE(total_final, 0) - COALESCE(total_pagado, 0) > 0');
                 });
 
             // Filtros opcionales

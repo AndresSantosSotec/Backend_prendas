@@ -36,9 +36,10 @@ class VentaCreditoService
 
             $monto = (float) $datos['monto'];
 
-            // 2. Validar que el monto no exceda el saldo pendiente
-            if ($monto > $venta->saldo_pendiente) {
-                throw new \Exception("El monto Q{$monto} excede el saldo pendiente Q{$venta->saldo_pendiente}");
+            // 2. Validar que el monto no exceda el saldo pendiente (usar saldo real por si la columna está desactualizada)
+            $saldoReal = $this->saldoPendienteReal($venta);
+            if ($monto > $saldoReal) {
+                throw new \Exception("El monto Q{$monto} excede el saldo pendiente Q" . number_format($saldoReal, 2));
             }
 
             if ($monto <= 0) {
@@ -170,6 +171,16 @@ class VentaCreditoService
     }
 
     /**
+     * Saldo pendiente real: total_final - total_pagado (por si la columna saldo_pendiente está desactualizada)
+     */
+    private function saldoPendienteReal(Venta $venta): float
+    {
+        $total = (float) ($venta->total_final ?? 0);
+        $pagado = (float) ($venta->total_pagado ?? 0);
+        return max(0, $total - $pagado);
+    }
+
+    /**
      * Validar que la venta pueda recibir pagos
      */
     private function validarVentaParaPago(Venta $venta): void
@@ -186,7 +197,7 @@ class VentaCreditoService
             throw new \Exception("No se pueden registrar pagos a ventas canceladas");
         }
 
-        if ($venta->saldo_pendiente <= 0) {
+        if ($this->saldoPendienteReal($venta) <= 0) {
             throw new \Exception("Esta venta no tiene saldo pendiente");
         }
     }
