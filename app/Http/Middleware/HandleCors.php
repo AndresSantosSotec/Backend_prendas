@@ -19,7 +19,7 @@ class HandleCors
     {
         $origin = $request->headers->get('Origin');
 
-        // Lista de orígenes permitidos
+        // Lista de orígenes permitidos (desarrollo + producción)
         $allowedOrigins = [
             'http://localhost:5000',
             'http://localhost:5173',
@@ -28,6 +28,7 @@ class HandleCors
             'http://127.0.0.1:5000',
             'http://127.0.0.1:5173',
             'http://127.0.0.1:3000',
+            'https://digiprenda.inniserver.net',
         ];
 
         // Permitir cualquier localhost o 127.0.0.1 con cualquier puerto
