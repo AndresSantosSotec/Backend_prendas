@@ -17,7 +17,6 @@ return new class extends Migration
         $duplicados = DB::table('venta_detalles')
             ->select('prenda_id', DB::raw('COUNT(*) as total'))
             ->whereNotNull('prenda_id')
-            ->whereNull('deleted_at')
             ->groupBy('prenda_id')
             ->having('total', '>', 1)
             ->get();
@@ -31,7 +30,6 @@ return new class extends Migration
                 $detalles = DB::table('venta_detalles as vd')
                     ->join('ventas as v', 'vd.venta_id', '=', 'v.id')
                     ->where('vd.prenda_id', $dup->prenda_id)
-                    ->whereNull('vd.deleted_at')
                     ->select('vd.id', 'v.numero_documento', 'v.estado', 'v.created_at')
                     ->get();
 
@@ -43,12 +41,12 @@ return new class extends Migration
             echo "\n🔧 Para continuar, debe resolver estos duplicados manualmente:\n";
             echo "   1. Revisar qué venta es válida\n";
             echo "   2. Marcar las otras como canceladas o eliminarlas\n";
-            echo "   3. Ejecutar: UPDATE venta_detalles SET deleted_at = NOW() WHERE id IN (ids_a_eliminar)\n\n";
+            echo "   3. Ejecutar: DELETE FROM venta_detalles WHERE id IN (ids_a_eliminar)\n\n";
 
             throw new \Exception("Existen prendas vendidas múltiples veces. Debe limpiar los datos antes de ejecutar esta migración.");
         }
 
-        // Agregar índice único para prenda_id (solo si no está eliminado)
+        // Agregar índice único para prenda_id
         Schema::table('venta_detalles', function (Blueprint $table) {
             // Crear índice único que permite múltiples NULL pero solo un valor no-NULL
             // En MySQL, los valores NULL no se cuentan como duplicados en índices únicos
@@ -57,7 +55,7 @@ return new class extends Migration
 
         echo "\n✅ Constraint de prenda única creado exitosamente\n";
         echo "   - Una prenda solo puede estar en UNA venta activa\n";
-        echo "   - Soft deletes permitidos (deleted_at puede ser NULL múltiples veces)\n\n";
+        echo "   - Los valores NULL son permitidos (para productos que no son prendas)\n\n";
     }
 
     /**
