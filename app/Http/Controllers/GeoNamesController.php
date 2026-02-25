@@ -9,9 +9,14 @@ use Illuminate\Support\Facades\Cache;
 
 class GeoNamesController extends Controller
 {
-    private $username = 'psantosg1';
+    private $username;
     private $baseUrl = 'https://secure.geonames.org';
     private $guatemalaGeonameId = 3595528; // ID de Guatemala en GeoNames
+
+    public function __construct()
+    {
+        $this->username = env('GEONAMES_USERNAME', 'psantosg1');
+    }
 
     /**
      * Obtiene todos los departamentos de Guatemala
@@ -28,7 +33,7 @@ class GeoNamesController extends Controller
 
                 if ($response->successful()) {
                     $data = $response->json();
-                    return $data['geonames'] ?? [];
+                    return is_array($data) ? ($data['geonames'] ?? []) : [];
                 }
 
                 return [];
@@ -62,7 +67,7 @@ class GeoNamesController extends Controller
 
                 if ($response->successful()) {
                     $data = $response->json();
-                    return $data['geonames'] ?? [];
+                    return (is_array($data) && isset($data['geonames'])) ? $data['geonames'] : [];
                 }
 
                 return [];
@@ -99,7 +104,8 @@ class GeoNamesController extends Controller
                     return null;
                 }
 
-                $departamentos = $departamentosResponse->json()['geonames'] ?? [];
+                $departamentosData = $departamentosResponse->json();
+                $departamentos = (is_array($departamentosData) && isset($departamentosData['geonames'])) ? $departamentosData['geonames'] : [];
 
                 // Para cada departamento, obtener sus municipios
                 foreach ($departamentos as &$departamento) {
@@ -109,7 +115,8 @@ class GeoNamesController extends Controller
                     ]);
 
                     if ($municipiosResponse->successful()) {
-                        $departamento['municipios'] = $municipiosResponse->json()['geonames'] ?? [];
+                        $municipiosData = $municipiosResponse->json();
+                        $departamento['municipios'] = (is_array($municipiosData) && isset($municipiosData['geonames'])) ? $municipiosData['geonames'] : [];
                     } else {
                         $departamento['municipios'] = [];
                     }
