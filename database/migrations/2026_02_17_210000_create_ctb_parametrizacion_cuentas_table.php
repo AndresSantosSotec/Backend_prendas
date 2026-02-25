@@ -98,7 +98,7 @@ return new class extends Migration
 
         // Verificar que existan las cuentas necesarias
         $cuentasRequeridas = [
-            'caja', 'creditos_por_cobrar', 'intereses_por_cobrar', 
+            'caja', 'creditos_por_cobrar', 'intereses_por_cobrar',
             'ingresos_intereses', 'ingresos_mora', 'ingresos_comisiones',
             'inventario_prendas_venta', 'ventas', 'caja_general', 'bancos'
         ];
