@@ -528,13 +528,36 @@ class VentaMultiPrendaService
     }
 
     /**
-     * Cancelar venta y devolver prendas a inventario
+     * Cancelar venta y devolver prendas a inventario.
+     * Si es apartado y $devolverAbono es true, registra egreso en caja por el monto pagado (devolución de abono).
      */
-    public function cancelarVenta(Venta $venta, string $motivo): Venta
+    public function cancelarVenta(Venta $venta, string $motivo, bool $devolverAbono = false): Venta
     {
-        return DB::transaction(function () use ($venta, $motivo) {
+        return DB::transaction(function () use ($venta, $motivo, $devolverAbono) {
             if ($venta->estado === 'cancelada') {
                 throw new \Exception("Esta venta ya fue cancelada");
+            }
+
+            $montoPagado = (float) ($venta->total_pagado ?? 0);
+            $esApartado = in_array($venta->tipo_venta ?? '', ['apartado']) || ($venta->estado ?? '') === 'apartado';
+
+            // Devolución de abono: registrar egreso en caja antes de cancelar
+            if ($devolverAbono && $esApartado && $montoPagado > 0) {
+                $movimiento = \App\Services\CajaService::registrarEgreso(
+                    $montoPagado,
+                    "Devolución abono apartado cancelado - {$venta->codigo_venta}",
+                    [
+                        'tipo_operacion' => 'devolucion_apartado',
+                        'venta_id' => $venta->id,
+                        'codigo_venta' => $venta->codigo_venta,
+                        'monto_devuelto' => $montoPagado,
+                        'motivo' => $motivo,
+                        'fecha' => now()->toDateTimeString(),
+                    ]
+                );
+                if (!$movimiento) {
+                    throw new \Exception("No se pudo registrar la devolución en caja. Verifique que la caja esté abierta.");
+                }
             }
 
             // Devolver prendas a estado en_venta
@@ -557,6 +580,7 @@ class VentaMultiPrendaService
 
             Log::info("Venta cancelada: {$venta->codigo_venta}", [
                 'motivo' => $motivo,
+                'devolver_abono' => $devolverAbono,
                 'user_id' => Auth::id()
             ]);
 

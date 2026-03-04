@@ -52,7 +52,7 @@ class CategoriaProductoSeeder extends Seeder
             [
                 'codigo' => 'CAT-005',
                 'nombre' => 'Vehículos',
-                'descripcion' => 'Bicicletas, motocicletas, partes y accesorios de vehículos',
+                'descripcion' => 'Automóviles, motocicletas, camionetas, camiones y todo tipo de vehículos automotores',
                 'color' => '#EF4444',
                 'icono' => 'Car',
                 'orden' => 5,
@@ -119,6 +119,15 @@ class CategoriaProductoSeeder extends Seeder
                 'color' => '#6B7280',
                 'icono' => 'Package',
                 'orden' => 99,
+                'activa' => true,
+            ],
+            [
+                'codigo' => 'CAT-INM',
+                'nombre' => 'Inmuebles',
+                'descripcion' => 'Casas, terrenos, apartamentos, locales comerciales, fincas y bienes inmuebles en general',
+                'color' => '#0D9488',
+                'icono' => 'Buildings',
+                'orden' => 13,
                 'activa' => true,
             ],
         ];

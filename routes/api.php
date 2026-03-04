@@ -8,6 +8,7 @@ use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\SucursalController;
 use App\Http\Controllers\GeoNamesController;
 use App\Http\Controllers\CategoriaProductoController;
+use App\Http\Controllers\PlanInteresCategoriaController;
 use App\Http\Controllers\CreditoPrendarioController;
 use App\Http\Controllers\BovedaController;
 use App\Http\Controllers\PrendaController;
@@ -173,6 +174,17 @@ Route::prefix('v1')->group(function () {
             Route::delete('/categorias-productos/{id}', [CategoriaProductoController::class, 'destroy']);
             Route::post('/categorias-productos/{id}/toggle-activa', [CategoriaProductoController::class, 'toggleActiva']);
 
+            // Planes de Interés por Categoría
+            Route::get('/planes-interes', [PlanInteresCategoriaController::class, 'index']);
+            Route::get('/planes-interes/{id}', [PlanInteresCategoriaController::class, 'show']);
+            Route::get('/categorias-productos/{categoria_id}/planes-interes', [PlanInteresCategoriaController::class, 'getPorCategoria']);
+            Route::post('/planes-interes', [PlanInteresCategoriaController::class, 'store']);
+            Route::put('/planes-interes/{id}', [PlanInteresCategoriaController::class, 'update']);
+            Route::delete('/planes-interes/{id}', [PlanInteresCategoriaController::class, 'destroy']);
+            Route::post('/planes-interes/{id}/toggle-activo', [PlanInteresCategoriaController::class, 'toggleActivo']);
+            Route::post('/planes-interes/{id}/set-default', [PlanInteresCategoriaController::class, 'setDefault']);
+            Route::post('/planes-interes/{id}/calcular-proyeccion', [PlanInteresCategoriaController::class, 'calcularProyeccion']);
+
             // GeoNames (Guatemala) - sin scope porque son datos públicos de referencia
         });
 
@@ -246,6 +258,30 @@ Route::prefix('v1')->group(function () {
             Route::post('/creditos-prendarios/simular-plan', [CreditoPrendarioController::class, 'simularPlan']);
             Route::post('/creditos-prendarios/{id}/movimientos/{movimiento_id}/anular', [CreditoPrendarioController::class, 'anularMovimiento']);
             Route::delete('/creditos-prendarios/{id}', [CreditoPrendarioController::class, 'destroy']);
+
+            // ========== REFRENDOS (Sistema de Refrendos Mejorado) ==========
+            Route::get('/creditos-prendarios/{credito_id}/refrendos', [\App\Http\Controllers\RefrendoController::class, 'index']);
+            Route::post('/creditos-prendarios/{credito_id}/refrendos/validar', [\App\Http\Controllers\RefrendoController::class, 'validar']);
+            Route::post('/creditos-prendarios/{credito_id}/refrendos/calcular', [\App\Http\Controllers\RefrendoController::class, 'calcular']);
+            Route::post('/creditos-prendarios/{credito_id}/refrendos', [\App\Http\Controllers\RefrendoController::class, 'store']);
+
+            // ========== REMATES (Sistema de Remates de Contratos Vencidos) ==========
+            Route::get('/remates', [\App\Http\Controllers\RemateController::class, 'index']);
+            Route::get('/remates/candidatos', [\App\Http\Controllers\RemateController::class, 'candidatos']);
+            Route::get('/remates/estadisticas', [\App\Http\Controllers\RemateController::class, 'estadisticas']);
+            Route::post('/remates', [\App\Http\Controllers\RemateController::class, 'store']);
+            Route::get('/remates/{id}', [\App\Http\Controllers\RemateController::class, 'show']);
+            Route::post('/remates/{id}/cancelar', [\App\Http\Controllers\RemateController::class, 'cancelar']);
+
+            // ========== TRANSFERENCIAS INTER-SUCURSALES ==========
+            Route::get('/transferencias-prendas', [\App\Http\Controllers\TransferenciaPrendaController::class, 'index']);
+            Route::get('/transferencias-prendas/estadisticas', [\App\Http\Controllers\TransferenciaPrendaController::class, 'estadisticas']);
+            Route::post('/transferencias-prendas', [\App\Http\Controllers\TransferenciaPrendaController::class, 'store']);
+            Route::get('/transferencias-prendas/{id}', [\App\Http\Controllers\TransferenciaPrendaController::class, 'show']);
+            Route::post('/transferencias-prendas/{id}/autorizar', [\App\Http\Controllers\TransferenciaPrendaController::class, 'autorizar']);
+            Route::post('/transferencias-prendas/{id}/enviar', [\App\Http\Controllers\TransferenciaPrendaController::class, 'enviar']);
+            Route::post('/transferencias-prendas/{id}/recibir', [\App\Http\Controllers\TransferenciaPrendaController::class, 'recibir']);
+            Route::post('/transferencias-prendas/{id}/rechazar', [\App\Http\Controllers\TransferenciaPrendaController::class, 'rechazar']);
 
             // ========== GASTOS (Módulo de cargos para créditos) ==========
             // Catálogo de gastos

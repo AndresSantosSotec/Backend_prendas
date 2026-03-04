@@ -19,7 +19,7 @@ class CreditoPrendario extends Model
     /**
      * Estados finales donde el crédito no puede cambiar de estado
      */
-    public const ESTADOS_FINALES = ['pagado', 'cancelado', 'incobrable', 'liquidado'];
+    public const ESTADOS_FINALES = ['pagado', 'cancelado', 'incobrable', 'liquidado', 'rematado'];
 
     /**
      * Boot del modelo - eventos y validaciones
@@ -47,6 +47,7 @@ class CreditoPrendario extends Model
         'analista_id',
         'cajero_id',
         'tasador_id',
+        'plan_interes_id',
         'estado',
         'fecha_solicitud',
         'fecha_analisis',
@@ -88,6 +89,11 @@ class CreditoPrendario extends Model
         'numero_contrato',
         'requiere_renovacion',
         'credito_renovado_id',
+        // Campos de refrendos
+        'refrendos_realizados',
+        'refrendos_maximos',
+        'permite_refrendo',
+        'fecha_ultimo_refrendo',
     ];
 
     protected $casts = [
@@ -116,6 +122,8 @@ class CreditoPrendario extends Model
         'afecta_interes_mensual' => 'boolean',
         'permite_pago_capital_diferente' => 'boolean',
         'requiere_renovacion' => 'boolean',
+        'permite_refrendo' => 'boolean',
+        'fecha_ultimo_refrendo' => 'datetime',
     ];
 
     // Relaciones
@@ -142,6 +150,11 @@ class CreditoPrendario extends Model
     public function tasador()
     {
         return $this->belongsTo(User::class, 'tasador_id');
+    }
+
+    public function planInteres()
+    {
+        return $this->belongsTo(PlanInteresCategoria::class, 'plan_interes_id');
     }
 
     public function prendas()
@@ -172,6 +185,22 @@ class CreditoPrendario extends Model
     public function renovaciones()
     {
         return $this->hasMany(CreditoPrendario::class, 'credito_renovado_id');
+    }
+
+    /**
+     * Relación: Refrendos del crédito
+     */
+    public function refrendos()
+    {
+        return $this->hasMany(Refrendo::class, 'credito_id')->orderBy('numero_refrendo', 'asc');
+    }
+
+    /**
+     * Relación: Remates del crédito
+     */
+    public function remates()
+    {
+        return $this->hasMany(\App\Models\Remate::class, 'credito_id')->orderByDesc('fecha_remate');
     }
 
     /**

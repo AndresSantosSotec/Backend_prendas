@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Cliente;
+use App\Models\ClienteReferencia;
 use App\Models\CreditoPrendario;
 use App\Http\Requests\StoreClienteRequest;
 use App\Http\Requests\UpdateClienteRequest;
@@ -11,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class ClienteController extends Controller
@@ -21,7 +23,9 @@ class ClienteController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
-            $query = Cliente::query()->withCount([
+            $query = Cliente::query()
+                ->with('referencias')
+                ->withCount([
                 'creditosPrendarios as total_creditos',
                 'creditosPrendarios as activos_creditos' => function($q) {
                     $q->whereIn('estado', ['vigente', 'en_mora']);
@@ -223,7 +227,8 @@ class ClienteController extends Controller
      */
     public function show(string $id): JsonResponse
     {
-        $cliente = Cliente::where('id', $id)
+        $cliente = Cliente::with('referencias')
+            ->where('id', $id)
             ->where('eliminado', false)
             ->first();
 
@@ -325,7 +330,8 @@ class ClienteController extends Controller
      */
     public function ficha(string $id): JsonResponse
     {
-        $cliente = Cliente::where('id', $id)
+        $cliente = Cliente::with('referencias')
+            ->where('id', $id)
             ->where('eliminado', false)
             ->first();
 
@@ -447,7 +453,7 @@ class ClienteController extends Controller
     public function descargarFichaCliente(string $id)
     {
         try {
-            $cliente = Cliente::findOrFail($id);
+            $cliente = Cliente::with('referencias')->findOrFail($id);
 
             // Obtener todos los créditos del cliente (activos y archivados)
             $creditos = \App\Models\CreditoPrendario::where('cliente_id', $id)
@@ -565,16 +571,41 @@ class ClienteController extends Controller
     public function store(StoreClienteRequest $request): JsonResponse
     {
         $data = $request->validated();
+        $referencias = $data['referencias'] ?? [];
+        unset($data['referencias']);
+
         $data['estado'] = $data['estado'] ?? 'activo';
         $data['tipo_cliente'] = $data['tipo_cliente'] ?? 'regular';
         $data['eliminado'] = false;
 
-        // Procesar fotografía si es base64
-        if (!empty($data['fotografia']) && str_starts_with($data['fotografia'], 'data:image')) {
-            $data['fotografia'] = $this->savePhotoFromBase64($data['fotografia']);
-        }
+        $cliente = DB::transaction(function () use ($data, $referencias) {
+            // Procesar fotografía si es base64
+            if (!empty($data['fotografia']) && str_starts_with($data['fotografia'], 'data:image')) {
+                $data['fotografia'] = $this->savePhotoFromBase64($data['fotografia']);
+            }
 
-        $cliente = Cliente::create($data);
+            $cliente = Cliente::create($data);
+
+            // Crear referencias si vienen en la petición
+            foreach ($referencias as $ref) {
+                $nombre = trim($ref['nombre'] ?? '');
+                $telefono = trim($ref['telefono'] ?? '');
+
+                if ($nombre === '' && $telefono === '') {
+                    continue;
+                }
+
+                $cliente->referencias()->create([
+                    'nombre' => $nombre,
+                    'telefono' => $telefono,
+                    'relacion' => $ref['relacion'] ?? null,
+                ]);
+            }
+
+            return $cliente;
+        });
+
+        $cliente->load('referencias');
 
         return response()->json([
             'success' => true,
@@ -600,17 +631,44 @@ class ClienteController extends Controller
         }
 
         $data = $request->validated();
+        $tieneReferencias = array_key_exists('referencias', $data);
+        $referencias = $data['referencias'] ?? [];
+        unset($data['referencias']);
 
-        // Procesar fotografía si es base64
-        if (isset($data['fotografia']) && str_starts_with($data['fotografia'], 'data:image')) {
-            // Eliminar foto anterior si existe
-            if ($cliente->fotografia && !str_starts_with($cliente->fotografia, 'data:image')) {
-                Storage::disk('public')->delete($cliente->fotografia);
+        DB::transaction(function () use ($cliente, $data, $tieneReferencias, $referencias) {
+            // Procesar fotografía si es base64
+            if (isset($data['fotografia']) && str_starts_with($data['fotografia'], 'data:image')) {
+                // Eliminar foto anterior si existe
+                if ($cliente->fotografia && !str_starts_with($cliente->fotografia, 'data:image')) {
+                    Storage::disk('public')->delete($cliente->fotografia);
+                }
+                $data['fotografia'] = $this->savePhotoFromBase64($data['fotografia']);
             }
-            $data['fotografia'] = $this->savePhotoFromBase64($data['fotografia']);
-        }
 
-        $cliente->update($data);
+            $cliente->update($data);
+
+            // Si vienen referencias en la petición, reemplazarlas completamente
+            if ($tieneReferencias) {
+                $cliente->referencias()->delete();
+
+                foreach ($referencias as $ref) {
+                    $nombre = trim($ref['nombre'] ?? '');
+                    $telefono = trim($ref['telefono'] ?? '');
+
+                    if ($nombre === '' && $telefono === '') {
+                        continue;
+                    }
+
+                    $cliente->referencias()->create([
+                        'nombre' => $nombre,
+                        'telefono' => $telefono,
+                        'relacion' => $ref['relacion'] ?? null,
+                    ]);
+                }
+            }
+        });
+
+        $cliente->load('referencias');
 
         return response()->json([
             'success' => true,
@@ -756,6 +814,16 @@ class ClienteController extends Controller
                 'activos' => $cliente->activos_creditos ?? 0,
                 'vencidos' => $cliente->vencidos_creditos ?? 0,
             ],
+            'referencias' => $cliente->referencias
+                ? $cliente->referencias->map(function (ClienteReferencia $ref) {
+                    return [
+                        'id' => (string) $ref->id,
+                        'nombre' => $ref->nombre,
+                        'telefono' => $ref->telefono,
+                        'relacion' => $ref->relacion,
+                    ];
+                })->values()->all()
+                : [],
         ];
     }
 }

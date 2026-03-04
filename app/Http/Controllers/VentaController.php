@@ -322,21 +322,24 @@ class VentaController extends Controller
     }
 
     /**
-     * Cancelar venta
+     * Cancelar venta.
+     * Para apartados: opcionalmente devolver el abono (enganche) al cliente registrando un egreso en caja.
      */
     public function cancelar(Request $request, string $id)
     {
         $request->validate([
-            'motivo' => 'required|string|max:500'
+            'motivo' => 'required|string|max:500',
+            'devolver_abono' => 'nullable|boolean',
         ]);
 
         try {
             $venta = Venta::findOrFail($id);
+            $devolverAbono = (bool) $request->input('devolver_abono', false);
 
             // Usar servicio apropiado según tipo de venta
             if ($venta->detalles()->count() > 0) {
-                // Venta multi-prenda
-                $resultado = $this->ventaMultiPrendaService->cancelarVenta($venta, $request->motivo);
+                // Venta multi-prenda (incluye apartados con devolución de abono)
+                $resultado = $this->ventaMultiPrendaService->cancelarVenta($venta, $request->motivo, $devolverAbono);
             } else {
                 // Venta antigua (1 prenda)
                 $resultado = $this->ventaService->cancelarVenta($venta, $request->motivo);

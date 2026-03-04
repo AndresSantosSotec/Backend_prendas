@@ -142,5 +142,11 @@ class Cliente extends Model
     {
         return $this->hasMany(Prenda::class, 'comprador_id');
     }
+
+    public function referencias()
+    {
+        return $this->hasMany(ClienteReferencia::class, 'cliente_id');
+    }
 }
+
 

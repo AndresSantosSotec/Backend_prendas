@@ -6,325 +6,388 @@
     <title>Ficha de Cliente - {{ $cliente->nombre_completo }}</title>
     <style>
         @page {
-            margin: 0cm 0cm;
+            margin: 0;
+        }
+        * {
+            box-sizing: border-box;
         }
         body {
-            font-family: 'Helvetica', 'Arial', sans-serif;
-            font-size: 10px;
-            color: #444;
-            line-height: 1.5;
-            margin-top: 3cm;
-            margin-bottom: 2cm;
-            margin-left: 2cm;
-            margin-right: 2cm;
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            font-size: 10pt;
+            color: #2c3e50;
+            line-height: 1.45;
+            margin: 0;
+            padding-top: 2.2cm;
+            padding-bottom: 1.8cm;
+            padding-left: 1.8cm;
+            padding-right: 1.8cm;
         }
         header {
             position: fixed;
-            top: 0cm;
-            left: 0cm;
-            right: 0cm;
-            height: 2.5cm;
-            background-color: #f8f9fa;
-            color: #333;
-            text-align: center;
-            line-height: 30px;
-            border-bottom: 3px solid #2563eb;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2cm;
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 0.5cm 1.8cm;
+            border-bottom: 1px solid #1a252f;
+        }
+        .header-inner {
+            display: table;
+            width: 100%;
+            height: 100%;
+        }
+        .brand {
+            display: table-cell;
+            vertical-align: middle;
+            font-size: 14pt;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .doc-type {
+            display: table-cell;
+            vertical-align: middle;
+            text-align: right;
+            font-size: 9pt;
+            color: #bdc3c7;
+            font-weight: normal;
         }
         footer {
             position: fixed;
-            bottom: 0cm;
-            left: 0cm;
-            right: 0cm;
-            height: 1.5cm;
-            background-color: #f8f9fa;
-            color: #666;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 1.2cm;
+            background: #34495e;
+            color: #bdc3c7;
+            font-size: 8pt;
             text-align: center;
-            line-height: 1.5cm;
-            border-top: 1px solid #ddd;
-            font-size: 9px;
-        }
-        .brand-title {
-            font-size: 20px;
-            font-weight: bold;
-            color: #1e293b;
-            padding-top: 15px;
-            text-transform: uppercase;
-        }
-        .brand-subtitle {
-            font-size: 12px;
-            color: #64748b;
+            line-height: 1.2cm;
+            padding: 0 1.8cm;
         }
         .document-title {
-            text-align: center;
-            font-size: 16px;
-            font-weight: bold;
-            color: #2563eb;
-            margin-top: 10px;
-            margin-bottom: 20px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            font-size: 12pt;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 1em;
+            padding-bottom: 0.4em;
+            border-bottom: 1px solid #bdc3c7;
+            letter-spacing: 0.3px;
         }
-        .info-grid {
+        .section-title {
+            font-size: 10pt;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-top: 1.2em;
+            margin-bottom: 0.6em;
+            padding-bottom: 0.25em;
+            border-bottom: 1px solid #dfe6e9;
+            text-transform: none;
+            letter-spacing: 0.2px;
+        }
+        .info-block {
+            margin-bottom: 1em;
+        }
+        .info-row {
             display: table;
             width: 100%;
-            margin-bottom: 20px;
-            background-color: #fff;
-            border-radius: 8px;
+            margin-bottom: 0.35em;
+        }
+        .info-label {
+            display: table-cell;
+            width: 28%;
+            font-size: 9pt;
+            color: #7f8c8d;
+            font-weight: 500;
+            vertical-align: top;
+        }
+        .info-value {
+            display: table-cell;
+            font-size: 10pt;
+            color: #2c3e50;
+            font-weight: normal;
+        }
+        .info-grid-two {
+            display: table;
+            width: 100%;
+            margin-bottom: 1em;
         }
         .info-col {
             display: table-cell;
             width: 50%;
             vertical-align: top;
-            padding: 10px;
+            padding-right: 1.5em;
         }
-        .info-item {
-            margin-bottom: 8px;
-        }
-        .info-label {
-            font-weight: bold;
-            color: #64748b;
-            font-size: 9px;
-            text-transform: uppercase;
-            display: block;
-        }
-        .info-value {
-            color: #1e293b;
-            font-weight: 500;
-            font-size: 11px;
-        }
-        .amount-value {
-            color: #2563eb;
-            font-weight: bold;
-            font-size: 12px;
-        }
-        .stats-grid {
+        .stats-row {
             display: table;
             width: 100%;
-            margin-bottom: 25px;
-            border-collapse: collapse;
+            margin-bottom: 1em;
+            border: 1px solid #dfe6e9;
+            background: #f8f9fa;
         }
-        .stat-box {
+        .stat-cell {
             display: table-cell;
             width: 25%;
-            padding: 15px;
+            padding: 0.6em 0.5em;
             text-align: center;
-            border: 1px solid #e2e8f0;
-            background-color: #f8fafc;
+            border-right: 1px solid #dfe6e9;
+            vertical-align: middle;
+        }
+        .stat-cell:last-child {
+            border-right: none;
         }
         .stat-label {
-            font-size: 9px;
-            color: #64748b;
+            font-size: 8pt;
+            color: #7f8c8d;
             text-transform: uppercase;
-            font-weight: bold;
-            margin-bottom: 5px;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.25em;
         }
         .stat-value {
-            font-size: 16px;
-            font-weight: bold;
-            color: #2563eb;
+            font-size: 11pt;
+            font-weight: 600;
+            color: #2c3e50;
         }
-        .stat-value.red { color: #dc2626; }
-        .stat-value.green { color: #16a34a; }
-        .stat-value.purple { color: #9333ea; }
-        .score-box {
-            background-color: #f1f5f9;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            text-align: center;
+        .stat-value.highlight {
+            color: #2980b9;
         }
-        .score-box.excellent { background-color: #dcfce7; border: 2px solid #16a34a; }
-        .score-box.regular { background-color: #fef3c7; border: 2px solid #eab308; }
-        .score-box.risky { background-color: #fee2e2; border: 2px solid #dc2626; }
-        .score-title {
-            font-size: 10px;
-            color: #64748b;
+        .stat-value.alert {
+            color: #c0392b;
+        }
+        .score-block {
+            margin-bottom: 1em;
+            padding: 0.75em 1em;
+            border: 1px solid #dfe6e9;
+            background: #f8f9fa;
+        }
+        .score-label {
+            font-size: 8pt;
+            color: #7f8c8d;
             text-transform: uppercase;
-            font-weight: bold;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.2em;
         }
-        .score-value {
-            font-size: 24px;
-            font-weight: bold;
-            margin: 10px 0;
+        .score-main {
+            font-size: 11pt;
+            font-weight: 600;
+            color: #2c3e50;
         }
-        .score-value.excellent { color: #16a34a; }
-        .score-value.regular { color: #eab308; }
-        .score-value.risky { color: #dc2626; }
-        .score-points {
-            font-size: 12px;
-            color: #64748b;
+        .score-detail {
+            font-size: 9pt;
+            color: #7f8c8d;
+            margin-top: 0.3em;
         }
-        .section-title {
-            font-size: 13px;
-            font-weight: bold;
-            color: #1e293b;
-            margin-top: 25px;
-            margin-bottom: 15px;
-            padding-bottom: 5px;
-            border-bottom: 2px solid #e2e8f0;
-            text-transform: uppercase;
-        }
-        table {
+        table.data {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 10px;
-            background-color: #fff;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-top: 0.4em;
+            font-size: 9pt;
+            border: 1px solid #dfe6e9;
         }
-        th {
-            background-color: #f1f5f9;
-            color: #475569;
-            font-weight: bold;
-            text-transform: uppercase;
-            font-size: 9px;
-            padding: 10px 8px;
-            border-bottom: 2px solid #e2e8f0;
+        table.data th {
+            background: #ecf0f1;
+            color: #2c3e50;
+            font-weight: 600;
             text-align: left;
+            padding: 0.5em 0.6em;
+            border-bottom: 1px solid #dfe6e9;
+            font-size: 8pt;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
         }
-        td {
-            padding: 8px;
-            border-bottom: 1px solid #e2e8f0;
-            color: #334155;
-            vertical-align: middle;
+        table.data td {
+            padding: 0.45em 0.6em;
+            border-bottom: 1px solid #ecf0f1;
+            color: #2c3e50;
+        }
+        table.data tr:nth-child(even) {
+            background: #fafbfc;
         }
         .text-right { text-align: right; }
         .text-center { text-align: center; }
-        tr:nth-child(even) { background-color: #f8fafc; }
-        .status-badge {
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 8px;
-            font-weight: bold;
-            text-transform: uppercase;
+        .badge {
+            display: inline-block;
+            padding: 0.15em 0.5em;
+            font-size: 8pt;
+            font-weight: 600;
+            border-radius: 2px;
         }
-        .status-activo { background-color: #dcfce7; color: #166534; }
-        .status-desembolsado { background-color: #dbeafe; color: #1e40af; }
-        .status-liquidado { background-color: #e0e7ff; color: #4338ca; }
-        .status-vencido { background-color: #fee2e2; color: #991b1b; }
-        .status-en_mora { background-color: #fed7aa; color: #9a3412; }
+        .badge-vigente, .badge-aprobado { background: #d5f4e6; color: #1e8449; }
+        .badge-en_mora { background: #fdebd0; color: #b7950b; }
+        .badge-vencido { background: #fadbd8; color: #922b21; }
+        .badge-liquidado, .badge-pagado { background: #d6eaf8; color: #1a5276; }
         .disclaimer {
-            margin-top: 30px;
-            font-size: 8px;
-            color: #94a3b8;
+            margin-top: 1.5em;
+            padding-top: 0.8em;
+            border-top: 1px solid #dfe6e9;
+            font-size: 7.5pt;
+            color: #95a5a6;
             text-align: justify;
-            line-height: 1.4;
+            line-height: 1.35;
         }
-        .page-break {
-            page-break-after: always;
+        .ref-empty {
+            font-size: 9pt;
+            color: #95a5a6;
+            font-style: italic;
         }
     </style>
 </head>
 <body>
     <header>
-        <div class="brand-title">DigiPrenda</div>
-        <div class="brand-subtitle">Sistema de Créditos Prendarios</div>
+        <div class="header-inner">
+            <div class="brand">DigiPrenda</div>
+            <div class="doc-type">Ficha de Cliente — Documento interno</div>
+        </div>
     </header>
 
     <footer>
-        Generado el {{ $fechaGeneracion }} | Documento confidencial - Para uso interno exclusivamente
+        Generado el {{ $fechaGeneracion }} — Uso exclusivo interno — Confidencial
     </footer>
 
     <div class="document-title">Ficha de Cliente</div>
 
-    <!-- Información del Cliente -->
-    <div class="info-grid">
+    <!-- Datos del cliente -->
+    <div class="section-title">Datos del titular</div>
+    <div class="info-grid-two">
         <div class="info-col">
-            <div class="info-item">
-                <span class="info-label">Código de Cliente</span>
+            <div class="info-row">
+                <span class="info-label">Código</span>
                 <span class="info-value">{{ $cliente->codigo_cliente ?? '—' }}</span>
             </div>
-            <div class="info-item">
-                <span class="info-label">Nombre Completo</span>
+            <div class="info-row">
+                <span class="info-label">Nombre completo</span>
                 <span class="info-value">{{ $cliente->nombre_completo }}</span>
             </div>
-            <div class="info-item">
+            <div class="info-row">
                 <span class="info-label">DPI</span>
                 <span class="info-value">{{ $cliente->dpi ?? '—' }}</span>
             </div>
-            <div class="info-item">
+            <div class="info-row">
+                <span class="info-label">NIT</span>
+                <span class="info-value">{{ $cliente->nit ?? '—' }}</span>
+            </div>
+            <div class="info-row">
                 <span class="info-label">Teléfono</span>
                 <span class="info-value">{{ $cliente->telefono ?? '—' }}</span>
             </div>
+            @if($cliente->telefono_secundario)
+            <div class="info-row">
+                <span class="info-label">Tel. secundario</span>
+                <span class="info-value">{{ $cliente->telefono_secundario }}</span>
+            </div>
+            @endif
         </div>
         <div class="info-col">
-            <div class="info-item">
-                <span class="info-label">Email</span>
+            <div class="info-row">
+                <span class="info-label">Correo electrónico</span>
                 <span class="info-value">{{ $cliente->email ?? '—' }}</span>
             </div>
-            <div class="info-item">
+            <div class="info-row">
                 <span class="info-label">Dirección</span>
                 <span class="info-value">{{ $cliente->direccion ?? '—' }}</span>
             </div>
-            <div class="info-item">
+            <div class="info-row">
                 <span class="info-label">Municipio</span>
                 <span class="info-value">{{ $cliente->municipio ?? '—' }}</span>
             </div>
-            <div class="info-item">
+            <div class="info-row">
                 <span class="info-label">Estado</span>
                 <span class="info-value">{{ ucfirst($cliente->estado) }}</span>
             </div>
+            <div class="info-row">
+                <span class="info-label">Tipo de cliente</span>
+                <span class="info-value">{{ $cliente->tipo_cliente ? ucfirst($cliente->tipo_cliente) : '—' }}</span>
+            </div>
         </div>
     </div>
 
-    <!-- Estadísticas Financieras -->
-    <div class="stats-grid">
-        <div class="stat-box">
-            <div class="stat-label">Monto Total Prestado</div>
-            <div class="stat-value">Q {{ number_format($stats['monto_total_prestado'], 2) }}</div>
+    <!-- Referencias personales / laborales -->
+    <div class="section-title">Referencias</div>
+    @if($cliente->referencias && $cliente->referencias->count() > 0)
+    <table class="data">
+        <thead>
+            <tr>
+                <th>Nombre</th>
+                <th>Teléfono</th>
+                <th>Relación</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($cliente->referencias as $ref)
+            <tr>
+                <td>{{ $ref->nombre }}</td>
+                <td>{{ $ref->telefono }}</td>
+                <td>{{ $ref->relacion ?? '—' }}</td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+    @else
+    <p class="ref-empty">Sin referencias registradas.</p>
+    @endif
+
+    <!-- Resumen financiero -->
+    <div class="section-title">Resumen financiero</div>
+    <div class="stats-row">
+        <div class="stat-cell">
+            <div class="stat-label">Monto total prestado</div>
+            <div class="stat-value highlight">Q {{ number_format($stats['monto_total_prestado'], 2) }}</div>
         </div>
-        <div class="stat-box">
-            <div class="stat-label">Saldo Pendiente</div>
-            <div class="stat-value red">Q {{ number_format($stats['saldo_actual_total'], 2) }}</div>
+        <div class="stat-cell">
+            <div class="stat-label">Saldo pendiente</div>
+            <div class="stat-value alert">Q {{ number_format($stats['saldo_actual_total'], 2) }}</div>
         </div>
-        <div class="stat-box">
+        <div class="stat-cell">
             <div class="stat-label">Puntualidad</div>
-            <div class="stat-value purple">
+            <div class="stat-value">
                 {{ $comportamiento['tasa_puntualidad'] !== null ? round($comportamiento['tasa_puntualidad']) . '%' : '—' }}
             </div>
         </div>
-        <div class="stat-box">
-            <div class="stat-label">Créditos Activos</div>
-            <div class="stat-value green">{{ $stats['activos'] }}</div>
+        <div class="stat-cell">
+            <div class="stat-label">Créditos activos</div>
+            <div class="stat-value">{{ $stats['activos'] }}</div>
         </div>
     </div>
 
-    <!-- Score de Riesgo -->
-    <div class="score-box {{ strtolower($comportamiento['nivel']) === 'excelente' ? 'excellent' : (strtolower($comportamiento['nivel']) === 'regular' ? 'regular' : 'risky') }}">
-        <div class="score-title">Calificación de Riesgo</div>
-        <div class="score-value {{ strtolower($comportamiento['nivel']) === 'excelente' ? 'excellent' : (strtolower($comportamiento['nivel']) === 'regular' ? 'regular' : 'risky') }}">
-            {{ $comportamiento['comportamiento'] }}
-        </div>
-        <div class="score-points">Score: {{ round($comportamiento['puntos']) }}/100</div>
-        <div style="margin-top: 10px; font-size: 9px; color: #64748b;">
-            {{ $comportamiento['pagos_puntuales'] }} de {{ $comportamiento['pagos_total'] }} pagos realizados a tiempo o adelantados
+    <!-- Calificación de riesgo -->
+    <div class="score-block">
+        <div class="score-label">Calificación de riesgo</div>
+        <div class="score-main">{{ $comportamiento['comportamiento'] }}</div>
+        <div class="score-detail">
+            Puntos: {{ round($comportamiento['puntos']) }}/100 —
+            {{ $comportamiento['pagos_puntuales'] }} de {{ $comportamiento['pagos_total'] }} pagos a tiempo o adelantados
         </div>
     </div>
 
-    <!-- Resumen de Créditos -->
-    <div class="section-title">Resumen de Créditos</div>
-    <div style="margin-bottom: 20px;">
-        <div style="display: inline-block; margin-right: 20px;">
-            <span style="font-weight: bold; color: #64748b;">Total Historial:</span> {{ $stats['total_historial'] }}
+    <!-- Resumen de créditos -->
+    <div class="section-title">Resumen de créditos</div>
+    <div class="info-block">
+        <div class="info-row">
+            <span class="info-label">Total en historial</span>
+            <span class="info-value">{{ $stats['total_historial'] }}</span>
         </div>
-        <div style="display: inline-block; margin-right: 20px;">
-            <span style="font-weight: bold; color: #16a34a;">Liquidados:</span> {{ $stats['liquidados'] }}
+        <div class="info-row">
+            <span class="info-label">Liquidados</span>
+            <span class="info-value">{{ $stats['liquidados'] }}</span>
         </div>
-        <div style="display: inline-block;">
-            <span style="font-weight: bold; color: #dc2626;">Vencidos:</span> {{ $stats['vencidos'] }}
+        <div class="info-row">
+            <span class="info-label">Vencidos</span>
+            <span class="info-value">{{ $stats['vencidos'] }}</span>
         </div>
     </div>
 
-    <!-- Créditos Activos -->
+    <!-- Créditos activos -->
     @if($creditos_activos->count() > 0)
-    <div class="section-title">Créditos Activos</div>
-    <table>
+    <div class="section-title">Créditos activos</div>
+    <table class="data">
         <thead>
             <tr>
                 <th>Número</th>
                 <th>Fecha</th>
-                <th class="text-right">Monto Aprobado</th>
-                <th class="text-right">Capital Pendiente</th>
-                <th class="text-right">Saldo Total</th>
+                <th class="text-right">Monto aprobado</th>
+                <th class="text-right">Capital pendiente</th>
+                <th class="text-right">Saldo total</th>
                 <th class="text-center">Estado</th>
             </tr>
         </thead>
@@ -344,7 +407,7 @@
                     ) }}
                 </td>
                 <td class="text-center">
-                    <span class="status-badge status-{{ str_replace(' ', '_', strtolower($credito->estado)) }}">
+                    <span class="badge badge-{{ str_replace(' ', '_', strtolower($credito->estado)) }}">
                         {{ ucfirst($credito->estado) }}
                     </span>
                 </td>
@@ -354,14 +417,14 @@
     </table>
     @endif
 
-    <!-- Créditos Liquidados (últimos 5) -->
+    <!-- Últimos créditos liquidados -->
     @if($creditos_liquidados->count() > 0)
-    <div class="section-title" style="margin-top: 30px;">Últimos Créditos Liquidados</div>
-    <table>
+    <div class="section-title">Últimos créditos liquidados</div>
+    <table class="data">
         <thead>
             <tr>
                 <th>Número</th>
-                <th>Fecha Solicitud</th>
+                <th>Fecha solicitud</th>
                 <th class="text-right">Monto</th>
                 <th>Prendas</th>
                 <th class="text-center">Estado</th>
@@ -375,7 +438,7 @@
                 <td class="text-right">Q {{ number_format($credito->monto_aprobado, 2) }}</td>
                 <td>{{ $credito->prendas->count() }} prenda(s)</td>
                 <td class="text-center">
-                    <span class="status-badge status-liquidado">Liquidado</span>
+                    <span class="badge badge-liquidado">Liquidado</span>
                 </td>
             </tr>
             @endforeach
@@ -384,11 +447,8 @@
     @endif
 
     <div class="disclaimer">
-        <strong>AVISO LEGAL:</strong> Este documento contiene información confidencial del cliente.
-        Los datos presentados reflejan el estado financiero y comportamiento de pago al {{ $fechaGeneracion }}.
-        El score de riesgo es calculado automáticamente basándose en el historial de pagos, créditos vencidos y mora activa.
-        Esta ficha es de uso interno y no debe ser compartida sin autorización. La puntualidad se calcula considerando
-        los pagos realizados a tiempo o adelantados respecto a la fecha de vencimiento.
+        Este documento es confidencial y de uso interno. Los datos reflejan el estado al {{ $fechaGeneracion }}.
+        La calificación de riesgo se obtiene del historial de pagos, créditos vencidos y mora. No compartir sin autorización.
     </div>
 </body>
 </html>

@@ -33,6 +33,7 @@ class Permission extends Model
         'sucursales' => ['ver', 'crear', 'editar', 'eliminar'],
         'simulador' => ['usar', 'imprimir', 'guardar'],
         'creditos' => ['ver', 'crear', 'renovar', 'cancelar', 'pasar_venta'],
+        'refrendos' => ['ver', 'validar', 'calcular', 'procesar'],
         'prendas' => ['ver', 'editar', 'cambiar_estado', 'vender'],
         'ventas' => ['ver', 'tasar', 'vender', 'apartar', 'crear_plan_pago', 'modificar_precio', 'aplicar_descuento'],
         'caja' => ['abrir', 'cerrar', 'ver_movimientos'],
@@ -57,6 +58,7 @@ class Permission extends Model
             'dashboard' => ['ver'],
             'clientes' => ['ver', 'crear'],
             'creditos' => ['ver', 'crear'],
+            'refrendos' => ['ver', 'validar', 'calcular', 'procesar'],
             'compras' => ['ver', 'crear'],
             'caja' => ['abrir', 'cerrar', 'ver_movimientos'],
             'prendas' => ['ver'],
@@ -80,6 +82,7 @@ class Permission extends Model
         'supervisor' => [
             'dashboard' => ['ver'],
             'clientes' => ['ver'],
+            'refrendos' => ['ver', 'validar', 'calcular', 'procesar'],
             'creditos' => ['ver', 'renovar'],
             'compras' => ['ver', 'crear', 'editar'],
             'prendas' => ['ver', 'cambiar_estado'],

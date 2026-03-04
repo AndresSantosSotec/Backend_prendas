@@ -41,6 +41,10 @@ class StoreClienteRequest extends FormRequest
             'sucursal' => 'nullable|string|max:255',
             'tipo_cliente' => 'nullable|in:regular,vip',
             'notas' => 'nullable|string',
+            'referencias' => 'sometimes|array',
+            'referencias.*.nombre' => 'required_with:referencias.*.telefono|string|max:255',
+            'referencias.*.telefono' => 'required_with:referencias.*.nombre|string|max:20',
+            'referencias.*.relacion' => 'nullable|string|max:100',
         ];
     }
 
