@@ -389,10 +389,12 @@ Route::prefix('v1')->group(function () {
             // Caja
             Route::get('/cajas', [CajaController::class, 'index']);
             Route::get('/cajas/check-estado', [CajaController::class, 'checkEstado']);
+            Route::get('/cajas/todas-abiertas', [CajaController::class, 'todasAbiertas']);
             Route::post('/cajas/abrir', [CajaController::class, 'abrir']);
             Route::post('/cajas/{id}/cerrar', [CajaController::class, 'cerrar']);
             // Nuevo endpoint REST para cierre de caja con opción de envío a bóveda
             Route::post('/cash-registers/{id}/close', [CajaController::class, 'closeWithVault']);
+            Route::get('/cajas/{id}/detalle', [CajaController::class, 'detalleCaja']);
             Route::get('/cajas/{id}/movimientos', [CajaController::class, 'getMovimientos']);
             Route::post('/cajas/movimientos', [CajaController::class, 'registrarMovimiento']);
             Route::put('/cajas/{id}', [CajaController::class, 'update']);

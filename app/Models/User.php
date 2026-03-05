@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use App\Models\CajaAperturaCierre;
 use App\Traits\Auditable;
 
 /**
@@ -233,5 +234,13 @@ class User extends Authenticatable
     public function sucursal()
     {
         return $this->belongsTo(Sucursal::class);
+    }
+
+    /**
+     * Cajas de apertura/cierre del usuario
+     */
+    public function cajasApertura()
+    {
+        return $this->hasMany(CajaAperturaCierre::class);
     }
 }

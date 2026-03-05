@@ -92,6 +92,82 @@ class CajaController extends Controller
     }
 
     /**
+     * Obtener TODAS las cajas abiertas (Solo admin/superadmin)
+     * Permite al admin ver y gestionar cajas de otros usuarios
+     * GET /cajas/todas-abiertas
+     */
+    public function todasAbiertas(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user) return response()->json(['error' => 'No autenticado'], 401);
+
+        if (!in_array($user->rol, ['administrador', 'superadmin'])) {
+            return response()->json(['error' => 'No tienes permiso para ver las cajas de otros usuarios.'], 403);
+        }
+
+        $cajas = CajaAperturaCierre::where('estado', 'abierta')
+            ->with(['sucursal', 'user'])
+            ->orderBy('fecha_apertura', 'desc')
+            ->get();
+
+        // Calcular total esperado para cada caja
+        $cajas->each(function ($caja) {
+            $totalMovimientos = MovimientoCaja::where('caja_id', $caja->id)
+                ->where('estado', 'aplicado')
+                ->selectRaw("SUM(CASE WHEN tipo IN ('incremento', 'ingreso_pago') THEN monto ELSE -monto END) as total")
+                ->value('total');
+
+            $caja->total_esperado_sistema = $caja->saldo_inicial + ($totalMovimientos ?? 0);
+            $caja->es_de_otro_dia = !Carbon::parse($caja->fecha_apertura)->isToday();
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $cajas,
+            'total' => $cajas->count()
+        ]);
+    }
+
+    /**
+     * Ver detalle de una caja específica (admin puede ver cualquiera)
+     * GET /cajas/{id}/detalle
+     */
+    public function detalleCaja(Request $request, $id)
+    {
+        $user = Auth::user();
+        if (!$user) return response()->json(['error' => 'No autenticado'], 401);
+
+        $caja = CajaAperturaCierre::with(['sucursal', 'user'])->findOrFail($id);
+
+        // Solo el dueño o admin/superadmin pueden ver
+        if ($caja->user_id !== $user->id && !in_array($user->rol, ['administrador', 'superadmin'])) {
+            return response()->json(['error' => 'No tienes permiso para ver esta caja.'], 403);
+        }
+
+        // Calcular total esperado
+        $totalMovimientos = MovimientoCaja::where('caja_id', $caja->id)
+            ->where('estado', 'aplicado')
+            ->selectRaw("SUM(CASE WHEN tipo IN ('incremento', 'ingreso_pago') THEN monto ELSE -monto END) as total")
+            ->value('total');
+
+        $caja->total_esperado_sistema = $caja->saldo_inicial + ($totalMovimientos ?? 0);
+        $caja->es_de_otro_dia = !Carbon::parse($caja->fecha_apertura)->isToday();
+
+        // Obtener movimientos
+        $movimientos = MovimientoCaja::where('caja_id', $caja->id)
+            ->with('user')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'caja' => $caja,
+            'movimientos' => $movimientos,
+            'es_propia' => $caja->user_id === $user->id,
+        ]);
+    }
+
+    /**
      * Abrir caja
      * NO se puede abrir si hay una caja abierta pendiente (aunque sea de otro día)
      */
@@ -183,8 +259,8 @@ class CajaController extends Controller
         $caja = CajaAperturaCierre::findOrFail($id);
         $user = Auth::user();
 
-        // Verificar propiedad o rol administrador
-        if ($caja->user_id !== $user->id && $user->rol !== 'administrador') {
+        // Verificar propiedad o rol administrador/superadmin
+        if ($caja->user_id !== $user->id && !in_array($user->rol, ['administrador', 'superadmin'])) {
             return response()->json(['error' => 'No tienes permiso para cerrar esta caja.'], 403);
         }
 
@@ -230,8 +306,8 @@ class CajaController extends Controller
         $user = Auth::user();
 
         // Reutilizar la misma regla de permisos que el cierre clásico:
-        // solo el dueño de la caja o un administrador pueden cerrarla
-        if ($caja->user_id !== $user->id && $user->rol !== 'administrador') {
+        // solo el dueño de la caja o un admin/superadmin pueden cerrarla
+        if ($caja->user_id !== $user->id && !in_array($user->rol, ['administrador', 'superadmin'])) {
             return response()->json(['error' => 'No tienes permiso para cerrar esta caja.'], 403);
         }
 
@@ -280,10 +356,13 @@ class CajaController extends Controller
                 return response()->json(['error' => 'La caja está cerrada. No se pueden registrar movimientos.'], 400);
             }
 
-            // Verificar que la caja pertenece al usuario actual (o es administrador)
+            // Admin/superadmin pueden registrar movimientos en cualquier caja abierta
             $user = Auth::user();
-            if ($caja->user_id !== $user->id && $user->rol !== 'administrador') {
-                return response()->json(['error' => 'No tienes permiso para registrar movimientos en esta caja.'], 403);
+            if ($caja->user_id !== $user->id) {
+                if (!in_array($user->rol, ['administrador', 'superadmin'])) {
+                    return response()->json(['error' => 'No tienes permiso para registrar movimientos en esta caja.'], 403);
+                }
+                // Admin/superadmin: se permite registrar directamente en la caja indicada
             }
 
             $movimiento = new MovimientoCaja();
@@ -318,9 +397,18 @@ class CajaController extends Controller
 
     /**
      * Obtener movimientos de una caja
+     * Admin/superadmin pueden ver movimientos de cualquier caja
      */
     public function getMovimientos($id)
     {
+        $user = Auth::user();
+        $caja = CajaAperturaCierre::findOrFail($id);
+
+        // Solo el dueño o admin/superadmin pueden ver los movimientos
+        if ($caja->user_id !== $user->id && !in_array($user->rol, ['administrador', 'superadmin'])) {
+            return response()->json(['error' => 'No tienes permiso para ver estos movimientos.'], 403);
+        }
+
        $movimientos = MovimientoCaja::where('caja_id', $id)
            ->with('user')
            ->orderBy('created_at', 'desc')

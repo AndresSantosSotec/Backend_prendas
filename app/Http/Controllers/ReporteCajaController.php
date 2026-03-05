@@ -54,6 +54,7 @@ class ReporteCajaController extends Controller
 
     /**
      * Obtener consolidado de cajas (solo administradores)
+     * Soporta filtros: fecha_inicio/fecha_fin, user_ids[], caja_ids[], incluir_movimientos
      */
     public function consolidado(Request $request)
     {
@@ -67,9 +68,20 @@ class ReporteCajaController extends Controller
             'fecha_fin' => 'nullable|date',
             'fecha_desde' => 'nullable|date',
             'fecha_hasta' => 'nullable|date',
+            'user_ids' => 'nullable|array',
+            'user_ids.*' => 'integer|exists:users,id',
+            'caja_ids' => 'nullable|array',
+            'caja_ids.*' => 'integer|exists:caja_apertura_cierres,id',
+            'incluir_movimientos' => 'nullable|boolean',
         ]);
 
-        $query = CajaAperturaCierre::with(['movimientos', 'user']);
+        $relations = ['user', 'sucursal'];
+        if ($request->boolean('incluir_movimientos', false)) {
+            $relations[] = 'movimientos';
+            $relations[] = 'movimientos.user';
+        }
+
+        $query = CajaAperturaCierre::with($relations);
 
         // Soportar ambos formatos de parámetros de fecha
         $fechaInicio = $request->fecha_inicio ?? $request->fecha_desde;
@@ -78,12 +90,33 @@ class ReporteCajaController extends Controller
         if ($fechaInicio) {
             $query->whereDate('fecha_apertura', '>=', $fechaInicio);
         }
-
         if ($fechaFin) {
             $query->whereDate('fecha_apertura', '<=', $fechaFin);
         }
 
+        // Filtro por usuarios específicos
+        if ($request->has('user_ids') && is_array($request->user_ids) && count($request->user_ids) > 0) {
+            $query->whereIn('user_id', $request->user_ids);
+        }
+
+        // Filtro por cajas específicas
+        if ($request->has('caja_ids') && is_array($request->caja_ids) && count($request->caja_ids) > 0) {
+            $query->whereIn('id', $request->caja_ids);
+        }
+
         $cajas = $query->orderBy('fecha_apertura', 'desc')->get();
+
+        // Calcular totales de movimientos por cada caja
+        $cajasConTotales = $cajas->map(function ($caja) {
+            $movimientos = $caja->movimientos ?? collect();
+            $totalIngresos = $movimientos->whereIn('tipo', ['incremento', 'ingreso_pago'])->sum('monto');
+            $totalEgresos = $movimientos->whereIn('tipo', ['decremento', 'egreso_desembolso'])->sum('monto');
+            $caja->total_ingresos = $totalIngresos;
+            $caja->total_egresos = $totalEgresos;
+            $caja->total_esperado = $caja->saldo_inicial + $totalIngresos - $totalEgresos;
+            $caja->total_movimientos = $movimientos->count();
+            return $caja;
+        });
 
         $estadisticas = [
             'total_cajas' => $cajas->count(),
@@ -92,11 +125,22 @@ class ReporteCajaController extends Controller
             'total_saldo_inicial' => $cajas->sum('saldo_inicial'),
             'total_saldo_final' => $cajas->where('estado', 'cerrada')->sum('saldo_final'),
             'total_diferencia' => $cajas->where('estado', 'cerrada')->sum('diferencia'),
+            'total_ingresos' => $cajasConTotales->sum('total_ingresos'),
+            'total_egresos' => $cajasConTotales->sum('total_egresos'),
+            'total_esperado' => $cajasConTotales->sum('total_esperado'),
+            'total_movimientos' => $cajasConTotales->sum('total_movimientos'),
         ];
 
+        // Lista de usuarios que tienen cajas (para el selector del frontend)
+        $usuarios = \App\Models\User::select('id', 'name', 'email', 'rol')
+            ->whereHas('cajasApertura')
+            ->orderBy('name')
+            ->get();
+
         return response()->json([
-            'cajas' => $cajas,
+            'cajas' => $cajasConTotales,
             'estadisticas' => $estadisticas,
+            'usuarios_disponibles' => $usuarios,
         ]);
     }
 
@@ -172,6 +216,7 @@ class ReporteCajaController extends Controller
 
     /**
      * Generar PDF consolidado (solo administradores)
+     * Soporta filtros: fecha_inicio/fecha_fin, user_ids[], caja_ids[], incluir_movimientos
      */
     public function consolidadoPDF(Request $request)
     {
@@ -185,9 +230,21 @@ class ReporteCajaController extends Controller
             'fecha_fin' => 'nullable|date',
             'fecha_desde' => 'nullable|date',
             'fecha_hasta' => 'nullable|date',
+            'user_ids' => 'nullable|array',
+            'user_ids.*' => 'integer',
+            'caja_ids' => 'nullable|array',
+            'caja_ids.*' => 'integer',
+            'incluir_movimientos' => 'nullable|boolean',
         ]);
 
-        $query = CajaAperturaCierre::with(['movimientos', 'user']);
+        $incluirMovimientos = $request->boolean('incluir_movimientos', false);
+        $relations = ['user', 'sucursal'];
+        if ($incluirMovimientos) {
+            $relations[] = 'movimientos';
+            $relations[] = 'movimientos.user';
+        }
+
+        $query = CajaAperturaCierre::with($relations);
 
         // Soportar ambos formatos de parámetros de fecha
         $fechaInicio = $request->fecha_inicio ?? $request->fecha_desde;
@@ -196,12 +253,25 @@ class ReporteCajaController extends Controller
         if ($fechaInicio) {
             $query->whereDate('fecha_apertura', '>=', $fechaInicio);
         }
-
         if ($fechaFin) {
             $query->whereDate('fecha_apertura', '<=', $fechaFin);
         }
+        if ($request->has('user_ids') && is_array($request->user_ids) && count($request->user_ids) > 0) {
+            $query->whereIn('user_id', $request->user_ids);
+        }
+        if ($request->has('caja_ids') && is_array($request->caja_ids) && count($request->caja_ids) > 0) {
+            $query->whereIn('id', $request->caja_ids);
+        }
 
         $cajas = $query->orderBy('fecha_apertura', 'desc')->get();
+
+        // Calcular totales por caja
+        $cajas->each(function ($caja) {
+            $movimientos = $caja->movimientos ?? collect();
+            $caja->total_ingresos = $movimientos->whereIn('tipo', ['incremento', 'ingreso_pago'])->sum('monto');
+            $caja->total_egresos = $movimientos->whereIn('tipo', ['decremento', 'egreso_desembolso'])->sum('monto');
+            $caja->total_esperado = $caja->saldo_inicial + $caja->total_ingresos - $caja->total_egresos;
+        });
 
         $estadisticas = [
             'total_cajas' => $cajas->count(),
@@ -210,6 +280,9 @@ class ReporteCajaController extends Controller
             'total_saldo_inicial' => $cajas->sum('saldo_inicial'),
             'total_saldo_final' => $cajas->where('estado', 'cerrada')->sum('saldo_final'),
             'total_diferencia' => $cajas->where('estado', 'cerrada')->sum('diferencia'),
+            'total_ingresos' => $cajas->sum('total_ingresos'),
+            'total_egresos' => $cajas->sum('total_egresos'),
+            'total_esperado' => $cajas->sum('total_esperado'),
         ];
 
         $data = [
@@ -217,10 +290,12 @@ class ReporteCajaController extends Controller
             'estadisticas' => $estadisticas,
             'fecha_inicio' => $fechaInicio,
             'fecha_fin' => $fechaFin,
+            'incluir_movimientos' => $incluirMovimientos,
             'fecha_generacion' => now()->format('d/m/Y H:i:s'),
         ];
 
         $pdf = Pdf::loadView('reportes.caja-consolidado', $data);
+        $pdf->setPaper('letter', $incluirMovimientos ? 'landscape' : 'portrait');
         return $pdf->download('consolidado-cajas.pdf');
     }
 
