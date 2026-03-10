@@ -19,9 +19,17 @@ class DatabaseSeeder extends Seeder
             UserSeeder::class,
             PermissionSeeder::class,
             VentasPermisosSeeder::class, // Permisos ventas (aplicar_descuento, etc.)
+            RefrendosPermisosSeeder::class,
+            PlanesInteresPermisosSeeder::class,
             SucursalSeeder::class,
             CategoriaProductoSeeder::class,
             CamposDinamicosCategoriaSeeder::class,
+            BancosSeeder::class,
+            TipoPolizaSeeder::class,
+            PlanCuentasSeeder::class,
+            PlanesInteresCategoriaSeeder::class,
+            VentaCreditoParametrizacionSeeder::class,
+            CreateSuperAdminSeeder::class,
         ]);
     }
 }
