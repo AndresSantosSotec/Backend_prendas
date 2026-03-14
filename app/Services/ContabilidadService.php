@@ -63,6 +63,7 @@ class ContabilidadService
     public function generarAsientoDesembolso(CreditoMovimiento $movimiento)
     {
         $credito = $movimiento->creditoPrendario;
+        $formaPago = $movimiento->forma_pago ?? 'efectivo';
 
         // Obtener el tipo de póliza "PE" (Póliza de Egresos)
         $tipoPoliza = CtbTipoPoliza::porCodigo('PE')->first();
@@ -102,14 +103,14 @@ class ContabilidadService
         ]);
 
         // HABER: Caja General o Banco (según forma de desembolso)
-        $cuentaEgreso = $this->determinarCuentaEgreso($movimiento->forma_pago);
+        $cuentaEgreso = $this->determinarCuentaEgreso($formaPago);
         CtbMovimiento::create([
             'diario_id' => $diario->id,
             'cuenta_contable_id' => $cuentaEgreso->id,
             'debe' => 0,
             'haber' => $movimiento->monto_total,
             'numero_comprobante' => $diario->numero_comprobante,
-            'detalle' => "Desembolso crédito {$credito->numero_credito} - {$movimiento->forma_pago}",
+            'detalle' => "Desembolso crédito {$credito->numero_credito} - {$formaPago}",
         ]);
 
         return $diario;
@@ -153,14 +154,15 @@ class ContabilidadService
         ]);
 
         // DEBE: Caja General o Banco (según forma de pago)
-        $cuentaIngreso = $this->determinarCuentaIngreso($movimiento->forma_pago);
+        $formaPago = $movimiento->forma_pago ?? 'efectivo';
+        $cuentaIngreso = $this->determinarCuentaIngreso($formaPago);
         CtbMovimiento::create([
             'diario_id' => $diario->id,
             'cuenta_contable_id' => $cuentaIngreso->id,
             'debe' => $movimiento->monto_total,
             'haber' => 0,
             'numero_comprobante' => $diario->numero_comprobante,
-            'detalle' => "Pago crédito {$credito->numero_credito} - {$movimiento->forma_pago}",
+            'detalle' => "Pago crédito {$credito->numero_credito} - {$formaPago}",
         ]);
 
         // HABER: Créditos Prendarios por Cobrar (capital)
@@ -392,9 +394,10 @@ class ContabilidadService
     /**
      * Determinar cuenta de egreso según forma de pago
      */
-    private function determinarCuentaEgreso(string $formaPago): CtbNomenclatura
+    private function determinarCuentaEgreso(?string $formaPago): CtbNomenclatura
     {
-        return match ($formaPago) {
+        $forma = $formaPago ?? 'efectivo';
+        return match ($forma) {
             'efectivo' => $this->obtenerCuenta('1101.01.001'), // Caja General
             'transferencia', 'cheque' => $this->obtenerCuenta('1101.01.003'), // Bancos
             default => $this->obtenerCuenta('1101.01.001'), // Por defecto Caja
@@ -402,11 +405,12 @@ class ContabilidadService
     }
 
     /**
-     * Determinar cuenta de ingreso según forma de pago
+     * Determinar cuenta de ingreso según forma de pago (null = efectivo)
      */
-    private function determinarCuentaIngreso(string $formaPago): CtbNomenclatura
+    private function determinarCuentaIngreso(?string $formaPago): CtbNomenclatura
     {
-        return match ($formaPago) {
+        $forma = $formaPago ?? 'efectivo';
+        return match ($forma) {
             'efectivo' => $this->obtenerCuenta('1101.01.001'), // Caja General
             'transferencia', 'cheque' => $this->obtenerCuenta('1101.01.003'), // Bancos
             default => $this->obtenerCuenta('1101.01.001'), // Por defecto Caja

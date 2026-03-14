@@ -759,6 +759,107 @@ class ClienteController extends Controller
     }
 
     /**
+     * Activar / desactivar clientes de forma masiva
+     */
+    public function toggleMasivo(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'ids'    => 'required|array|min:1',
+            'ids.*'  => 'integer|exists:clientes,id',
+            'accion' => 'required|in:activar,desactivar',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Datos inválidos',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        $nuevoEstado = $request->accion === 'activar' ? 'activo' : 'inactivo';
+        $count = Cliente::whereIn('id', $request->ids)
+            ->where('eliminado', false)
+            ->update(['estado' => $nuevoEstado]);
+
+        return response()->json([
+            'success' => true,
+            'message' => "{$count} cliente(s) {$nuevoEstado}s exitosamente",
+            'count'   => $count,
+        ]);
+    }
+
+    /**
+     * Descargar reporte de clientes en CSV
+     */
+    public function reporte(Request $request)
+    {
+        $query = Cliente::query()
+            ->where('eliminado', false)
+            ->withCount([
+                'creditosPrendarios as total_creditos',
+                'creditosPrendarios as activos_creditos' => function($q) {
+                    $q->whereIn('estado', ['vigente', 'en_mora']);
+                },
+            ]);
+
+        if ($request->has('estado') && $request->estado !== '' && $request->estado !== 'todos') {
+            $query->where('estado', $request->estado);
+        }
+        if ($request->has('busqueda') && $request->busqueda !== '') {
+            $busqueda = $request->busqueda;
+            $query->where(function ($q) use ($busqueda) {
+                $q->where('nombres', 'like', "%{$busqueda}%")
+                  ->orWhere('apellidos', 'like', "%{$busqueda}%")
+                  ->orWhere('dpi', 'like', "%{$busqueda}%");
+            });
+        }
+
+        $clientes = $query->orderBy('created_at', 'desc')->get();
+
+        $formato = $request->get('formato', 'csv');
+        $filename = 'Clientes_' . date('Y-m-d') . '.csv';
+
+        $headers = [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $callback = function () use ($clientes) {
+            $file = fopen('php://output', 'w');
+            // BOM para Excel
+            fprintf($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+            // Encabezados
+            fputcsv($file, [
+                'ID', 'Nombres', 'Apellidos', 'DPI', 'NIT', 'Género',
+                'Teléfono', 'Email', 'Dirección', 'Sucursal',
+                'Estado', 'Total Créditos', 'Créditos Activos', 'Fecha Registro',
+            ]);
+            foreach ($clientes as $c) {
+                fputcsv($file, [
+                    $c->id,
+                    $c->nombres,
+                    $c->apellidos,
+                    $c->dpi,
+                    $c->nit ?? '',
+                    $c->genero ?? '',
+                    $c->telefono,
+                    $c->email ?? '',
+                    $c->direccion ?? '',
+                    $c->sucursal ?? '',
+                    $c->estado,
+                    $c->total_creditos ?? 0,
+                    $c->activos_creditos ?? 0,
+                    $c->created_at->format('d/m/Y'),
+                ]);
+            }
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
+    /**
      * Guardar foto desde base64
      */
     private function savePhotoFromBase64(string $base64): string

@@ -30,6 +30,7 @@ class DatabaseSeeder extends Seeder
             PlanesInteresCategoriaSeeder::class,
             VentaCreditoParametrizacionSeeder::class,
             CreateSuperAdminSeeder::class,
+            NuevosModulosPermisosSeeder::class,
         ]);
     }
 }

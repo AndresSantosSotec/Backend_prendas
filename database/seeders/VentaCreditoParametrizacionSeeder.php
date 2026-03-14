@@ -41,7 +41,7 @@ class VentaCreditoParametrizacionSeeder extends Seeder
         // DEBE:  Caja General + Créditos Prendarios por Cobrar
         // HABER: Venta de Prendas + Intereses sobre Créditos
         // ============================================================================
-        $this->crearParametrizacion('venta_credito_enganche', [
+        $this->crearParametrizacion('venta_enganche', [
             [
                 'cuenta_codigo' => '1101.01.001', // Caja General
                 'tipo_movimiento' => 'debe',
@@ -73,7 +73,7 @@ class VentaCreditoParametrizacionSeeder extends Seeder
         // DEBE:  Caja General
         // HABER: Créditos Prendarios por Cobrar + Intereses + Mora
         // ============================================================================
-        $this->crearParametrizacion('venta_credito_abono', [
+        $this->crearParametrizacion('venta_abono', [
             [
                 'cuenta_codigo' => '1101.01.001', // Caja General
                 'tipo_movimiento' => 'debe',
@@ -100,7 +100,7 @@ class VentaCreditoParametrizacionSeeder extends Seeder
             ],
         ], $tipoPolizaVenta->id);
 
-        $this->command->info('✓ Parametrización contable de Ventas a Crédito completada');
+        $this->command->info('✓ Parametrización contable de Ventas completada');
     }
 
     /**

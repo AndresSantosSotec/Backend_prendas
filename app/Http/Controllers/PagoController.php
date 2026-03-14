@@ -24,6 +24,10 @@ class PagoController extends Controller
         try {
             $credito = CreditoPrendario::findOrFail($id);
 
+            // Recalcular mora en cuotas vencidas antes de calcular deuda
+            app(\App\Services\MoraService::class)->recalcularMoraCredito($credito);
+            $credito->refresh();
+
             $calculo = $this->pagoService->calcularDeudaAlDia($credito);
 
             return response()->json([

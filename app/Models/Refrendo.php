@@ -19,6 +19,7 @@ class Refrendo extends Model
     public const TIPO_PARCIAL = 'parcial';        // Solo intereses + mora
     public const TIPO_TOTAL = 'total';            // Intereses + mora + capital
     public const TIPO_CON_CAPITAL = 'con_capital'; // Con % mínimo obligatorio
+    public const TIPO_RE_EMPENO = 're_empeno';    // Reactivación de crédito pagado (nuevo préstamo)
 
     protected $fillable = [
         'credito_id',
@@ -147,6 +148,7 @@ class Refrendo extends Model
             self::TIPO_PARCIAL => 'Refrendo Parcial (Solo Intereses)',
             self::TIPO_TOTAL => 'Refrendo Total (Con Capital)',
             self::TIPO_CON_CAPITAL => 'Refrendo con Capital Obligatorio',
+            self::TIPO_RE_EMPENO => 'Re-empeño (Reactivación de crédito pagado)',
             default => 'Desconocido'
         };
     }

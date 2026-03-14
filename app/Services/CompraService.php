@@ -38,7 +38,7 @@ class CompraService
             }
 
             // 1. Obtener datos del cliente (snapshot)
-            $cliente = Cliente::findOrFail($data['cliente_id']);
+            $cliente = isset($data['cliente_id']) && $data['cliente_id'] ? Cliente::find($data['cliente_id']) : null;
             $categoria = CategoriaProducto::findOrFail($data['categoria_producto_id']);
 
             // 2. Generar códigos únicos
@@ -47,17 +47,17 @@ class CompraService
 
             // 3. Crear registro de compra (tabla independiente)
             $compra = Compra::create([
-                'cliente_id' => $cliente->id,
+                'cliente_id' => $cliente ? $cliente->id : null,
                 'categoria_producto_id' => $categoria->id,
                 'sucursal_id' => $sucursalId,
                 'usuario_id' => $user->id,
                 'codigo_compra' => $codigoCompra,
 
                 // Snapshot del cliente
-                'cliente_nombre' => trim($cliente->nombres . ' ' . $cliente->apellidos),
-                'cliente_documento' => $cliente->numero_documento ?? $cliente->documento ?? $cliente->dpi,
-                'cliente_telefono' => $cliente->telefono,
-                'cliente_codigo' => $cliente->codigo_cliente,
+                'cliente_nombre' => $cliente ? trim($cliente->nombres . ' ' . $cliente->apellidos) : 'Consumidor Final',
+                'cliente_documento' => $cliente ? ($cliente->numero_documento ?? $cliente->documento ?? $cliente->dpi) : 'C/F',
+                'cliente_telefono' => $cliente ? $cliente->telefono : null,
+                'cliente_codigo' => $cliente ? $cliente->codigo_cliente : null,
 
                 // Snapshot de categoría
                 'categoria_nombre' => $categoria->nombre,

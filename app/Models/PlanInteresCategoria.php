@@ -56,6 +56,8 @@ class PlanInteresCategoria extends Model
         'tasa_interes',
         'tasa_almacenaje',
         'tasa_moratorios',
+        'tipo_mora',
+        'mora_monto_fijo',
         'porcentaje_prestamo',
         'monto_minimo',
         'monto_maximo',
@@ -78,6 +80,8 @@ class PlanInteresCategoria extends Model
         'tasa_interes' => 'decimal:4',
         'tasa_almacenaje' => 'decimal:4',
         'tasa_moratorios' => 'decimal:4',
+        'tipo_mora' => 'string',
+        'mora_monto_fijo' => 'decimal:2',
         'porcentaje_prestamo' => 'decimal:2',
         'monto_minimo' => 'decimal:2',
         'monto_maximo' => 'decimal:2',
@@ -203,7 +207,30 @@ class PlanInteresCategoria extends Model
         $numero = str_pad($this->plazo_numero, 2, '0', STR_PAD_LEFT);
         $unidad = strtoupper(substr($this->plazo_unidad, 0, 1));
 
-        return "{$prefijo}{$numero}{$unidad}";
+        $base = "{$prefijo}{$numero}{$unidad}";
+
+        // Verificar unicidad dentro de la misma categoría
+        $query = static::where('categoria_producto_id', $this->categoria_producto_id)
+            ->where('codigo', 'like', "{$base}%");
+
+        // Excluir el registro actual al actualizar
+        if ($this->id) {
+            $query->where('id', '!=', $this->id);
+        }
+
+        $existentes = $query->pluck('codigo')->all();
+
+        if (!in_array($base, $existentes)) {
+            return $base;
+        }
+
+        // Agregar sufijo numérico hasta encontrar uno libre
+        $contador = 2;
+        while (in_array("{$base}{$contador}", $existentes)) {
+            $contador++;
+        }
+
+        return "{$base}{$contador}";
     }
 
     /**

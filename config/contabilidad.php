@@ -17,14 +17,14 @@ return [
      * true = Los asientos se generan automáticamente desde las operaciones
      * false = Los asientos deben crearse manualmente
      */
-    'auto_asientos' => env('CONTABILIDAD_AUTO_ASIENTOS', false),
+    'auto_asientos' => env('CONTABILIDAD_AUTO_ASIENTOS', true),
 
     /**
      * Configuración de asientos automáticos por tipo de operación
      */
     'auto_asientos_por_operacion' => [
-        'desembolso_credito' => env('CONTABILIDAD_AUTO_DESEMBOLSO', false),
-        'pago_credito' => env('CONTABILIDAD_AUTO_PAGO', false),
+        'desembolso_credito' => env('CONTABILIDAD_AUTO_DESEMBOLSO', true),
+        'pago_credito' => env('CONTABILIDAD_AUTO_PAGO', true),
         'venta_prenda' => env('CONTABILIDAD_AUTO_VENTA', false),
         'compra_directa' => env('CONTABILIDAD_AUTO_COMPRA', false),
     ],

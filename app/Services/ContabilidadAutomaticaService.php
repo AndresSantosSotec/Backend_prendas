@@ -48,7 +48,7 @@ class ContabilidadAutomaticaService
             $this->crearMovimientos($diario, $parametrizaciones, $datos);
 
             // Verificar que cuadre
-            if (!$diario->fresh()->estaCuadrado()) {
+            if (!$diario->fresh()->validarCuadre()) {
                 throw new Exception("El asiento contable no cuadra (Debe ≠ Haber)");
             }
 
@@ -142,8 +142,8 @@ class ContabilidadAutomaticaService
                 continue; // Omitir movimientos con monto 0
             }
 
-            // Verificar que la cuenta pueda recibir movimientos
-            if (!$parametrizacion->cuentaContable->puedeMoverse()) {
+            // Verificar que la cuenta acepte movimientos
+            if (!$parametrizacion->cuentaContable->acepta_movimientos) {
                 Log::warning("La cuenta {$parametrizacion->cuentaContable->codigo_cuenta} no acepta movimientos");
                 continue;
             }
@@ -151,12 +151,10 @@ class ContabilidadAutomaticaService
             CtbMovimiento::create([
                 'diario_id' => $diario->id,
                 'cuenta_contable_id' => $parametrizacion->cuenta_contable_id,
-                'monto_debe' => $parametrizacion->tipo_movimiento === 'debe' ? $monto : 0,
-                'monto_haber' => $parametrizacion->tipo_movimiento === 'haber' ? $monto : 0,
-                'concepto' => $parametrizacion->descripcion ?? $diario->glosa,
-                'referencia' => $datos['referencia'] ?? null,
-                'auxiliar_tipo' => $datos['auxiliar_tipo'] ?? null,
-                'auxiliar_id' => $datos['auxiliar_id'] ?? null,
+                'debe' => $parametrizacion->tipo_movimiento === 'debe' ? $monto : 0,
+                'haber' => $parametrizacion->tipo_movimiento === 'haber' ? $monto : 0,
+                'numero_comprobante' => $diario->numero_comprobante,
+                'detalle' => $parametrizacion->descripcion ?? $diario->glosa,
             ]);
         }
     }
@@ -174,16 +172,16 @@ class ContabilidadAutomaticaService
                 'haber_caja' => ($datos['monto_capital'] ?? 0) + ($datos['monto_intereses'] ?? 0) + ($datos['gastos_totales'] ?? 0),
             ],
             'credito_pago_capital' => [
-                'debe_caja' => $datos['monto_capital'] ?? 0,
-                'haber_creditos_por_cobrar' => $datos['monto_capital'] ?? 0,
+                'debe_caja' => $datos['monto_capital'] ?? $datos['monto'] ?? 0,
+                'haber_creditos_por_cobrar' => $datos['monto_capital'] ?? $datos['monto'] ?? 0,
             ],
             'credito_pago_interes' => [
-                'debe_caja' => $datos['monto_intereses'] ?? 0,
-                'haber_ingresos_intereses' => $datos['monto_intereses'] ?? 0,
+                'debe_caja' => $datos['monto_intereses'] ?? $datos['monto_interes'] ?? $datos['monto'] ?? 0,
+                'haber_ingresos_intereses' => $datos['monto_intereses'] ?? $datos['monto_interes'] ?? $datos['monto'] ?? 0,
             ],
             'credito_pago_mora' => [
-                'debe_caja' => $datos['monto_mora'] ?? 0,
-                'haber_ingresos_mora' => $datos['monto_mora'] ?? 0,
+                'debe_caja' => $datos['monto_mora'] ?? $datos['monto'] ?? 0,
+                'haber_ingresos_mora' => $datos['monto_mora'] ?? $datos['monto'] ?? 0,
             ],
             'credito_gastos' => [
                 'debe_caja' => $datos['gastos_totales'] ?? 0,

@@ -492,21 +492,15 @@ class VentaMultiPrendaService
     private function actualizarEstadoPrendas(Venta $venta, string $estadoVenta, $prendas): void
     {
         foreach ($prendas as $prenda) {
-            // Solo estados válidos de la BD: en_custodia, recuperada, en_venta, vendida, perdida, deteriorada, devuelta
-            $nuevoEstado = match($venta->tipo_venta) {
-                'contado' => $estadoVenta === 'pagada' ? EstadoPrenda::VENDIDA->value : EstadoPrenda::EN_VENTA->value,
-                'credito' => EstadoPrenda::EN_VENTA->value, // Sigue en venta hasta completar pago
-                'apartado' => EstadoPrenda::EN_VENTA->value, // Sigue en venta hasta completar pago
-                'plan_pagos' => EstadoPrenda::EN_VENTA->value, // Sigue en venta hasta completar pago
-                default => EstadoPrenda::EN_VENTA->value
-            };
-
+            // Siempre marcar como vendida al crear la venta, sin importar tipo ni estado de pago.
+            // Así la prenda deja de aparecer como disponible mientras la venta está activa.
+            // Si la venta se cancela, cancelarVenta() la devuelve a en_venta.
             $datosActualizacion = [
-                'estado' => $nuevoEstado,
+                'estado' => EstadoPrenda::VENDIDA->value,
             ];
 
-            // Solo establecer fecha_venta cuando realmente se vende (pagada completamente)
-            if ($estadoVenta === 'pagada' && $nuevoEstado === EstadoPrenda::VENDIDA->value) {
+            // Registrar fecha de venta solo cuando el pago es inmediatamente completo (contado pagado)
+            if ($estadoVenta === 'pagada') {
                 $datosActualizacion['fecha_venta'] = now();
             }
 

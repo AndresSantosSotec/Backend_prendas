@@ -16,6 +16,7 @@ use App\Models\CodigoPrereservado;
 use App\Services\CajaService;
 use App\Services\ContabilidadAutomaticaService;
 use App\Enums\EstadoCredito;
+use App\Enums\EstadoPrenda;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Validator;
@@ -250,7 +251,9 @@ class CreditoPrendarioController extends Controller
             'monto_aprobado' => 'nullable|numeric|min:0',
             'valor_tasacion' => 'nullable|numeric|min:0',
             'tasa_interes' => 'nullable|numeric|min:0|max:100',
-            'tasa_mora' => 'nullable|numeric|min:0|max:10',
+            'tasa_mora' => 'nullable|numeric|min:0|max:100',
+            'tipo_mora' => 'nullable|in:porcentaje,monto_fijo',
+            'mora_monto_fijo' => 'nullable|numeric|min:0',
             'tipo_interes' => 'nullable|in:diario,semanal,catorcenal,quincenal,cada_28_dias,mensual',
             'metodo_calculo' => 'nullable|in:francesa,flat',
             'afecta_interes_mensual' => 'nullable|boolean',
@@ -263,6 +266,7 @@ class CreditoPrendarioController extends Controller
             'fecha_primer_pago' => 'nullable|date',
             'observaciones' => 'nullable|string|max:1000',
             'tasador_id' => 'nullable|exists:users,id',
+            'plan_interes_id' => 'nullable|exists:planes_interes_categoria,id',
             // Códigos pre-reservados del wizard
             'numero_credito' => 'nullable|string|max:30',
             'codigo_prenda' => 'nullable|string|max:50',
@@ -418,24 +422,34 @@ class CreditoPrendarioController extends Controller
                 $montoCuota = $request->monto_aprobado / $request->numero_cuotas;
             }
 
-            // Obtener parámetros de la categoría si no se proporcionan
+            // Obtener parámetros de la categoría y plan si no se proporcionan
             $categoriaId = $request->prendas[0]['categoria_producto_id'] ?? null;
             $categoria = null;
             if ($categoriaId) {
                 $categoria = \App\Models\CategoriaProducto::find($categoriaId);
             }
+            $plan = null;
+            if ($request->plan_interes_id) {
+                $plan = \App\Models\PlanInteresCategoria::find($request->plan_interes_id);
+            }
+            $tasaMora = $request->tasa_mora ?? $plan?->tasa_moratorios ?? $categoria?->tasa_mora_default ?? 0;
+            $tipoMora = $request->tipo_mora ?? $plan?->tipo_mora ?? $categoria?->tipo_mora_default ?? 'porcentaje';
+            $moraMontoFijo = $request->mora_monto_fijo ?? $plan?->mora_monto_fijo ?? $categoria?->mora_monto_fijo_default ?? null;
 
             // Crear crédito prendario con todos los campos
             $datosCredito = [
                 'numero_credito' => $numeroCredito,
                 'cliente_id' => $request->cliente_id,
                 'sucursal_id' => $request->sucursal_id,
+                'plan_interes_id' => $request->plan_interes_id ?? null,
                 'tasador_id' => $request->tasador_id ?? Auth::id(),
                 'monto_solicitado' => $request->monto_solicitado,
                 'monto_aprobado' => $request->monto_aprobado ?? $request->monto_solicitado,
                 'valor_tasacion' => $request->valor_tasacion,
                 'tasa_interes' => $request->tasa_interes ?? ($categoria?->tasa_interes_default ?? 0),
-                'tasa_mora' => $request->tasa_mora ?? ($categoria?->tasa_mora_default ?? 0),
+                'tasa_mora' => $tasaMora,
+                'tipo_mora' => $tipoMora,
+                'mora_monto_fijo' => $moraMontoFijo,
                 'tipo_interes' => $request->tipo_interes ?? 'mensual',
                 'metodo_calculo' => 'flat', // Siempre 'flat' para créditos prendarios
                 'afecta_interes_mensual' => $request->afecta_interes_mensual ?? ($categoria?->afecta_interes_mensual ?? false),
@@ -888,6 +902,10 @@ class CreditoPrendarioController extends Controller
             ], 404);
         }
 
+        // Recalcular y persistir mora en cuotas vencidas para que aparezca al consultar y al pagar
+        app(\App\Services\MoraService::class)->recalcularMoraCredito($credito);
+        $credito->refresh();
+
         $planPagos = $credito->planPagos()->orderBy('numero_cuota')->get();
         $numeroCuotas = $planPagos->count();
 
@@ -936,6 +954,7 @@ class CreditoPrendarioController extends Controller
                 'capital_proyectado' => round($capital, 2),
                 'interes_proyectado' => round($interes, 2),
                 'mora_proyectada' => round($mora, 2),
+                'gastos_proyectado' => round($gastoCuota, 2),
                 'monto_cuota_proyectado' => round($cuotaTotal, 2),
                 // Pagos realizados
                 'capital_pagado' => (float) $cuota->capital_pagado,
@@ -1023,6 +1042,8 @@ class CreditoPrendarioController extends Controller
             'mora_pendiente' => (float) ($credito->mora_generada - $credito->mora_pagada), // Calcular mora pendiente
             'tasa_interes' => (float) $credito->tasa_interes,
             'tasa_mora' => (float) $credito->tasa_mora,
+            'tipo_mora' => $credito->tipo_mora ?? 'porcentaje',
+            'mora_monto_fijo' => $credito->mora_monto_fijo ? (float) $credito->mora_monto_fijo : null,
             'plazo_dias' => $credito->plazo_dias,
             'dias_mora' => $credito->dias_mora,
             'prendas' => $credito->prendas->map(function ($prenda) {
@@ -1371,6 +1392,7 @@ class CreditoPrendarioController extends Controller
                 'dias_mora' => 0,
                 'tasa_interes_aplicada' => $tasaInteres,
                 'tasa_mora_aplicada' => $tasaMora,
+                'mora_monto_fijo_aplicado' => $credito->mora_monto_fijo ?? null,
                 'dias_cuota' => $diasCuota,
                 'es_cuota_gracia' => $esCuotaGracia,
                 'permite_pago_parcial' => $permitePagoCapitalDiferente || true,
@@ -1783,6 +1805,13 @@ class CreditoPrendarioController extends Controller
             ], 404);
         }
 
+        // Recalcular mora antes de procesar pago para que mora_pendiente esté actualizado
+        app(\App\Services\MoraService::class)->recalcularMoraCredito($credito);
+        $credito->refresh();
+        $cuota = CreditoPlanPago::where('id', $request->cuota_id)
+            ->where('credito_prendario_id', $credito->id)
+            ->first();
+
         // Validar estado del crédito
         if (!in_array($credito->estado, ['vigente', 'en_mora', 'vencido'])) {
             return response()->json([
@@ -1790,11 +1819,6 @@ class CreditoPrendarioController extends Controller
                 'message' => "No se puede registrar un pago en un crédito con estado '{$credito->estado}'"
             ], 422);
         }
-
-        // Obtener cuota
-        $cuota = CreditoPlanPago::where('id', $request->cuota_id)
-            ->where('credito_prendario_id', $credito->id)
-            ->first();
 
         if (!$cuota) {
             return response()->json([
@@ -1970,6 +1994,8 @@ class CreditoPrendarioController extends Controller
                         'sucursal_id' => $credito->sucursal_id,
                         'usuario_id' => Auth::id(),
                         'monto' => $montoCapital,
+                        'monto_capital' => $montoCapital,
+                        'credito_id' => $credito->id,
                         'credito_prendario_id' => $credito->id,
                         'movimiento_credito_id' => $movimiento->id,
                         'numero_documento' => $movimiento->numero_movimiento,
@@ -1983,6 +2009,9 @@ class CreditoPrendarioController extends Controller
                         'sucursal_id' => $credito->sucursal_id,
                         'usuario_id' => Auth::id(),
                         'monto' => $montoInteres,
+                        'monto_interes' => $montoInteres,
+                        'monto_intereses' => $montoInteres,
+                        'credito_id' => $credito->id,
                         'credito_prendario_id' => $credito->id,
                         'movimiento_credito_id' => $movimiento->id,
                         'numero_documento' => $movimiento->numero_movimiento,
@@ -1996,6 +2025,8 @@ class CreditoPrendarioController extends Controller
                         'sucursal_id' => $credito->sucursal_id,
                         'usuario_id' => Auth::id(),
                         'monto' => $montoMora,
+                        'monto_mora' => $montoMora,
+                        'credito_id' => $credito->id,
                         'credito_prendario_id' => $credito->id,
                         'movimiento_credito_id' => $movimiento->id,
                         'numero_documento' => $movimiento->numero_movimiento,
@@ -3433,6 +3464,18 @@ class CreditoPrendarioController extends Controller
         try {
             $credito = CreditoPrendario::with(['prendas', 'cliente'])->findOrFail($id);
 
+            // Validar restricción de edición si tiene prendas vendidas o es un estado final.
+            $tienePrendasVendidas = $credito->prendas->contains(function ($prenda) {
+                return in_array($prenda->estado, ['vendida', 'rematada']);
+            });
+
+            if ($tienePrendasVendidas || in_array($credito->estado, ['vendido', 'rematado', 'incobrable'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El crédito no puede ser modificado. Contiene prendas que ya han sido vendidas o su estado final no lo permite. Se conserva únicamente como histórico.',
+                ], 422);
+            }
+
             // Validar datos
             $validator = Validator::make($request->all(), [
                 'estado' => 'sometimes|string|in:' . implode(',', EstadoCredito::valores()),
@@ -3515,19 +3558,21 @@ class CreditoPrendarioController extends Controller
                 if (in_array($nuevoEstado, [EstadoCredito::VENDIDO->value, EstadoCredito::REMATADO->value])) {
                     foreach ($credito->prendas as $prenda) {
                         $prenda->update([
-                            'estado' => 'vendida',
+                            'estado' => EstadoPrenda::VENDIDA->value,
                             'fecha_venta' => now(),
                         ]);
                     }
                 }
 
-                // Si cambia a EN_INVENTARIO, actualizar prendas a "en_venta"
-                if ($nuevoEstado === EstadoCredito::EN_INVENTARIO->value) {
+                // Si cambia a EN_INVENTARIO o VENCIDO, actualizar prendas a "en_venta"
+                if (in_array($nuevoEstado, [EstadoCredito::EN_INVENTARIO->value, EstadoCredito::VENCIDO->value])) {
                     foreach ($credito->prendas as $prenda) {
-                        $prenda->update([
-                            'estado' => 'en_venta',
-                            'fecha_publicacion_venta' => now(),
-                        ]);
+                        if ($prenda->estado !== EstadoPrenda::EN_VENTA->value && !in_array($prenda->estado, EstadoPrenda::estadosFinales())) {
+                            $prenda->update([
+                                'estado' => EstadoPrenda::EN_VENTA->value,
+                                'fecha_publicacion_venta' => now(),
+                            ]);
+                        }
                     }
                 }
 
@@ -3543,6 +3588,18 @@ class CreditoPrendarioController extends Controller
             }
 
             $credito->save();
+
+            // Asegurarse de que si el crédito queda como VENCIDO o EN_INVENTARIO, las prendas estén en venta
+            if (in_array($credito->estado, [EstadoCredito::VENCIDO->value, EstadoCredito::EN_INVENTARIO->value])) {
+                foreach ($credito->prendas as $prenda) {
+                    if ($prenda->estado !== EstadoPrenda::EN_VENTA->value && !in_array($prenda->estado, EstadoPrenda::estadosFinales())) {
+                        $prenda->update([
+                            'estado' => EstadoPrenda::EN_VENTA->value,
+                            'fecha_publicacion_venta' => now(),
+                        ]);
+                    }
+                }
+            }
 
             DB::commit();
 

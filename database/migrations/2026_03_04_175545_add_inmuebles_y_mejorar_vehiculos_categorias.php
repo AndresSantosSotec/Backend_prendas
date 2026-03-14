@@ -80,10 +80,8 @@ return new class extends Migration
                     ['nombre' => 'municipio', 'label' => 'Municipio', 'tipo' => 'text', 'requerido' => true, 'placeholder' => 'Ej: Mixco, Villa Nueva'],
                     ['nombre' => 'zona', 'label' => 'Zona', 'tipo' => 'text', 'requerido' => false, 'placeholder' => 'Ej: Zona 10'],
 
-                    // --- Geolocalización ---
-                    ['nombre' => 'latitud', 'label' => 'Latitud (coordenada)', 'tipo' => 'text', 'requerido' => false, 'placeholder' => 'Ej: 14.6349'],
-                    ['nombre' => 'longitud', 'label' => 'Longitud (coordenada)', 'tipo' => 'text', 'requerido' => false, 'placeholder' => 'Ej: -90.5069'],
-                    ['nombre' => 'geolocalizacion_url', 'label' => 'Enlace Google Maps', 'tipo' => 'text', 'requerido' => false, 'placeholder' => 'https://maps.google.com/...'],
+                    // --- Geolocalización interactiva (mapa OpenStreetMap) ---
+                    ['nombre' => 'ubicacion_mapa', 'label' => 'Ubicación en el Mapa', 'tipo' => 'mapa', 'requerido' => false],
 
                     // --- Características físicas ---
                     ['nombre' => 'area_terreno_m2', 'label' => 'Área del Terreno (m²)', 'tipo' => 'number', 'requerido' => true, 'min' => 1, 'placeholder' => 'Metros cuadrados de terreno'],

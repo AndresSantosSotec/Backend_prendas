@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\CreditoPrendario;
 use App\Models\CreditoMovimiento;
 use App\Models\CreditoPlanPago;
+use App\Models\PlanInteresCategoria;
+use App\Services\MoraService;
 use App\Models\IdempotencyKey;
 use App\Services\CajaService;
 use Carbon\Carbon;
@@ -42,7 +44,7 @@ class PagoService
             $fechaBase = $credito->fecha_solicitud ?? Carbon::now();
         }
 
-        $diasTranscurridos = max(1, $fechaCalculo->diffInDays($fechaBase));
+        $diasTranscurridos = max(1, abs($fechaCalculo->diffInDays($fechaBase)));
 
         // ============== CÁLCULO DE INTERÉS ==============
         $tasaInteres = $credito->tasa_interes / 100;
@@ -56,14 +58,28 @@ class PagoService
         $diasMora = 0;
 
         if ($credito->fecha_vencimiento && $fechaCalculo->gt($credito->fecha_vencimiento)) {
-            $diasDesdeVencimiento = $fechaCalculo->diffInDays($credito->fecha_vencimiento);
+            $diasDesdeVencimiento = (int) abs($fechaCalculo->diffInDays($credito->fecha_vencimiento));
             $diasGracia = $credito->dias_gracia ?? 0;
             $diasMora = max(0, $diasDesdeVencimiento - $diasGracia);
 
-            if ($diasMora > 0 && $credito->tasa_mora > 0) {
-                // Mora diaria: TasaMora% mensual convertida a diaria
-                $tasaMoraDiaria = ($credito->tasa_mora / 100) / 30;
-                $moraDevengada = $credito->capital_pendiente * $tasaMoraDiaria * $diasMora;
+            if ($diasMora > 0) {
+                $tipoMora = $credito->tipo_mora ?? 'porcentaje';
+                $tasaMoraCredito = (float) ($credito->tasa_mora ?? 0);
+
+                // Fallback: obtener tasa del plan de interés si el crédito no la tiene
+                if ($tasaMoraCredito <= 0 && $tipoMora === 'porcentaje' && $credito->plan_interes_id) {
+                    $plan = PlanInteresCategoria::find($credito->plan_interes_id);
+                    if ($plan && (float)($plan->tasa_moratorios ?? 0) > 0) {
+                        $tasaMoraCredito = (float) $plan->tasa_moratorios;
+                    }
+                }
+
+                if ($tipoMora === 'monto_fijo' && ($credito->mora_monto_fijo ?? 0) > 0) {
+                    $moraDevengada = (float) $credito->mora_monto_fijo * $diasMora;
+                } elseif ($tipoMora === 'porcentaje' && $tasaMoraCredito > 0) {
+                    $tasaMoraDiaria = ($tasaMoraCredito / 100) / 30;
+                    $moraDevengada = $credito->capital_pendiente * $tasaMoraDiaria * $diasMora;
+                }
             }
         }
 
@@ -258,6 +274,10 @@ class PagoService
                 throw new \Exception("Crédito no encontrado");
             }
 
+            // Recalcular mora en cuotas vencidas antes de cualquier tipo de pago
+            app(MoraService::class)->recalcularMoraCredito($credito);
+            $credito->refresh();
+
             if (in_array($credito->estado, ['liquidado', 'anulado', 'vendido', 'pagado'])) {
                 throw new \Exception("El crédito no está en un estado válido para recibir pagos.");
             }
@@ -307,6 +327,7 @@ class PagoService
         }
 
         // 4. Registrar movimiento
+        $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
         $movimiento = CreditoMovimiento::create([
             'credito_prendario_id' => $credito->id,
             'tipo_movimiento' => 'pago',
@@ -321,6 +342,7 @@ class PagoService
             'usuario_id' => Auth::id() ?? 1,
             'sucursal_id' => $credito->sucursal_id,
             'numero_movimiento' => Str::upper(Str::random(10)),
+            'forma_pago' => $formaPago,
             'observaciones' => "PAGO CUOTA #{$cuota->numero_cuota} - " . ($data['observaciones'] ?? ''),
             'estado' => 'activo'
         ]);
@@ -396,6 +418,7 @@ class PagoService
         }
 
         // 1. Registrar Movimiento
+        $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
         $movimiento = CreditoMovimiento::create([
             'credito_prendario_id' => $credito->id,
             'tipo_movimiento' => 'renovacion',
@@ -410,6 +433,7 @@ class PagoService
             'usuario_id' => Auth::id() ?? 1,
             'sucursal_id' => $credito->sucursal_id,
             'numero_movimiento' => Str::upper(Str::random(10)),
+            'forma_pago' => $formaPago,
             'observaciones' => "RENOVACIÓN {$periodosRenovar} período(s) - " . ($data['observaciones'] ?? ''),
             'estado' => 'activo'
         ]);
@@ -636,6 +660,7 @@ class PagoService
 
         // 4. Registrar movimiento
         $cuotasString = implode(', ', $cuotasProcesadas);
+        $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
         $movimiento = CreditoMovimiento::create([
             'credito_prendario_id' => $credito->id,
             'tipo_movimiento' => 'pago_adelantado',
@@ -650,6 +675,7 @@ class PagoService
             'usuario_id' => Auth::id() ?? 1,
             'sucursal_id' => $credito->sucursal_id,
             'numero_movimiento' => Str::upper(Str::random(10)),
+            'forma_pago' => $formaPago,
             'observaciones' => "ADELANTO {$cuotasAdelantar} cuota(s) - Cuotas procesadas: {$cuotasString} - " . ($data['observaciones'] ?? ''),
             'estado' => 'activo'
         ]);
@@ -803,6 +829,7 @@ class PagoService
         $totalInteresesPagados = $calculo['interes_acumulado'] + ($interesPorPeriodo * max(0, $periodos - 1));
 
         // Registrar Movimiento
+        $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
         $movimiento = CreditoMovimiento::create([
             'credito_prendario_id' => $credito->id,
             'tipo_movimiento' => 'pago_interes',
@@ -817,6 +844,7 @@ class PagoService
             'usuario_id' => Auth::id() ?? 1,
             'sucursal_id' => $credito->sucursal_id,
             'numero_movimiento' => Str::upper(Str::random(10)),
+            'forma_pago' => $formaPago,
             'observaciones' => "PAGO INTERESES ({$periodos} periodo(s)) - " . ($data['observaciones'] ?? ''),
             'estado' => 'activo'
         ]);
@@ -888,15 +916,19 @@ class PagoService
         $capitalTotalPendiente = 0;
 
         foreach ($cuotasPendientes as $cuota) {
-            // Recalcular mora si está vencida
+            // Recalcular mora en memoria si está vencida (por si no se persigió antes)
             if ($cuota->fecha_vencimiento && now()->gt($cuota->fecha_vencimiento)) {
-                $diasMora = now()->diffInDays($cuota->fecha_vencimiento);
+                $diasMora = (int) abs(now()->diffInDays($cuota->fecha_vencimiento));
                 $diasGracia = $credito->dias_gracia ?? 0;
                 $diasMoraEfectivos = max(0, $diasMora - $diasGracia);
-
-                if ($diasMoraEfectivos > 0 && $credito->tasa_mora > 0) {
-                    $tasaMoraDiaria = ($credito->tasa_mora / 100) / 30;
-                    $cuota->mora_proyectada = $credito->capital_pendiente * $tasaMoraDiaria * $diasMoraEfectivos;
+                if ($diasMoraEfectivos > 0) {
+                    $tipoMora = $credito->tipo_mora ?? 'porcentaje';
+                    if ($tipoMora === 'monto_fijo' && ($credito->mora_monto_fijo ?? 0) > 0) {
+                        $cuota->mora_proyectada = (float) $credito->mora_monto_fijo * $diasMoraEfectivos;
+                    } elseif ($tipoMora === 'porcentaje' && ($credito->tasa_mora ?? 0) > 0) {
+                        $tasaMoraDiaria = ($credito->tasa_mora / 100) / 30;
+                        $cuota->mora_proyectada = $credito->capital_pendiente * $tasaMoraDiaria * $diasMoraEfectivos;
+                    }
                 }
             }
 
@@ -915,6 +947,7 @@ class PagoService
         $pagoCapital = min($remanente, $capitalTotalPendiente);
 
         // 4. Registrar Movimiento
+        $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
         $movimiento = CreditoMovimiento::create([
             'credito_prendario_id' => $credito->id,
             'tipo_movimiento' => 'pago_parcial',
@@ -929,6 +962,7 @@ class PagoService
             'usuario_id' => Auth::id() ?? 1,
             'sucursal_id' => $credito->sucursal_id,
             'numero_movimiento' => Str::upper(Str::random(10)),
+            'forma_pago' => $formaPago,
             'observaciones' => "ABONO - Mora: Q" . number_format($pagoMora, 2) .
                              ", Interés: Q" . number_format($pagoInteres, 2) .
                              ", Capital: Q" . number_format($pagoCapital, 2) .
@@ -1097,6 +1131,7 @@ class PagoService
         $pagoMora = $calculo['mora_acumulada'];
 
         // Registrar Movimiento
+        $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
         $movimiento = CreditoMovimiento::create([
             'credito_prendario_id' => $credito->id,
             'tipo_movimiento' => 'pago_total',
@@ -1111,6 +1146,7 @@ class PagoService
             'usuario_id' => Auth::id() ?? 1,
             'sucursal_id' => $credito->sucursal_id,
             'numero_movimiento' => Str::upper(Str::random(10)),
+            'forma_pago' => $formaPago,
             'observaciones' => "LIQUIDACIÓN TOTAL - " . ($data['observaciones'] ?? ''),
             'estado' => 'activo'
         ]);
@@ -1218,6 +1254,7 @@ class PagoService
             $monto = $credito->monto_aprobado;
 
             // Registrar Movimiento de Desembolso
+            $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
             $movimiento = CreditoMovimiento::create([
                 'credito_prendario_id' => $credito->id,
                 'tipo_movimiento' => 'desembolso',
@@ -1232,6 +1269,7 @@ class PagoService
                 'usuario_id' => Auth::id() ?? 1,
                 'sucursal_id' => $credito->sucursal_id,
                 'numero_movimiento' => Str::upper(Str::random(10)),
+                'forma_pago' => $formaPago,
                 'observaciones' => "REACTIVACIÓN / REEMPEÑO - " . ($data['observaciones'] ?? ''),
                 'estado' => 'activo'
             ]);

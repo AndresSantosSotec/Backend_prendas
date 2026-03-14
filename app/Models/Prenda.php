@@ -84,6 +84,14 @@ class Prenda extends Model
         return $this->belongsTo(CategoriaProducto::class, 'categoria_producto_id');
     }
 
+    /**
+     * Alias de categoriaProducto para compatibilidad con refrendos y otros módulos.
+     */
+    public function categoria()
+    {
+        return $this->belongsTo(CategoriaProducto::class, 'categoria_producto_id');
+    }
+
     public function tasador()
     {
         return $this->belongsTo(User::class, 'tasador_id');

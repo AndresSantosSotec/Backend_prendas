@@ -31,22 +31,50 @@ class PlanInteresCategoriaController extends Controller
                 $query->where('activo', $request->boolean('activo'));
             }
 
+            if ($request->has('busqueda') && $request->busqueda !== '') {
+                $q = $request->busqueda;
+                $query->where(function ($sq) use ($q) {
+                    $sq->where('nombre', 'like', "%{$q}%")
+                       ->orWhere('codigo', 'like', "%{$q}%");
+                });
+            }
+
             // Ordenamiento
             $query->ordenados();
 
+            // Paginación
+            if ($request->has('page')) {
+                $perPage = max(5, min(100, (int) $request->get('per_page', 10)));
+                $paginated = $query->paginate($perPage);
+
+                return response()->json([
+                    'success' => true,
+                    'data'    => $paginated->items(),
+                    'pagination' => [
+                        'total'        => $paginated->total(),
+                        'per_page'     => $paginated->perPage(),
+                        'current_page' => $paginated->currentPage(),
+                        'last_page'    => $paginated->lastPage(),
+                        'from'         => $paginated->firstItem(),
+                        'to'           => $paginated->lastItem(),
+                    ],
+                ]);
+            }
+
+            // Sin paginación - compatiblidad con código existente
             $planes = $query->get();
 
             return response()->json([
                 'success' => true,
-                'data' => $planes,
-                'total' => $planes->count()
+                'data'    => $planes,
+                'total'   => $planes->count(),
             ]);
 
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener planes de interés',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -125,6 +153,8 @@ class PlanInteresCategoriaController extends Controller
             'tasa_interes' => 'required|numeric|min:0|max:100',
             'tasa_almacenaje' => 'nullable|numeric|min:0|max:100',
             'tasa_moratorios' => 'nullable|numeric|min:0|max:100',
+            'tipo_mora' => 'nullable|in:porcentaje,monto_fijo',
+            'mora_monto_fijo' => 'nullable|numeric|min:0',
             'porcentaje_prestamo' => 'required|numeric|min:0|max:100',
             'monto_minimo' => 'nullable|numeric|min:0',
             'monto_maximo' => 'nullable|numeric|min:0',
@@ -200,6 +230,8 @@ class PlanInteresCategoriaController extends Controller
             'tasa_interes' => 'sometimes|numeric|min:0|max:100',
             'tasa_almacenaje' => 'nullable|numeric|min:0|max:100',
             'tasa_moratorios' => 'nullable|numeric|min:0|max:100',
+            'tipo_mora' => 'nullable|in:porcentaje,monto_fijo',
+            'mora_monto_fijo' => 'nullable|numeric|min:0',
             'porcentaje_prestamo' => 'sometimes|numeric|min:0|max:100',
             'monto_minimo' => 'nullable|numeric|min:0',
             'monto_maximo' => 'nullable|numeric|min:0',

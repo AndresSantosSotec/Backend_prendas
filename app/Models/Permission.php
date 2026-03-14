@@ -46,6 +46,13 @@ class Permission extends Model
         'boveda' => ['ver', 'transferir', 'ver_movimientos'],
         'migracion' => ['ver', 'importar', 'descargar_plantilla'],
         'contabilidad' => ['ver', 'configurar', 'asientos', 'reportes'],
+        'cobros' => ['realizar', 'ver', 'imprimir_recibo'],
+        'recibos' => ['ver', 'imprimir'],
+        'historial' => ['ver'],
+        'otros_gastos' => ['ver', 'crear', 'anular'],
+        'cotizaciones' => ['ver', 'crear', 'editar', 'eliminar', 'convertir'],
+        'planes_interes' => ['ver', 'crear', 'editar', 'eliminar'],
+        'transferencias' => ['ver', 'crear', 'aprobar', 'anular'],
     ];
 
     /**
@@ -63,6 +70,11 @@ class Permission extends Model
             'caja' => ['abrir', 'cerrar', 'ver_movimientos'],
             'prendas' => ['ver'],
             'gastos' => ['ver', 'asignar_credito'],
+            'cobros' => ['realizar', 'ver', 'imprimir_recibo'],
+            'recibos' => ['ver', 'imprimir'],
+            'historial' => ['ver'],
+            'otros_gastos' => ['ver', 'crear'],
+            'planes_interes' => ['ver'],
         ],
         'tasador' => [
             'dashboard' => ['ver'],
@@ -71,6 +83,7 @@ class Permission extends Model
             'prendas' => ['ver'],
             'ventas' => ['ver', 'tasar'],
             'compras' => ['ver', 'crear'],
+            'planes_interes' => ['ver'],
         ],
         'vendedor' => [
             'dashboard' => ['ver'],
@@ -78,6 +91,7 @@ class Permission extends Model
             'ventas' => ['ver', 'vender', 'apartar', 'crear_plan_pago', 'aplicar_descuento'],
             'compras' => ['ver'],
             'prendas' => ['ver'],
+            'cotizaciones' => ['ver', 'crear', 'editar'],
         ],
         'supervisor' => [
             'dashboard' => ['ver'],
@@ -91,6 +105,13 @@ class Permission extends Model
             'caja' => ['ver_movimientos'],
             'categorias_productos' => ['ver', 'crear', 'editar'],
             'gastos' => ['ver', 'crear', 'editar', 'asignar_credito'],
+            'cobros' => ['realizar', 'ver', 'imprimir_recibo'],
+            'recibos' => ['ver', 'imprimir'],
+            'historial' => ['ver'],
+            'otros_gastos' => ['ver', 'crear', 'anular'],
+            'cotizaciones' => ['ver', 'crear', 'editar', 'eliminar', 'convertir'],
+            'planes_interes' => ['ver'],
+            'transferencias' => ['ver'],
         ],
     ];
 }

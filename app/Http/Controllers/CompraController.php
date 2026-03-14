@@ -61,7 +61,7 @@ class CompraController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'cliente_id' => 'required|exists:clientes,id',
+            'cliente_id' => 'nullable|exists:clientes,id',
             'categoria_producto_id' => 'required|exists:categoria_productos,id',
             'descripcion' => 'required|string|max:500',
             'valor_tasacion' => 'nullable|numeric|min:0',
@@ -154,11 +154,11 @@ class CompraController extends Controller
                 'observaciones' => ($compra->observaciones ?? '') . "\n[CANCELADA] " . ($request->input('motivo') ?? 'Sin motivo especificado')
             ]);
 
-            // Marcar la prenda también
+            // Eliminar la prenda del inventario (soft delete) — como si nunca hubiera ingresado
             if ($compra->prenda) {
-                $compra->prenda->update([
-                    'observaciones' => ($compra->prenda->observaciones ?? '') . "\n[Compra cancelada]"
-                ]);
+                $compra->prenda->delete();
+                // Desasociar la prenda de la compra
+                $compra->update(['prenda_id' => null]);
             }
 
             return response()->json([

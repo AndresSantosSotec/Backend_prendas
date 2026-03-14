@@ -271,10 +271,8 @@ class CamposDinamicosCategoriaSeeder extends Seeder
                     ['nombre' => 'departamento', 'label' => 'Departamento', 'tipo' => 'text', 'requerido' => true, 'placeholder' => 'Ej: Guatemala, Quetzaltenango'],
                     ['nombre' => 'municipio', 'label' => 'Municipio', 'tipo' => 'text', 'requerido' => true, 'placeholder' => 'Ej: Mixco, Villa Nueva'],
                     ['nombre' => 'zona', 'label' => 'Zona', 'tipo' => 'text', 'requerido' => false, 'placeholder' => 'Ej: Zona 10'],
-                    // Geolocalización
-                    ['nombre' => 'latitud', 'label' => 'Latitud (coordenada)', 'tipo' => 'text', 'requerido' => false, 'placeholder' => 'Ej: 14.6349'],
-                    ['nombre' => 'longitud', 'label' => 'Longitud (coordenada)', 'tipo' => 'text', 'requerido' => false, 'placeholder' => 'Ej: -90.5069'],
-                    ['nombre' => 'geolocalizacion_url', 'label' => 'Enlace Google Maps', 'tipo' => 'text', 'requerido' => false, 'placeholder' => 'https://maps.google.com/...'],
+                    // Geolocalización interactiva (mapa OpenStreetMap)
+                    ['nombre' => 'ubicacion_mapa', 'label' => 'Ubicación en el Mapa', 'tipo' => 'mapa', 'requerido' => false],
                     // Características físicas
                     ['nombre' => 'area_terreno_m2', 'label' => 'Área del Terreno (m²)', 'tipo' => 'number', 'requerido' => true, 'min' => 1, 'placeholder' => 'Metros cuadrados de terreno'],
                     ['nombre' => 'area_construccion_m2', 'label' => 'Área de Construcción (m²)', 'tipo' => 'number', 'requerido' => false, 'min' => 0, 'placeholder' => 'Metros cuadrados construidos'],

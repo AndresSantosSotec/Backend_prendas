@@ -24,7 +24,7 @@ class PrendaController extends Controller
      */
     public function reporte(Request $request) {
         try {
-            $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente']);
+            $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal']);
 
             // Búsqueda
             if ($request->has('busqueda') && !empty($request->busqueda)) {
@@ -33,7 +33,13 @@ class PrendaController extends Controller
                     $q->where('descripcion', 'like', "%{$busqueda}%")
                       ->orWhere('codigo_prenda', 'like', "%{$busqueda}%")
                       ->orWhere('marca', 'like', "%{$busqueda}%")
-                      ->orWhere('modelo', 'like', "%{$busqueda}%");
+                      ->orWhere('modelo', 'like', "%{$busqueda}%")
+                      ->orWhere('serie', 'like', "%{$busqueda}%")
+                      ->orWhere('color', 'like', "%{$busqueda}%")
+                      ->orWhere('caracteristicas', 'like', "%{$busqueda}%")
+                      ->orWhereHas('creditoPrendario', function ($qCred) use ($busqueda) {
+                          $qCred->where('numero_credito', 'like', "%{$busqueda}%");
+                      });
                 });
             }
 
@@ -102,7 +108,7 @@ class PrendaController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente']);
+        $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal']);
 
         // Búsqueda
         if ($request->has('busqueda') && !empty($request->busqueda)) {
@@ -111,7 +117,13 @@ class PrendaController extends Controller
                 $q->where('descripcion', 'like', "%{$busqueda}%")
                   ->orWhere('codigo_prenda', 'like', "%{$busqueda}%")
                   ->orWhere('marca', 'like', "%{$busqueda}%")
-                  ->orWhere('modelo', 'like', "%{$busqueda}%");
+                  ->orWhere('modelo', 'like', "%{$busqueda}%")
+                  ->orWhere('serie', 'like', "%{$busqueda}%")
+                  ->orWhere('color', 'like', "%{$busqueda}%")
+                  ->orWhere('caracteristicas', 'like', "%{$busqueda}%")
+                  ->orWhereHas('creditoPrendario', function ($qCred) use ($busqueda) {
+                      $qCred->where('numero_credito', 'like', "%{$busqueda}%");
+                  });
             });
         }
 
@@ -255,6 +267,7 @@ class PrendaController extends Controller
         $prenda = Prenda::with([
             'categoriaProducto',
             'creditoPrendario.cliente',
+            'creditoPrendario.sucursal',
             'tasador',
             'comprador',
             'tasaciones'
@@ -655,15 +668,22 @@ class PrendaController extends Controller
      */
     public function getEnVenta(Request $request)
     {
-        $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente'])
+        $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal'])
             ->where('estado', 'en_venta');
 
-        // Búsqueda
         if ($request->has('busqueda') && !empty($request->busqueda)) {
             $busqueda = $request->busqueda;
             $query->where(function ($q) use ($busqueda) {
                 $q->where('descripcion', 'like', "%{$busqueda}%")
-                  ->orWhere('codigo_prenda', 'like', "%{$busqueda}%");
+                  ->orWhere('codigo_prenda', 'like', "%{$busqueda}%")
+                  ->orWhere('marca', 'like', "%{$busqueda}%")
+                  ->orWhere('modelo', 'like', "%{$busqueda}%")
+                  ->orWhere('serie', 'like', "%{$busqueda}%")
+                  ->orWhere('color', 'like', "%{$busqueda}%")
+                  ->orWhere('caracteristicas', 'like', "%{$busqueda}%")
+                  ->orWhereHas('creditoPrendario', function($qCred) use ($busqueda) {
+                      $qCred->where('numero_credito', 'like', "%{$busqueda}%");
+                  });
             });
         }
 

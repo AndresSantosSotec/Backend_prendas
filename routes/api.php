@@ -18,6 +18,8 @@ use App\Http\Controllers\ReciboController;
 use App\Http\Controllers\ReporteCajaController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\CompraController;
+use App\Http\Controllers\OtrosGastosController;
+use App\Http\Controllers\ClienteBorradorController;
 use App\Http\Controllers\Api\ReporteComprasController;
 use App\Http\Controllers\AuditoriaController;
 use App\Http\Controllers\ContabilidadController;
@@ -114,6 +116,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/modulos', [AuditoriaController::class, 'modulos']);
             Route::get('/acciones', [AuditoriaController::class, 'acciones']);
             Route::post('/test', [AuditoriaController::class, 'test']);
+            Route::get('/logs', [\App\Http\Controllers\LogController::class, '__invoke']);
             Route::get('/{id}', [AuditoriaController::class, 'show']);
         });
 
@@ -155,6 +158,12 @@ Route::prefix('v1')->group(function () {
 
             // Clientes
             Route::get('/clientes/activos', [ClienteController::class, 'activos']);
+            Route::get('/clientes/reporte', [ClienteController::class, 'reporte']);
+            Route::post('/clientes/toggle-masivo', [ClienteController::class, 'toggleMasivo']);
+            Route::get('/clientes/borradores', [ClienteBorradorController::class, 'index']);
+            Route::post('/clientes/borradores', [ClienteBorradorController::class, 'store']);
+            Route::put('/clientes/borradores/{id}', [ClienteBorradorController::class, 'update']);
+            Route::delete('/clientes/borradores/{id}', [ClienteBorradorController::class, 'destroy']);
             Route::get('/clientes', [ClienteController::class, 'index']);
             Route::get('/clientes/{id}', [ClienteController::class, 'show']);
             Route::get('/clientes/{id}/ficha', [ClienteController::class, 'ficha']);
@@ -397,6 +406,16 @@ Route::prefix('v1')->group(function () {
             Route::get('/cajas/{id}/detalle', [CajaController::class, 'detalleCaja']);
             Route::get('/cajas/{id}/movimientos', [CajaController::class, 'getMovimientos']);
             Route::post('/cajas/movimientos', [CajaController::class, 'registrarMovimiento']);
+
+            // Otros Gastos (tipos + movimientos diarios que afectan caja)
+            Route::get('/otros-gastos/tipos', [OtrosGastosController::class, 'indexTipos']);
+            Route::post('/otros-gastos/tipos', [OtrosGastosController::class, 'storeTipo']);
+            Route::put('/otros-gastos/tipos/{id}', [OtrosGastosController::class, 'updateTipo']);
+            Route::delete('/otros-gastos/tipos/{id}', [OtrosGastosController::class, 'destroyTipo']);
+            Route::get('/otros-gastos/movimientos', [OtrosGastosController::class, 'indexMovimientos']);
+            Route::post('/otros-gastos/movimientos', [OtrosGastosController::class, 'storeMovimiento']);
+            Route::post('/otros-gastos/movimientos/{id}/anular', [OtrosGastosController::class, 'anularMovimiento']);
+            Route::get('/otros-gastos/resumen-mes', [OtrosGastosController::class, 'resumenMes']);
             Route::put('/cajas/{id}', [CajaController::class, 'update']);
             Route::patch('/cajas/{id}', [CajaController::class, 'update']);
 
