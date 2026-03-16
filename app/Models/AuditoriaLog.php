@@ -12,8 +12,7 @@ class AuditoriaLog extends Model
     protected $table = 'auditoria_logs';
 
     // Solo usamos created_at, no updated_at
-    public $timestamps = false;
-    const CREATED_AT = 'created_at';
+    const UPDATED_AT = null;
 
     protected $fillable = [
         'user_id',
