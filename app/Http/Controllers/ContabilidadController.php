@@ -611,6 +611,354 @@ class ContabilidadController extends Controller
         return $pdf->download('libro-mayor-' . $cuenta->codigo_cuenta . '-' . $fechaFin . '.pdf');
     }
 
+    // ==================== ESTADO DE RESULTADOS ====================
+
+    /**
+     * Estado de Resultados (Ingresos, Costos, Gastos, Utilidad)
+     */
+    public function estadoResultados(Request $request): JsonResponse
+    {
+        $fechaInicio = $request->input('fecha_inicio', date('Y-01-01'));
+        $fechaFin    = $request->input('fecha_fin', date('Y-m-d'));
+        $sucursalId  = $request->input('sucursal_id');
+
+        $query = DB::table('ctb_movimientos as m')
+            ->join('ctb_diario as d', 'm.diario_id', '=', 'd.id')
+            ->join('ctb_nomenclatura as n', 'm.cuenta_contable_id', '=', 'n.id')
+            ->where('d.estado', '!=', 'anulado')
+            ->whereBetween('d.fecha_contabilizacion', [$fechaInicio, $fechaFin])
+            ->whereIn('n.tipo', ['ingreso', 'gasto', 'costos']);
+
+        if ($sucursalId) {
+            $query->where('d.sucursal_id', $sucursalId);
+        }
+
+        $movimientos = $query
+            ->select(
+                'n.id',
+                'n.codigo_cuenta',
+                'n.nombre_cuenta',
+                'n.tipo',
+                'n.naturaleza',
+                DB::raw('COALESCE(SUM(m.debe), 0) as total_debe'),
+                DB::raw('COALESCE(SUM(m.haber), 0) as total_haber')
+            )
+            ->groupBy('n.id', 'n.codigo_cuenta', 'n.nombre_cuenta', 'n.tipo', 'n.naturaleza')
+            ->orderBy('n.codigo_cuenta')
+            ->get();
+
+        $ingresos = [];
+        $gastos   = [];
+        $costos   = [];
+
+        foreach ($movimientos as $mov) {
+            $saldo = $mov->naturaleza === 'acreedora'
+                ? $mov->total_haber - $mov->total_debe
+                : $mov->total_debe - $mov->total_haber;
+
+            $item = [
+                'id'            => $mov->id,
+                'codigo_cuenta' => $mov->codigo_cuenta,
+                'nombre_cuenta' => $mov->nombre_cuenta,
+                'tipo'          => $mov->tipo,
+                'total_debe'    => (float) $mov->total_debe,
+                'total_haber'   => (float) $mov->total_haber,
+                'saldo'         => (float) $saldo,
+            ];
+
+            if ($mov->tipo === 'ingreso') {
+                $ingresos[] = $item;
+            } elseif ($mov->tipo === 'gasto') {
+                $gastos[] = $item;
+            } elseif ($mov->tipo === 'costos') {
+                $costos[] = $item;
+            }
+        }
+
+        $totalIngresos  = array_sum(array_column($ingresos, 'saldo'));
+        $totalCostos    = array_sum(array_column($costos, 'saldo'));
+        $totalGastos    = array_sum(array_column($gastos, 'saldo'));
+        $utilidadBruta  = $totalIngresos - $totalCostos;
+        $utilidadNeta   = $utilidadBruta - $totalGastos;
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'ingresos' => $ingresos,
+                'costos'   => $costos,
+                'gastos'   => $gastos,
+                'totales'  => [
+                    'total_ingresos' => (float) $totalIngresos,
+                    'total_costos'   => (float) $totalCostos,
+                    'total_gastos'   => (float) $totalGastos,
+                    'utilidad_bruta' => (float) $utilidadBruta,
+                    'utilidad_neta'  => (float) $utilidadNeta,
+                ],
+                'periodo' => [
+                    'fecha_inicio' => $fechaInicio,
+                    'fecha_fin'    => $fechaFin,
+                ],
+            ],
+        ]);
+    }
+
+    /**
+     * PDF — Estado de Resultados
+     */
+    public function estadoResultadosPdf(Request $request)
+    {
+        $fechaInicio = $request->input('fecha_inicio', date('Y-01-01'));
+        $fechaFin    = $request->input('fecha_fin', date('Y-m-d'));
+        $sucursalId  = $request->input('sucursal_id');
+
+        $query = DB::table('ctb_movimientos as m')
+            ->join('ctb_diario as d', 'm.diario_id', '=', 'd.id')
+            ->join('ctb_nomenclatura as n', 'm.cuenta_contable_id', '=', 'n.id')
+            ->where('d.estado', '!=', 'anulado')
+            ->whereBetween('d.fecha_contabilizacion', [$fechaInicio, $fechaFin])
+            ->whereIn('n.tipo', ['ingreso', 'gasto', 'costos']);
+
+        if ($sucursalId) {
+            $query->where('d.sucursal_id', $sucursalId);
+        }
+
+        $movimientos = $query
+            ->select(
+                'n.id',
+                'n.codigo_cuenta',
+                'n.nombre_cuenta',
+                'n.tipo',
+                'n.naturaleza',
+                DB::raw('COALESCE(SUM(m.debe), 0) as total_debe'),
+                DB::raw('COALESCE(SUM(m.haber), 0) as total_haber')
+            )
+            ->groupBy('n.id', 'n.codigo_cuenta', 'n.nombre_cuenta', 'n.tipo', 'n.naturaleza')
+            ->orderBy('n.codigo_cuenta')
+            ->get();
+
+        $ingresos = [];
+        $gastos   = [];
+        $costos   = [];
+
+        foreach ($movimientos as $mov) {
+            $saldo = $mov->naturaleza === 'acreedora'
+                ? $mov->total_haber - $mov->total_debe
+                : $mov->total_debe - $mov->total_haber;
+
+            $item = [
+                'codigo_cuenta' => $mov->codigo_cuenta,
+                'nombre_cuenta' => $mov->nombre_cuenta,
+                'tipo'          => $mov->tipo,
+                'saldo'         => (float) $saldo,
+            ];
+
+            if ($mov->tipo === 'ingreso') {
+                $ingresos[] = $item;
+            } elseif ($mov->tipo === 'gasto') {
+                $gastos[] = $item;
+            } elseif ($mov->tipo === 'costos') {
+                $costos[] = $item;
+            }
+        }
+
+        $totalIngresos = array_sum(array_column($ingresos, 'saldo'));
+        $totalCostos   = array_sum(array_column($costos, 'saldo'));
+        $totalGastos   = array_sum(array_column($gastos, 'saldo'));
+        $utilidadBruta = $totalIngresos - $totalCostos;
+        $utilidadNeta  = $utilidadBruta - $totalGastos;
+
+        $pdf = Pdf::loadView('reportes.contabilidad.estado-resultados', [
+            'ingresos'      => $ingresos,
+            'costos'        => $costos,
+            'gastos'        => $gastos,
+            'totales'       => [
+                'total_ingresos' => $totalIngresos,
+                'total_costos'   => $totalCostos,
+                'total_gastos'   => $totalGastos,
+                'utilidad_bruta' => $utilidadBruta,
+                'utilidad_neta'  => $utilidadNeta,
+            ],
+            'fechaInicio'       => $fechaInicio,
+            'fechaFin'          => $fechaFin,
+            'generado_por'      => Auth::user()->name ?? 'Sistema',
+            'fecha_generacion'  => now()->format('d/m/Y H:i'),
+        ])->setPaper('letter', 'portrait');
+
+        return $pdf->download('estado-resultados-' . $fechaFin . '.pdf');
+    }
+
+    // ==================== BALANCE GENERAL ====================
+
+    /**
+     * Balance General (Activos, Pasivos, Patrimonio)
+     */
+    public function balanceGeneral(Request $request): JsonResponse
+    {
+        $fechaCorte = $request->input('fecha_corte', date('Y-m-d'));
+        $sucursalId = $request->input('sucursal_id');
+
+        $query = DB::table('ctb_movimientos as m')
+            ->join('ctb_diario as d', 'm.diario_id', '=', 'd.id')
+            ->join('ctb_nomenclatura as n', 'm.cuenta_contable_id', '=', 'n.id')
+            ->where('d.estado', '!=', 'anulado')
+            ->where('d.fecha_contabilizacion', '<=', $fechaCorte)
+            ->whereIn('n.tipo', ['activo', 'pasivo', 'patrimonio']);
+
+        if ($sucursalId) {
+            $query->where('d.sucursal_id', $sucursalId);
+        }
+
+        $movimientos = $query
+            ->select(
+                'n.id',
+                'n.codigo_cuenta',
+                'n.nombre_cuenta',
+                'n.tipo',
+                'n.naturaleza',
+                DB::raw('COALESCE(SUM(m.debe), 0) as total_debe'),
+                DB::raw('COALESCE(SUM(m.haber), 0) as total_haber')
+            )
+            ->groupBy('n.id', 'n.codigo_cuenta', 'n.nombre_cuenta', 'n.tipo', 'n.naturaleza')
+            ->orderBy('n.codigo_cuenta')
+            ->get();
+
+        $activos    = [];
+        $pasivos    = [];
+        $patrimonio = [];
+
+        foreach ($movimientos as $mov) {
+            $saldo = $mov->naturaleza === 'deudora'
+                ? $mov->total_debe - $mov->total_haber
+                : $mov->total_haber - $mov->total_debe;
+
+            $item = [
+                'id'            => $mov->id,
+                'codigo_cuenta' => $mov->codigo_cuenta,
+                'nombre_cuenta' => $mov->nombre_cuenta,
+                'tipo'          => $mov->tipo,
+                'total_debe'    => (float) $mov->total_debe,
+                'total_haber'   => (float) $mov->total_haber,
+                'saldo'         => (float) $saldo,
+            ];
+
+            if ($mov->tipo === 'activo') {
+                $activos[] = $item;
+            } elseif ($mov->tipo === 'pasivo') {
+                $pasivos[] = $item;
+            } elseif ($mov->tipo === 'patrimonio') {
+                $patrimonio[] = $item;
+            }
+        }
+
+        $totalActivos           = array_sum(array_column($activos, 'saldo'));
+        $totalPasivos           = array_sum(array_column($pasivos, 'saldo'));
+        $totalPatrimonio        = array_sum(array_column($patrimonio, 'saldo'));
+        $totalPasivoPatrimonio  = $totalPasivos + $totalPatrimonio;
+        $diferencia             = $totalActivos - $totalPasivoPatrimonio;
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'activos'    => $activos,
+                'pasivos'    => $pasivos,
+                'patrimonio' => $patrimonio,
+                'totales' => [
+                    'total_activos'             => (float) $totalActivos,
+                    'total_pasivos'             => (float) $totalPasivos,
+                    'total_patrimonio'          => (float) $totalPatrimonio,
+                    'total_pasivo_y_patrimonio' => (float) $totalPasivoPatrimonio,
+                    'diferencia'                => (float) $diferencia,
+                    'cuadrado'                  => abs($diferencia) < 0.01,
+                ],
+                'fecha_corte' => $fechaCorte,
+            ],
+        ]);
+    }
+
+    /**
+     * PDF — Balance General
+     */
+    public function balanceGeneralPdf(Request $request)
+    {
+        $fechaCorte = $request->input('fecha_corte', date('Y-m-d'));
+        $sucursalId = $request->input('sucursal_id');
+
+        $query = DB::table('ctb_movimientos as m')
+            ->join('ctb_diario as d', 'm.diario_id', '=', 'd.id')
+            ->join('ctb_nomenclatura as n', 'm.cuenta_contable_id', '=', 'n.id')
+            ->where('d.estado', '!=', 'anulado')
+            ->where('d.fecha_contabilizacion', '<=', $fechaCorte)
+            ->whereIn('n.tipo', ['activo', 'pasivo', 'patrimonio']);
+
+        if ($sucursalId) {
+            $query->where('d.sucursal_id', $sucursalId);
+        }
+
+        $movimientos = $query
+            ->select(
+                'n.id',
+                'n.codigo_cuenta',
+                'n.nombre_cuenta',
+                'n.tipo',
+                'n.naturaleza',
+                DB::raw('COALESCE(SUM(m.debe), 0) as total_debe'),
+                DB::raw('COALESCE(SUM(m.haber), 0) as total_haber')
+            )
+            ->groupBy('n.id', 'n.codigo_cuenta', 'n.nombre_cuenta', 'n.tipo', 'n.naturaleza')
+            ->orderBy('n.codigo_cuenta')
+            ->get();
+
+        $activos    = [];
+        $pasivos    = [];
+        $patrimonio = [];
+
+        foreach ($movimientos as $mov) {
+            $saldo = $mov->naturaleza === 'deudora'
+                ? $mov->total_debe - $mov->total_haber
+                : $mov->total_haber - $mov->total_debe;
+
+            $item = [
+                'codigo_cuenta' => $mov->codigo_cuenta,
+                'nombre_cuenta' => $mov->nombre_cuenta,
+                'tipo'          => $mov->tipo,
+                'saldo'         => (float) $saldo,
+            ];
+
+            if ($mov->tipo === 'activo') {
+                $activos[] = $item;
+            } elseif ($mov->tipo === 'pasivo') {
+                $pasivos[] = $item;
+            } elseif ($mov->tipo === 'patrimonio') {
+                $patrimonio[] = $item;
+            }
+        }
+
+        $totalActivos          = array_sum(array_column($activos, 'saldo'));
+        $totalPasivos          = array_sum(array_column($pasivos, 'saldo'));
+        $totalPatrimonio       = array_sum(array_column($patrimonio, 'saldo'));
+        $totalPasivoPatrimonio = $totalPasivos + $totalPatrimonio;
+        $diferencia            = $totalActivos - $totalPasivoPatrimonio;
+
+        $pdf = Pdf::loadView('reportes.contabilidad.balance-general', [
+            'activos'              => $activos,
+            'pasivos'              => $pasivos,
+            'patrimonio'           => $patrimonio,
+            'totales' => [
+                'total_activos'             => $totalActivos,
+                'total_pasivos'             => $totalPasivos,
+                'total_patrimonio'          => $totalPatrimonio,
+                'total_pasivo_y_patrimonio' => $totalPasivoPatrimonio,
+                'diferencia'                => $diferencia,
+                'cuadrado'                  => abs($diferencia) < 0.01,
+            ],
+            'fechaCorte'        => $fechaCorte,
+            'generado_por'      => Auth::user()->name ?? 'Sistema',
+            'fecha_generacion'  => now()->format('d/m/Y H:i'),
+        ])->setPaper('letter', 'portrait');
+
+        return $pdf->download('balance-general-' . $fechaCorte . '.pdf');
+    }
+
     // ==================== DASHBOARD CONTABLE ====================
 
     /**

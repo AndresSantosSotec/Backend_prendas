@@ -78,6 +78,7 @@ class TransferenciaPrendaController extends Controller
         $request->validate([
             'prenda_id' => 'required|exists:prendas,id',
             'sucursal_destino_id' => 'required|exists:sucursales,id',
+            'sucursal_origen_id' => 'nullable|exists:sucursales,id',
             'motivo' => 'required|string|max:500',
         ]);
 
@@ -85,10 +86,17 @@ class TransferenciaPrendaController extends Controller
             return DB::transaction(function () use ($request) {
                 $prenda = Prenda::findOrFail($request->prenda_id);
                 $user = Auth::user();
-                $sucursalOrigenId = $request->_sucursal_scope ?? $user->sucursal_id ?? $prenda->sucursal_id;
+                $sucursalOrigenId = $request->sucursal_origen_id
+                    ?? $request->_sucursal_scope
+                    ?? $user->sucursal_id
+                    ?? $prenda->sucursal_id;
+
+                if (!$sucursalOrigenId) {
+                    throw new \Exception('No se pudo determinar la sucursal de origen. Asegúrese de tener una sucursal activa asignada.');
+                }
 
                 // Validaciones
-                if ($sucursalOrigenId == $request->sucursal_destino_id) {
+                if ((int)$sucursalOrigenId === (int)$request->sucursal_destino_id) {
                     throw new \Exception("La sucursal de origen y destino no pueden ser la misma");
                 }
 
@@ -132,6 +140,11 @@ class TransferenciaPrendaController extends Controller
                 ], 201);
             });
         } catch (\Exception $e) {
+            Log::warning('Error al crear transferencia: ' . $e->getMessage(), [
+                'prenda_id' => $request->prenda_id,
+                'sucursal_destino_id' => $request->sucursal_destino_id,
+                'user_id' => Auth::id(),
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage()

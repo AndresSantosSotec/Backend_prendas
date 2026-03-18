@@ -498,6 +498,14 @@ Route::prefix('v1')->group(function () {
             // Reportes PDF
             Route::get('/libro-diario/pdf', [ContabilidadController::class, 'libroDiarioPdf']);
 
+            // Estado de Resultados
+            Route::get('/estado-resultados', [ContabilidadController::class, 'estadoResultados']);
+            Route::get('/estado-resultados/pdf', [ContabilidadController::class, 'estadoResultadosPdf']);
+
+            // Balance General
+            Route::get('/balance-general', [ContabilidadController::class, 'balanceGeneral']);
+            Route::get('/balance-general/pdf', [ContabilidadController::class, 'balanceGeneralPdf']);
+
             // ========== PARAMETRIZACIÓN DE CUENTAS ==========
             Route::prefix('parametrizacion-cuentas')->group(function () {
                 Route::get('/', [ParametrizacionCuentasController::class, 'index']);
