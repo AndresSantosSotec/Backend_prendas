@@ -21,6 +21,7 @@ use App\Http\Controllers\CompraController;
 use App\Http\Controllers\OtrosGastosController;
 use App\Http\Controllers\ClienteBorradorController;
 use App\Http\Controllers\Api\ReporteComprasController;
+use App\Http\Controllers\ReporteVentasController;
 use App\Http\Controllers\AuditoriaController;
 use App\Http\Controllers\ContabilidadController;
 use App\Http\Controllers\ParametrizacionCuentasController;
@@ -385,6 +386,11 @@ Route::prefix('v1')->group(function () {
             Route::get('/reportes/compras/pdf', [ReporteComprasController::class, 'generarPDF']);
             Route::get('/reportes/compras/excel', [ReporteComprasController::class, 'generarExcel']);
             Route::get('/reportes/compras/vista-previa', [ReporteComprasController::class, 'vistaPrevia']);
+
+            // Reportes de Ventas
+            Route::get('/reportes/ventas/vista-previa', [ReporteVentasController::class, 'vistaPrevia']);
+            Route::get('/reportes/ventas/pdf', [ReporteVentasController::class, 'generarPDF']);
+            Route::get('/reportes/ventas/excel', [ReporteVentasController::class, 'generarExcel']);
 
             // Cotizaciones
             Route::get('/cotizaciones', [\App\Http\Controllers\CotizacionController::class, 'index']);
