@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CreditoPrendario;
 use App\Models\CreditoPlanPago;
 use App\Models\PlanInteresCategoria;
+use App\Models\ParametrizacionMora;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -32,6 +33,10 @@ class MoraService
         $tipoMora = $credito->tipo_mora ?? 'porcentaje';
         $tasaMora = (float) ($credito->tasa_mora ?? 0);
         $moraMontoFijo = (float) ($credito->mora_monto_fijo ?? 0);
+
+        // Obtener parametrización de mora (días laborales, topes)
+        $sucursalId = $credito->sucursal_id;
+        $paramMora = ParametrizacionMora::obtenerConfiguracion($sucursalId);
 
         // Fallback: si tasa_mora es 0, intentar obtener del plan de interés asociado
         if ($tasaMora <= 0 && $tipoMora === 'porcentaje' && $credito->plan_interes_id) {
@@ -65,8 +70,13 @@ class MoraService
                 continue;
             }
 
-            $diasDesdeVencimiento = (int) abs($fechaCalculo->diffInDays($cuota->fecha_vencimiento));
-            $diasMoraEfectivos = max(0, $diasDesdeVencimiento - $diasGracia);
+            // Calcular días laborales de mora si hay parametrización
+            $diasMoraEfectivos = $this->calcularDiasLaboralesMora(
+                $cuota->fecha_vencimiento,
+                $fechaCalculo,
+                $diasGracia,
+                $paramMora
+            );
 
             if ($diasMoraEfectivos <= 0) {
                 if ($cuota->dias_mora > 0 || $cuota->mora_proyectada > 0) {
@@ -156,5 +166,63 @@ class MoraService
         }
 
         return 0;
+    }
+
+    /**
+     * Calcula los días laborales de mora entre la fecha de vencimiento y la fecha de cálculo,
+     * descontando días de gracia y días no laborales según la parametrización.
+     */
+    public function calcularDiasLaboralesMora(
+        $fechaVencimiento,
+        Carbon $fechaCalculo,
+        int $diasGracia,
+        ?ParametrizacionMora $paramMora
+    ): int {
+        $fechaVenc = Carbon::parse($fechaVencimiento)->startOfDay();
+
+        // Si no hay parametrización, usar el cálculo calendario estándar
+        if (!$paramMora) {
+            $diasDesdeVencimiento = (int) abs($fechaCalculo->diffInDays($fechaVenc));
+            return max(0, $diasDesdeVencimiento - $diasGracia);
+        }
+
+        $diasLaborales = $paramMora->diasLaboralesArray();
+        $diasCalendario = (int) abs($fechaCalculo->diffInDays($fechaVenc));
+
+        // Si «mora completa» está activa y ya pasaron los días calendario del umbral,
+        // se cuentan TODOS los días (incluyendo no laborales)
+        $usarTodosLosDias = $paramMora->aplicar_mora_completa
+            && $paramMora->dias_para_mora_completa > 0
+            && $diasCalendario >= $paramMora->dias_para_mora_completa;
+
+        if ($usarTodosLosDias || count($diasLaborales) === 7) {
+            // Contar todos los días calendario
+            $diasMora = max(0, $diasCalendario - $diasGracia);
+        } else {
+            // Contar solo días laborales desde vencimiento hasta fecha de cálculo
+            $diasLaboralesContados = 0;
+            $cursor = $fechaVenc->copy()->addDay();
+
+            while ($cursor->lte($fechaCalculo)) {
+                if (in_array($cursor->dayOfWeek, $diasLaborales)) {
+                    $diasLaboralesContados++;
+                }
+                $cursor->addDay();
+            }
+
+            $diasMora = max(0, $diasLaboralesContados - $diasGracia);
+        }
+
+        // Aplicar tope de mora si está configurado
+        if ($paramMora->aplicar_tope_mora && $paramMora->dias_tope_mora > 0 && $diasMora > $paramMora->dias_tope_mora) {
+            $diasMora = $paramMora->dias_tope_mora;
+        }
+
+        // Aplicar máximo general de días de mora
+        if ($paramMora->max_dias_mora > 0 && $diasMora > $paramMora->max_dias_mora) {
+            $diasMora = $paramMora->max_dias_mora;
+        }
+
+        return $diasMora;
     }
 }

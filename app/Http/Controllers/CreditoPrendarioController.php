@@ -774,17 +774,16 @@ class CreditoPrendarioController extends Controller
                     $clienteNombre = $credito->cliente->nombres . ' ' . $credito->cliente->apellidos;
                 }
 
-                try {
-                    CajaService::registrarDesembolso(
-                        $montoDesembolso,
-                        $credito->numero_credito,
-                        $clienteNombre,
-                        $formaDesembolso
-                    );
-                } catch (\Exception $cajaEx) {
-                    // Log pero no fallar si no hay caja abierta
-                    Log::warning('No se pudo registrar desembolso en caja: ' . $cajaEx->getMessage());
+                // 🔒 REQUERIR CAJA ABIERTA para desembolso en efectivo
+                if (!CajaService::tieneCajaAbierta()) {
+                    throw new \Exception('Debe tener una caja abierta para realizar desembolsos en efectivo. Vaya a Caja → Aperturar Caja.');
                 }
+                CajaService::registrarDesembolso(
+                    $montoDesembolso,
+                    $credito->numero_credito,
+                    $clienteNombre,
+                    $formaDesembolso
+                );
             }
 
             DB::commit();
@@ -881,6 +880,24 @@ class CreditoPrendarioController extends Controller
                 'message' => 'Crédito prendario no encontrado'
             ], 404);
         }
+
+        // Recalcular mora en tiempo real para cuotas vencidas
+        app(\App\Services\MoraService::class)->recalcularMoraCredito($credito);
+        $credito->refresh();
+        $credito->load([
+            'cliente',
+            'sucursal',
+            'prendas.imagenesNormalizadas',
+            'prendas.imagenPrincipal',
+            'prendas.datosAdicionalesNormalizados',
+            'prendas.categoriaProducto',
+            'tasaciones',
+            'movimientos',
+            'planPagos' => function($query) {
+                $query->orderBy('numero_cuota', 'asc');
+            },
+            'gastos'
+        ]);
 
         return response()->json([
             'success' => true,
@@ -1241,22 +1258,18 @@ class CreditoPrendarioController extends Controller
 
         // Calcular según método de cálculo
         if ($metodoCalculo === 'flat') {
-            // MÉTODO FLAT: Interés fijo sobre monto total en cada cuota, capital fijo
-            // La tasa ANUAL ya fue convertida a MENSUAL por calcularTasaPorPeriodo()
+            // MÉTODO FLAT PRENDARIO:
+            //   Interés total = Monto × Tasa (fijo, independiente del número de cuotas)
+            //   Interés por cuota = Interés total / Número de cuotas
+            //   Capital por cuota = Monto / Número de cuotas
             //
-            // Fórmulas para método FLAT:
-            //   Interés_por_cuota = Monto × Tasa_por_período (interés constante cada cuota)
-            //   Capital_por_cuota = Monto / Número_cuotas
-            //   Cuota = Capital_por_cuota + Interés_por_cuota
-            //
-            // Ejemplo: Q 10,000 al 15% ANUAL en 12 cuotas mensuales
-            //   Tasa mensual = 15% / 12 = 1.25% = 0.0125
-            //   Interés_por_cuota = 10,000 × 0.0125 = Q 125
-            //   Capital_por_cuota = 10,000 / 12 = Q 833.33
-            //   Cuota = 833.33 + 125 = Q 958.33
+            // Ejemplos con Q1,000 al 15%:
+            //   1 cuota:  interés total = Q150, por cuota = Q150.00
+            //   2 cuotas: interés total = Q150, por cuota = Q75.00
+            //   3 cuotas: interés total = Q150, por cuota = Q50.00
 
-            // Interés por cuota = Monto × Tasa_por_período (ya convertida a mensual/semanal/etc)
-            $interesPorCuota = $montoAprobado * $tasaPorPeriodo;
+            $interesTotal = $montoAprobado * $tasaPorPeriodo;
+            $interesPorCuota = $interesTotal / $numeroCuotas;
 
             // Capital por cuota = Monto / Número_cuotas
             $capitalPorCuota = $montoAprobado / $numeroCuotas;
@@ -1513,23 +1526,11 @@ class CreditoPrendarioController extends Controller
         return $mapeo[$metodoValuacion] ?? 'comparativo';
     }
 
-    private function calcularTasaPorPeriodo(float $tasaAnual, string $tipoInteres): float
+    private function calcularTasaPorPeriodo(float $tasaInteres, string $tipoInteres): float
     {
-        switch ($tipoInteres) {
-            case 'diario':
-                return $tasaAnual / 100 / 365;
-            case 'semanal':
-                return $tasaAnual / 100 / 52;
-            case 'catorcenal':
-                return $tasaAnual / 100 / 26; // 26 catorcenas al año
-            case 'quincenal':
-                return $tasaAnual / 100 / 24;
-            case 'cada_28_dias':
-                return $tasaAnual / 100 / 13; // 13 períodos de 28 días al año
-            case 'mensual':
-            default:
-                return $tasaAnual / 100 / 12;
-        }
+        // La tasa ingresada YA es la tasa por período (ej: 15% mensual = 15% por mes)
+        // Solo convertimos de porcentaje a decimal
+        return $tasaInteres / 100;
     }
 
     // ============================================
@@ -2949,17 +2950,19 @@ class CreditoPrendarioController extends Controller
                 $gastosPorCuota = $gastosService->calcularProrrateoPorCuota($totalGastos, $numeroCuotas);
             }
 
-            // Cálculo tipo "flat"
-            // Calcular tasa por período (convierte anual a mensual/semanal/etc)
+            // Cálculo tipo "flat" prendario:
+            // Interés total = monto × tasa (fijo, NO se multiplica por cuotas)
+            // Interés por cuota = interés total / número de cuotas
             $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres);
-            $interesPorCuota = round($montoAprobado * $tasaPorPeriodo, 2);
+            $interesTotal = round($montoAprobado * $tasaPorPeriodo, 2);
+            $interesPorCuota = round($interesTotal / $numeroCuotas, 2);
             $capitalPorCuota = round($montoAprobado / $numeroCuotas, 2);
 
             $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);
 
             $planPagos = [];
             $saldoCapital = $montoAprobado;
-            $totalInteres = 0;
+            $totalInteresPlan = 0;
 
             for ($i = 1; $i <= $numeroCuotas; $i++) {
                 if ($fechaPrimerPago) {
@@ -2979,21 +2982,25 @@ class CreditoPrendarioController extends Controller
                 }
 
                 $abonoCapital = $capitalPorCuota;
+                // Última cuota: ajustar capital e interés por redondeo
+                $interesEstaCuota = $interesPorCuota;
                 if ($i === $numeroCuotas) {
                     $abonoCapital = $saldoCapital;
+                    // Ajustar interés para que la suma total cuadre exactamente
+                    $interesEstaCuota = round($interesTotal - $totalInteresPlan, 2);
                 }
 
                 $gastoCuota = $gastosPorCuota[$i - 1] ?? 0;
-                $cuotaBase = $abonoCapital + $interesPorCuota;
+                $cuotaBase = $abonoCapital + $interesEstaCuota;
                 $totalCuota = $cuotaBase + $gastoCuota;
 
-                $totalInteres += $interesPorCuota;
+                $totalInteresPlan += $interesEstaCuota;
 
                 $planPagos[] = [
                     'numero_cuota' => $i,
                     'fecha_vencimiento' => $fechaVencimiento->format('Y-m-d'),
                     'capital' => round($abonoCapital, 2),
-                    'interes' => round($interesPorCuota, 2),
+                    'interes' => round($interesEstaCuota, 2),
                     'gastos' => round($gastoCuota, 2),
                     'cuota_base' => round($cuotaBase, 2),
                     'cuota_total' => round($totalCuota, 2),
@@ -3007,7 +3014,7 @@ class CreditoPrendarioController extends Controller
             }
 
             // Calcular total a pagar
-            $totalAPagar = round($montoAprobado + $totalInteres + $totalGastos, 2);
+            $totalAPagar = round($montoAprobado + $totalInteresPlan + $totalGastos, 2);
 
             // Calcular promedios mensuales para el resumen
             $interesMensual = round($interesPorCuota, 2); // Ya está calculado correctamente
@@ -3021,7 +3028,7 @@ class CreditoPrendarioController extends Controller
                 'data' => $planPagos,
                 'resumen' => [
                     'monto_otorgado' => round($montoAprobado, 2),
-                    'total_interes' => round($totalInteres, 2),
+                    'total_interes' => round($totalInteresPlan, 2),
                     'total_gastos' => round($totalGastos, 2),
                     'total_a_pagar' => $totalAPagar,
                     'numero_cuotas' => $numeroCuotas,
@@ -3096,9 +3103,12 @@ class CreditoPrendarioController extends Controller
                 $gastosPorCuota = round($totalGastos / $numeroCuotas, 2);
             }
 
-            // Cálculo tipo "flat"
+            // Cálculo tipo "flat" prendario:
+            // Interés total = monto × tasa (fijo, NO se multiplica por cuotas)
+            // Interés por cuota = interés total / número de cuotas
             $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres);
-            $interesPorCuota = round($montoAprobado * $tasaPorPeriodo, 2);
+            $interesTotal = round($montoAprobado * $tasaPorPeriodo, 2);
+            $interesPorCuota = round($interesTotal / $numeroCuotas, 2);
             $capitalPorCuota = round($montoAprobado / $numeroCuotas, 2);
 
             $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);

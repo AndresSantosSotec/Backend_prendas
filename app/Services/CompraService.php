@@ -10,6 +10,7 @@ use App\Models\CategoriaProducto;
 use App\Models\Compra;
 use App\Models\CompraCampoDinamico;
 use App\Enums\EstadoPrenda;
+use App\Services\CajaService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -220,17 +221,17 @@ class CompraService
     /**
      * Registrar egreso en caja
      */
-    private function registrarEgresoCaja(Compra $compra, int $sucursalId): ?MovimientoCaja
+    private function registrarEgresoCaja(Compra $compra, int $sucursalId): MovimientoCaja
     {
-        $cajaAbiertaId = session('caja_abierta_id') ?? $this->obtenerCajaAbiertaId($sucursalId);
+        // 🔒 REQUERIR CAJA ABIERTA — lanza excepción si no hay caja, para que el caller haga rollback
+        $caja = CajaService::getCajaAbierta();
 
-        if (!$cajaAbiertaId) {
-            Log::warning("No se pudo registrar egreso en caja para compra {$compra->codigo_compra}: No hay caja abierta");
-            return null;
+        if (!$caja) {
+            throw new \Exception('Debe tener una caja abierta para registrar compras en efectivo. Vaya a Caja → Aperturar Caja.');
         }
 
         return MovimientoCaja::create([
-            'caja_id' => $cajaAbiertaId,
+            'caja_id' => $caja->id,
             'tipo' => 'decremento',
             'monto' => $compra->monto_pagado,
             'concepto' => "Compra directa: {$compra->codigo_compra} - {$compra->descripcion}",

@@ -532,6 +532,15 @@ Route::prefix('v1')->group(function () {
                 Route::post('/manual', [DiarioContableController::class, 'registrarManual']);
                 Route::get('/estadisticas', [DiarioContableController::class, 'estadisticas']);
             });
+
+            // ========== PARAMETRIZACIÓN DE MORA ==========
+            Route::prefix('parametrizacion-mora')->group(function () {
+                Route::get('/', [\App\Http\Controllers\ParametrizacionMoraController::class, 'index']);
+                Route::get('/activa', [\App\Http\Controllers\ParametrizacionMoraController::class, 'activa']);
+                Route::post('/', [\App\Http\Controllers\ParametrizacionMoraController::class, 'store']);
+                Route::put('/{id}', [\App\Http\Controllers\ParametrizacionMoraController::class, 'update']);
+                Route::delete('/{id}', [\App\Http\Controllers\ParametrizacionMoraController::class, 'destroy']);
+            });
         });
 
         // ========== MIGRACIONES (SOLO SUPERADMIN) ==========

@@ -6,6 +6,7 @@ use App\Models\CreditoPrendario;
 use App\Models\CreditoMovimiento;
 use App\Models\CreditoPlanPago;
 use App\Models\PlanInteresCategoria;
+use App\Models\ParametrizacionMora;
 use App\Services\MoraService;
 use App\Models\IdempotencyKey;
 use App\Services\CajaService;
@@ -58,9 +59,17 @@ class PagoService
         $diasMora = 0;
 
         if ($credito->fecha_vencimiento && $fechaCalculo->gt($credito->fecha_vencimiento)) {
-            $diasDesdeVencimiento = (int) abs($fechaCalculo->diffInDays($credito->fecha_vencimiento));
             $diasGracia = $credito->dias_gracia ?? 0;
-            $diasMora = max(0, $diasDesdeVencimiento - $diasGracia);
+
+            // Usar parametrización de mora para días laborales
+            $paramMora = ParametrizacionMora::obtenerConfiguracion($credito->sucursal_id);
+            $moraService = app(MoraService::class);
+            $diasMora = $moraService->calcularDiasLaboralesMora(
+                $credito->fecha_vencimiento,
+                $fechaCalculo,
+                $diasGracia,
+                $paramMora
+            );
 
             if ($diasMora > 0) {
                 $tipoMora = $credito->tipo_mora ?? 'porcentaje';
@@ -101,16 +110,23 @@ class PagoService
         // Renovación = solo pagar interés de nuevos períodos, NO deuda acumulada
         $minimoRenovacion = $interesPorPeriodo;
 
-        // Primera cuota pendiente (para tipo CUOTA)
+        // Primera cuota no pagada (para tipo CUOTA)
         $primeraCuota = CreditoPlanPago::where('credito_prendario_id', $credito->id)
-            ->where('estado', 'pendiente')
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
             ->orderBy('numero_cuota', 'asc')
             ->first();
 
         $montoCuotaActual = 0;
+        $cuotaCapital = 0;
+        $cuotaInteres = 0;
+        $cuotaMora = 0;
+        $cuotaGastos = 0;
         if ($primeraCuota) {
-            $montoCuotaActual = $primeraCuota->capital_proyectado + $primeraCuota->interes_proyectado +
-                              ($primeraCuota->mora_proyectada ?? 0) + ($primeraCuota->otros_cargos_proyectados ?? 0);
+            $cuotaCapital = round((float) $primeraCuota->capital_pendiente, 2);
+            $cuotaInteres = round((float) $primeraCuota->interes_pendiente, 2);
+            $cuotaMora = round((float) $primeraCuota->mora_pendiente, 2);
+            $cuotaGastos = round((float) ($primeraCuota->otros_cargos_pendientes ?? 0), 2);
+            $montoCuotaActual = round($cuotaCapital + $cuotaInteres + $cuotaMora + $cuotaGastos, 2);
         }
 
         return [
@@ -127,6 +143,11 @@ class PagoService
             'minimo_renovacion' => round($minimoRenovacion, 2),
             'interes_por_periodo' => round($interesPorPeriodo, 2),
             'monto_cuota_actual' => round($montoCuotaActual, 2),
+            'cuota_capital' => $cuotaCapital,
+            'cuota_interes' => $cuotaInteres,
+            'cuota_mora' => $cuotaMora,
+            'cuota_gastos' => $cuotaGastos,
+            'cuota_numero' => $primeraCuota?->numero_cuota,
             'fecha_vencimiento' => $credito->fecha_vencimiento?->format('Y-m-d'),
             'en_mora' => $diasMora > 0,
             // Opciones para renovación (pagos de interés adelantado)
@@ -254,6 +275,11 @@ class PagoService
      */
     public function ejecutarPago(array $data)
     {
+        // 🔒 REQUERIR CAJA ABIERTA — no se pueden registrar pagos sin caja
+        if (!CajaService::tieneCajaAbierta()) {
+            throw new \Exception('Debe tener una caja abierta para registrar pagos. Vaya a Caja → Aperturar Caja.');
+        }
+
         return DB::transaction(function () use ($data) {
             // Verificar idempotencia
             if (isset($data['idempotency_key'])) {
@@ -1318,17 +1344,16 @@ class PagoService
             $formaDesembolso = $data['forma_desembolso'] ?? 'efectivo';
 
             if ($formaDesembolso === 'efectivo') {
-                try {
-                    CajaService::registrarDesembolso(
-                        $monto,
-                        $credito->numero_credito,
-                        $clienteNombre,
-                        $formaDesembolso
-                    );
-                } catch (\Exception $e) {
-                    // Log pero no fallar si no hay caja abierta
-                    Log::warning('No se pudo registrar desembolso en caja (reactivación): ' . $e->getMessage());
+                // 🔒 REQUERIR CAJA ABIERTA para desembolso en efectivo (reactivación)
+                if (!CajaService::tieneCajaAbierta()) {
+                    throw new \Exception('Debe tener una caja abierta para realizar desembolsos en efectivo. Vaya a Caja → Aperturar Caja.');
                 }
+                CajaService::registrarDesembolso(
+                    $monto,
+                    $credito->numero_credito,
+                    $clienteNombre,
+                    $formaDesembolso
+                );
             }
 
             return $movimiento;

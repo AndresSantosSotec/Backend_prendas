@@ -16,6 +16,7 @@ use App\Enums\EstadoPrenda;
 use App\Enums\EstadoVenta;
 use App\Services\ContabilidadService;
 use Carbon\Carbon;
+use App\Services\CajaService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -99,6 +100,14 @@ class VentaMultiPrendaService
      */
     public function crearVenta(array $data): Venta
     {
+        // 🔒 REQUERIR CAJA ABIERTA si hay pagos en efectivo
+        $tieneEfectivo = collect($data['pagos'] ?? [])->contains(
+            fn($p) => ($p['metodo'] ?? '') === 'efectivo' && ((float)($p['monto'] ?? 0)) > 0
+        );
+        if ($tieneEfectivo && !CajaService::tieneCajaAbierta()) {
+            throw new \Exception('Debe tener una caja abierta para registrar ventas con pago en efectivo. Vaya a Caja → Aperturar Caja.');
+        }
+
         return DB::transaction(function () use ($data) {
 
             // 1. Validar y bloquear prendas
@@ -245,19 +254,18 @@ class VentaMultiPrendaService
      */
     private function integrarConModulos(Venta $venta): void
     {
-        try {
-            // INTEGRACIÓN CON CAJA (si existe MovimientoCaja)
-            if (class_exists('\App\Models\MovimientoCaja')) {
-                $this->registrarEnCaja($venta);
-            }
+        // INTEGRACIÓN CON CAJA — falla correctamente si no hay caja (la venta ya pasó el check previo)
+        if (class_exists('\App\Models\MovimientoCaja')) {
+            $this->registrarEnCaja($venta);
+        }
 
-            // INTEGRACIÓN CON CONTABILIDAD (si está activo)
+        // INTEGRACIÓN CON CONTABILIDAD — falla silenciosamente para no abortar la venta
+        try {
             if (config('contabilidad.auto_asientos_por_operacion.venta_prenda', false)) {
                 $this->generarAsientoContable($venta);
             }
         } catch (\Exception $e) {
-            // No fallar la venta si la integración falla
-            Log::warning("Error en integración de venta {$venta->codigo_venta}: " . $e->getMessage());
+            Log::warning("Error en integración contable de venta {$venta->codigo_venta}: " . $e->getMessage());
         }
     }
 
@@ -266,22 +274,31 @@ class VentaMultiPrendaService
      */
     private function registrarEnCaja(Venta $venta): void
     {
+        // Sumar pagos en efectivo usando el join con metodos_pago
         $pagosEfectivo = $venta->pagos()
-            ->where('metodo', 'efectivo')
-            ->sum('monto');
+            ->join('metodos_pago', 'venta_pagos.metodo_pago_id', '=', 'metodos_pago.id')
+            ->where('metodos_pago.codigo', 'efectivo')
+            ->sum('venta_pagos.monto');
 
         if ($pagosEfectivo > 0) {
-            $MovimientoCaja = app('\App\Models\MovimientoCaja');
+            $caja = CajaService::getCajaAbierta();
 
-            $MovimientoCaja::create([
-                'caja_apertura_cierre_id' => session('caja_abierta_id'), // Asume que hay sesión de caja
-                'tipo' => 'ingreso',
-                'concepto' => 'venta_prenda',
-                'descripcion' => "Venta {$venta->codigo_venta} - {$venta->detalles->count()} prendas",
-                'monto' => $pagosEfectivo,
-                'referencia' => $venta->codigo_venta,
-                'usuario_id' => Auth::id(),
-                'created_at' => now()
+            if (!$caja) {
+                throw new \Exception('No hay caja abierta para registrar el ingreso de la venta.');
+            }
+
+            \App\Models\MovimientoCaja::create([
+                'caja_id'             => $caja->id,
+                'tipo'                => 'ingreso_pago',
+                'concepto'            => "Venta {$venta->codigo_venta} - {$venta->detalles->count()} prendas",
+                'monto'               => $pagosEfectivo,
+                'detalles_movimiento' => [
+                    'tipo_operacion' => 'venta_prenda',
+                    'venta_id'       => $venta->id,
+                    'codigo_venta'   => $venta->codigo_venta,
+                ],
+                'estado'  => 'aplicado',
+                'user_id' => Auth::id(),
             ]);
 
             Log::info("Movimiento de caja registrado para venta {$venta->codigo_venta}: Q{$pagosEfectivo}");
