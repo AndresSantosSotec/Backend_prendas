@@ -147,6 +147,10 @@ class UserController extends Controller
     {
         $authUser = $request->user();
 
+        // Determinar si el rol permite sucursal_id null
+        $rolPermiteSinSucursal = in_array($request->rol, ['superadmin', 'administrador']);
+        $sucursalRule = $rolPermiteSinSucursal ? 'nullable|exists:sucursales,id' : 'required|exists:sucursales,id';
+
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'username' => 'required|string|max:255|unique:users,username|regex:/^[a-zA-Z0-9_]+$/',
@@ -154,7 +158,7 @@ class UserController extends Controller
             'password' => AuthSecurityService::getPasswordValidationRules(),
             'rol' => 'required|in:superadmin,administrador,cajero,tasador,supervisor,vendedor',
             'activo' => 'nullable|boolean',
-            'sucursal_id' => 'nullable|exists:sucursales,id',
+            'sucursal_id' => $sucursalRule,
         ], array_merge(
             AuthSecurityService::getPasswordValidationMessages(),
             ['username.regex' => 'El nombre de usuario solo puede contener letras, números y guiones bajos']
@@ -169,7 +173,7 @@ class UserController extends Controller
         }
 
         $data = $validator->validated();
-        
+
         // 🔒 PROTECCIÓN DE ROL: Solo superadmin puede crear otro superadmin
         if ($data['rol'] === 'superadmin' && $authUser->rol !== 'superadmin') {
             return response()->json([
@@ -262,6 +266,19 @@ class UserController extends Controller
                     'message' => 'No tienes permisos para cambiar la sucursal de un usuario'
                 ], 403);
             }
+        }
+
+        // Determinar el rol final del usuario
+        $rolFinal = $data['rol'] ?? $user->rol;
+        $sucursalFinal = array_key_exists('sucursal_id', $data) ? $data['sucursal_id'] : $user->sucursal_id;
+
+        // Si el rol no es superadmin/administrador, la sucursal es obligatoria
+        if (!in_array($rolFinal, ['superadmin', 'administrador']) && empty($sucursalFinal)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Los usuarios con rol ' . $rolFinal . ' deben tener una sucursal asignada',
+                'errors' => ['sucursal_id' => ['La sucursal es obligatoria para este rol']]
+            ], 422);
         }
 
         $user->update($data);

@@ -147,8 +147,29 @@ class Boveda extends Model
     {
         $sucursal = Sucursal::find($sucursalId);
         $prefijo = $sucursal ? substr(strtoupper($sucursal->nombre), 0, 3) : 'SUC';
-        $secuencia = self::where('sucursal_id', $sucursalId)->count() + 1;
-        return $prefijo . '-BOV-' . str_pad($secuencia, 3, '0', STR_PAD_LEFT);
+
+        // Buscar el número más alto existente (incluyendo soft-deleted)
+        $ultimoCodigo = self::withTrashed()
+            ->where('sucursal_id', $sucursalId)
+            ->where('codigo', 'like', $prefijo . '-BOV-%')
+            ->orderByRaw("CAST(SUBSTRING_INDEX(codigo, '-', -1) AS UNSIGNED) DESC")
+            ->value('codigo');
+
+        $secuencia = 1;
+        if ($ultimoCodigo) {
+            $partes = explode('-', $ultimoCodigo);
+            $secuencia = ((int) end($partes)) + 1;
+        }
+
+        $codigo = $prefijo . '-BOV-' . str_pad($secuencia, 3, '0', STR_PAD_LEFT);
+
+        // Garantizar unicidad incluyendo soft-deleted
+        while (self::withTrashed()->where('codigo', $codigo)->exists()) {
+            $secuencia++;
+            $codigo = $prefijo . '-BOV-' . str_pad($secuencia, 3, '0', STR_PAD_LEFT);
+        }
+
+        return $codigo;
     }
 
     /**

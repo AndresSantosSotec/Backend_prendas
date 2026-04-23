@@ -38,8 +38,8 @@ class BovedaController extends Controller
             $query->where('sucursal_id', $request->sucursal_id);
         }
 
-        if ($request->activa !== null) {
-            $query->where('activa', $request->activa);
+        if ($request->has('activa')) {
+            $query->where('activa', filter_var($request->activa, FILTER_VALIDATE_BOOLEAN));
         }
 
         if ($request->tipo) {

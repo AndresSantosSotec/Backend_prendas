@@ -7,6 +7,7 @@ use App\Models\CajaAperturaCierre;
 use App\Models\MovimientoCaja;
 use App\Http\Requests\CloseCashRegisterRequest;
 use App\Http\Resources\CashRegisterClosureResource;
+use App\Models\Boveda;
 use App\Services\CashRegisterClosureService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -247,13 +248,14 @@ class CajaController extends Controller
     }
 
     /**
-     * Cerrar caja
+     * Cerrar caja (transfiere a la bóveda seleccionada o automáticamente si solo hay una)
      */
     public function cerrar(Request $request, $id)
     {
         $request->validate([
-            'saldo_final_real' => 'required|numeric|min:0', // Lo que contó el usuario (montoContado)
-            'detalles_arqueo' => 'nullable|json' // Desglose de billetes
+            'saldo_final_real' => 'required|numeric|min:0',
+            'detalles_arqueo' => 'nullable|json',
+            'boveda_destino_id' => 'nullable|integer|exists:bovedas,id',
         ]);
 
         $caja = CajaAperturaCierre::findOrFail($id);
@@ -268,30 +270,46 @@ class CajaController extends Controller
             return response()->json(['error' => 'La caja ya está cerrada.'], 400);
         }
 
-        // Calcular saldo esperado del sistema
-        $totalMovimientos = MovimientoCaja::where('caja_id', $caja->id)
-            ->where('estado', 'aplicado')
-            ->selectRaw("SUM(CASE WHEN tipo IN ('incremento', 'ingreso_pago') THEN monto ELSE -monto END) as total")
-            ->value('total');
+        // Determinar bóveda destino
+        $boveda = null;
+        if ($request->boveda_destino_id) {
+            // El usuario eligió explícitamente una bóveda
+            $boveda = Boveda::activas()->findOrFail($request->boveda_destino_id);
+        } else {
+            // Auto-seleccionar: buscar bóvedas activas de la sucursal de la caja
+            $bovedasDisponibles = Boveda::activas()->deSucursal($caja->sucursal_id)->get();
+            if ($bovedasDisponibles->count() === 1) {
+                $boveda = $bovedasDisponibles->first();
+            }
+            // Si hay 0 o más de 1, no se transfiere automáticamente
+        }
 
-        $saldoSistema = $caja->saldo_inicial + ($totalMovimientos ?? 0);
+        $desglose = null;
+        if ($request->detalles_arqueo) {
+            $decoded = json_decode($request->detalles_arqueo, true);
+            $desglose = is_array($decoded) ? $decoded : null;
+        }
 
-        $saldoReal = $request->saldo_final_real;
-        $diferencia = $saldoReal - $saldoSistema;
+        // Usar el servicio de cierre que ya maneja la transferencia a bóveda
+        [$cajaCerrada, $movimientoBoveda] = $this->closureService->closeAndTransferToVault($caja, [
+            'monto_total_efectivo' => $request->saldo_final_real,
+            'desglose_denominaciones' => $desglose,
+            'enviar_a_boveda' => $boveda !== null,
+            'boveda_destino_id' => $boveda?->id,
+            'cajero_id' => $caja->user_id,
+            'observaciones' => null,
+        ]);
 
-        $resultado = 'Cuadra perfectamente';
-        if ($diferencia > 0) $resultado = 'Sobrante';
-        if ($diferencia < 0) $resultado = 'Faltante';
+        $mensaje = 'Caja cerrada correctamente';
+        if ($movimientoBoveda) {
+            $mensaje .= '. Saldo transferido a bóveda automáticamente.';
+        }
 
-        $caja->saldo_final = $saldoReal;
-        $caja->fecha_cierre = Carbon::now();
-        $caja->diferencia = $diferencia;
-        $caja->resultado_arqueo = $resultado;
-        $caja->detalles_arqueo = $request->detalles_arqueo;
-        $caja->estado = 'cerrada';
-        $caja->save();
-
-        return response()->json(['message' => 'Caja cerrada correctamente', 'caja' => $caja]);
+        return response()->json([
+            'message' => $mensaje,
+            'caja' => $cajaCerrada,
+            'boveda_movimiento' => $movimientoBoveda,
+        ]);
     }
 
     /**

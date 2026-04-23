@@ -314,6 +314,7 @@ Route::prefix('v1')->group(function () {
             // Pagos y Ledger
             Route::get('/creditos-prendarios/{id}/calculo-pago', [\App\Http\Controllers\PagoController::class, 'calcularPago']);
             Route::post('/creditos-prendarios/{id}/pagos', [\App\Http\Controllers\PagoController::class, 'ejecutarPago']);
+            Route::get('/creditos-prendarios/{id}/movimientos/{movimientoId}/recibo', [\App\Http\Controllers\PagoController::class, 'generarReciboPago']); // Recibo PDF de pago
             Route::post('/creditos-prendarios/{id}/reactivar', [CreditoPrendarioController::class, 'reactivar']);
 
             // Prendas
@@ -371,6 +372,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/ventas/{id}/plan-pago', [\App\Http\Controllers\VentaPlanPagoController::class, 'obtenerDetallePlan']); // Detalle del plan
             Route::post('/ventas/cuotas/pagar-multiple', [\App\Http\Controllers\VentaPlanPagoController::class, 'pagarMultipleCuotas']); // Pago múltiple de cuotas (antes de la ruta con {cuotaId})
             Route::post('/ventas/cuotas/{cuotaId}/pagar', [\App\Http\Controllers\VentaPlanPagoController::class, 'pagarCuota']); // Pagar cuota
+            Route::get('/ventas/cuotas/{cuotaId}/recibo', [\App\Http\Controllers\VentaPlanPagoController::class, 'generarReciboCuota']); // Recibo PDF de pago de cuota
 
             // Compras Directas
             Route::get('/compras', [CompraController::class, 'index']);

@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\CreditoPrendario;
+use App\Models\CreditoMovimiento;
 use App\Services\PagoService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -79,6 +81,45 @@ class PagoController extends Controller
                 'success' => false,
                 'message' => $e->getMessage(), // Mensaje seguro para el usuario (validaciones de negocio)
             ], 400);
+        }
+    }
+
+    /**
+     * Generar recibo PDF de un movimiento/pago específico de un crédito prendario.
+     * GET /api/v1/creditos-prendarios/{id}/movimientos/{movimientoId}/recibo
+     */
+    public function generarReciboPago(string $creditoId, string $movimientoId)
+    {
+        try {
+            $credito = CreditoPrendario::with(['cliente', 'prendas', 'sucursal'])->findOrFail($creditoId);
+
+            $movimiento = CreditoMovimiento::with('usuario')
+                ->where('credito_prendario_id', $creditoId)
+                ->findOrFail($movimientoId);
+
+            $cliente  = $credito->cliente;
+            $prendas  = $credito->prendas;
+            $sucursal = $credito->sucursal;
+
+            $pdf = Pdf::loadView('creditos.recibo_pago', compact(
+                'credito', 'movimiento', 'cliente', 'prendas', 'sucursal'
+            ));
+            $pdf->setPaper('letter', 'portrait');
+
+            $filename = 'Recibo_Pago_' . ($movimiento->numero_movimiento ?? $movimientoId) . '.pdf';
+
+            return $pdf->stream($filename);
+        } catch (\Exception $e) {
+            Log::error('Error al generar recibo de pago: ' . $e->getMessage(), [
+                'credito_id'     => $creditoId,
+                'movimiento_id'  => $movimientoId,
+                'trace'          => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el recibo: ' . $e->getMessage(),
+            ], 500);
         }
     }
 }

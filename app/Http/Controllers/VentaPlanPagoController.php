@@ -8,6 +8,7 @@ use App\Models\VentaCredito;
 use App\Models\VentaCreditoPlanPago;
 use App\Services\VentaPlanPagoService;
 use App\Http\Requests\PagarMultipleCuotasRequest;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -440,6 +441,68 @@ class VentaPlanPagoController extends Controller
                 'success' => false,
                 'message' => 'Error al cargar resumen',
                 'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
+    /**
+     * GET /api/ventas/cuotas/{cuotaId}/recibo
+     * Generar recibo PDF del pago de una cuota específica.
+     */
+    public function generarReciboCuota(string $cuotaId)
+    {
+        try {
+            $cuota = VentaCreditoPlanPago::with([
+                'ventaCredito.venta',
+                'ventaCredito.cliente',
+                'ventaCredito.sucursal',
+            ])->findOrFail($cuotaId);
+
+            $ventaCredito = $cuota->ventaCredito;
+            $venta        = $ventaCredito?->venta;
+            $cliente      = $ventaCredito?->cliente;
+            $sucursal     = $ventaCredito?->sucursal;
+
+            // Construir nombre e identificación del cliente
+            // El modelo cliente puede tener nombres/apellidos o nombre_completo según implementación
+            $clienteNombre = 'N/A';
+            $clienteDoc    = null;
+            if ($cliente) {
+                if (!empty($cliente->nombres) || !empty($cliente->apellidos)) {
+                    $clienteNombre = trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? ''));
+                } elseif (!empty($cliente->nombre_completo)) {
+                    $clienteNombre = $cliente->nombre_completo;
+                } elseif (!empty($cliente->nombre)) {
+                    $clienteNombre = trim(($cliente->nombre ?? '') . ' ' . ($cliente->apellidos ?? ''));
+                }
+                $clienteDoc = $cliente->dpi ?? $cliente->cui ?? $cliente->nit ?? null;
+            } elseif ($venta) {
+                $clienteNombre = $venta->cliente_nombre ?? 'N/A';
+                $clienteDoc    = $venta->cliente_nit ?? null;
+            }
+
+            $esParcial    = ($cuota->monto_pendiente ?? 0) > 0.01;
+            $esLiquidacion = ($ventaCredito?->saldo_actual ?? 0) <= 0.01 && $cuota->estado === 'pagada';
+
+            $pdf = Pdf::loadView('ventas.recibo_pago_cuota', compact(
+                'cuota', 'ventaCredito', 'venta', 'sucursal',
+                'clienteNombre', 'clienteDoc', 'esParcial', 'esLiquidacion'
+            ));
+            $pdf->setPaper('letter', 'portrait');
+
+            $codigo  = $venta?->codigo_venta ?? $ventaCredito?->numero_credito ?? $cuotaId;
+            $filename = "Recibo_Pago_Cuota{$cuota->numero_cuota}_{$codigo}.pdf";
+
+            return $pdf->stream($filename);
+        } catch (\Exception $e) {
+            Log::error('Error al generar recibo de cuota: ' . $e->getMessage(), [
+                'cuota_id' => $cuotaId,
+                'trace'    => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el recibo: ' . $e->getMessage(),
             ], 500);
         }
     }
