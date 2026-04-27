@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
@@ -11,29 +11,33 @@
             font-size: 10px;
             color: #000;
             line-height: 1.5;
-            margin-top: 1.5cm;
-            margin-bottom: 1.5cm;
+            margin-top: 2.0cm;
+            margin-bottom: 1.6cm;
             margin-left: 3.5cm;
             margin-right: 1.5cm;
             text-align: justify;
         }
-        /* ENCABEZADO — solo primera página (flujo normal) */
+        /* ENCABEZADO */
         header {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: 1.6cm;
+            padding: 3px 1.5cm 3px 3.5cm;
             border-bottom: 1.5px solid #000;
             text-align: center;
-            padding-bottom: 5px;
-            margin-bottom: 10px;
         }
-        .hdr-name   { font-size: 11px; font-weight: bold; text-transform: uppercase; }
+        .hdr-name  { font-size: 11px; font-weight: bold; text-transform: uppercase; }
         .hdr-detail { font-size: 8px; }
-        /* PIE — solo primera página (flujo normal, al final del contrato) */
+        /* PIE */
         footer {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            height: 1.2cm;
+            padding: 2px 1.5cm 2px 3.5cm;
             border-top: 1px solid #000;
             font-size: 8px;
             text-align: center;
             line-height: 1.4;
-            margin-top: 16px;
-            padding-top: 4px;
         }
         /* TÍTULO */
         .titulo-empresa {
@@ -108,14 +112,24 @@
     </div>
 </header>
 
-{{-- TÍTULO + DECLARACIONES --}}
-<div class="seccion-heading" style="margin-top:0;">
+{{-- PIE --}}
+<footer>
+    Contrato No. {{ $credito->codigo_credito ?? $credito->numero_credito }}
+    &nbsp;&mdash;&nbsp; {{ $sucursal->nombre ?? 'GRUPO VALOR, S.A.' }}
+    &nbsp;&mdash;&nbsp; Página <span class="pagenum"></span>
+</footer>
+
+{{-- TÍTULO --}}
+<div class="titulo-empresa">{{ $sucursal->nombre ?? 'GRUPO VALOR, SOCIEDAD ANÓNIMA' }}</div>
+<div class="titulo-contrato">
     Contrato de Adhesión de Mutuo con Garantía Prendaria que celebra
     {{ strtoupper($sucursal->nombre ?? 'GRUPO VALOR, SOCIEDAD ANÓNIMA') }} (La Acreedora),
     y la Persona Física cuyo nombre aparece al anverso de este documento
     (Deudor Prendario), conforme las Declaraciones y Cláusulas siguientes:
 </div>
-<p class="seccion-heading" style="margin-top:2px;">Declaraciones:</p>
+
+{{-- DECLARACIONES --}}
+<p class="seccion-heading">Declaraciones:</p>
 
 <p class="parrafo">
     Declara el <strong>MUTUANTE:</strong> (Acreedor Prendario) que su representada legalmente constituida conforme a las leyes de la República de Guatemala, según consta en el primer testimonio de la escritura pública número 175 de fecha 10 de octubre de 2025 y su ampliación escritura No. 180 de fecha 23 de octubre de 2025, ambas autorizadas en la ciudad de Esquipulas, departamento de Chiquimula por el Notario Fredy Osvaldo Orozco Nova e inscrita en el Registro Mercantil General de la República bajo el No. 39,329 folio 798 del Libro 27 electrónicos de Sociedades Mercantiles; b) Que su representada cuenta con las facultades necesarias para la celebración del presente contrato de mutuo con garantía prendaria en los artículos 1, 5, 6, 47 y 52 del Decreto 08-2003, Ley de Protección al Consumidor y Usuario, y por los artículos 10, 12, 13, 38, 58, 60, 65, 75 y 78 del Decreto Número 51-2007, Ley de Garantías Mobiliarias, y su reglamento.
@@ -200,12 +214,6 @@
         </td>
     </tr>
 </table>
-
-{{-- PIE — solo primera página --}}
-<footer>
-    Contrato No. {{ $credito->codigo_credito ?? $credito->numero_credito }}
-    &nbsp;&mdash;&nbsp; {{ $sucursal->nombre ?? 'GRUPO VALOR, S.A.' }}
-</footer>
 
 {{-- ANVERSO — última página --}}
 <div class="anverso">
