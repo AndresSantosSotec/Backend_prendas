@@ -282,11 +282,10 @@
         <thead>
             <tr>
                 <th width="10%">Código</th>
-                <th width="34%">Descripción</th>
-                <th width="16%">Marca / Modelo</th>
-                <th width="16%">Serie / No.</th>
-                <th width="9%">Estado</th>
-                <th width="15%" style="text-align:right;">Valor Avalúo</th>
+                <th width="44%">Descripción</th>
+                <th width="18%">Marca / Modelo</th>
+                <th width="18%">Serie / No.</th>
+                <th width="10%">Estado</th>
             </tr>
         </thead>
         <tbody>
@@ -297,13 +296,9 @@
                 <td>{{ trim(($prenda->marca ?? '') . ' ' . ($prenda->modelo ?? '')) ?: '-' }}</td>
                 <td>{{ $prenda->serie ?? $prenda->numero_serie ?? '-' }}</td>
                 <td>Usado</td>
-                <td style="text-align:right; font-weight:bold;">Q {{ number_format($prenda->valor_tasacion ?? 0, 2) }}</td>
             </tr>
             @endforeach
-            <tr>
-                <td colspan="5" style="text-align:right; font-weight:bold; font-size:8px; text-transform:uppercase; border-left:none; border-right:none; border-bottom:none;">Total Avalúo:</td>
-                <td style="text-align:right; font-weight:bold; border-top:2px solid #000;">Q {{ number_format(collect($prendas)->sum('valor_tasacion'), 2) }}</td>
-            </tr>
+
         </tbody>
     </table>
     @endif

@@ -205,12 +205,7 @@
             <span>Monto Aprobado:</span>
             <span class="amount-value">Q {{ number_format($credito->monto_aprobado ?? $credito->monto_solicitado ?? 0, 2, '.', ',') }}</span>
         </div>
-        @if(isset($credito->valor_tasacion) && $credito->valor_tasacion)
-        <div class="summary-row">
-            <span>Valor de Tasación:</span>
-            <span>Q {{ number_format($credito->valor_tasacion, 2, '.', ',') }}</span>
-        </div>
-        @endif
+
         <div class="summary-row">
             <span>Tasa de Interés:</span>
             <span>{{ number_format($credito->tasa_interes ?? 0, 2) }}% {{ ucfirst($credito->tipo_interes ?? 'mensual') }}</span>
