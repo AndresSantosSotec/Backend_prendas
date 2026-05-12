@@ -6,17 +6,62 @@ use App\Models\Cliente;
 use App\Models\CreditoPrendario;
 use App\Models\Venta;
 use App\Models\Prenda;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
 
 class DashboardController extends Controller
 {
     /**
+     * Cuando el usuario no tiene permiso de dashboard, se devuelve
+     * un payload seguro para que frontend muestre bienvenida genérica.
+     */
+    private function getWelcomeDashboardData(): array
+    {
+        return [
+            'total_clientes' => 0,
+            'creditos_activos' => 0,
+            'creditos_vencidos' => 0,
+            'total_prestado' => 0,
+            'total_saldo' => 0,
+            'total_recuperado' => 0,
+            'creditos_por_estado' => [],
+            'ventas_mes_actual' => 0,
+            'prendas_en_inventario' => 0,
+            'creditos_proximos_vencer' => 0,
+            'fecha_consulta' => Carbon::now()->toIso8601String(),
+            'modo_bienvenida' => true,
+            'mensaje_bienvenida' => '¡Bienvenido a DigiPrenda! 👋, Todo está listo para comenzar.Utiliza el menú lateral para acceder a las herramientas disponibles.',
+        ];
+    }
+
+    private function userCanViewDashboard(): bool
+    {
+        /** @var User|null $user */
+        $user = Auth::user();
+
+        if (!$user instanceof User) {
+            return false;
+        }
+
+        return $user->hasPermission('dashboard', 'ver');
+    }
+
+    /**
      * Obtiene las estadísticas generales del dashboard
      */
     public function index(): JsonResponse
     {
+        if (!$this->userCanViewDashboard()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Acceso al dashboard restringido. Mostrando bienvenida.',
+                'data' => $this->getWelcomeDashboardData(),
+            ]);
+        }
+
         try {
             // Total de clientes activos
             $totalClientes = Cliente::where('estado', 'activo')
@@ -126,6 +171,18 @@ class DashboardController extends Controller
      */
     public function graficas(): JsonResponse
     {
+        if (!$this->userCanViewDashboard()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Acceso al dashboard restringido. Gráficas no disponibles.',
+                'data' => [
+                    'creditos_por_mes' => [],
+                    'ventas_por_mes' => [],
+                    'modo_bienvenida' => true,
+                ]
+            ]);
+        }
+
         try {
             // Créditos por mes (últimos 6 meses)
             $creditosPorMes = CreditoPrendario::select(
@@ -171,6 +228,19 @@ class DashboardController extends Controller
      */
     public function alertas(): JsonResponse
     {
+        if (!$this->userCanViewDashboard()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Acceso al dashboard restringido. Alertas no disponibles.',
+                'data' => [
+                    'creditos_vencidos_hoy' => [],
+                    'creditos_en_mora' => [],
+                    'creditos_proximos_vencer' => [],
+                    'modo_bienvenida' => true,
+                ]
+            ]);
+        }
+
         try {
             // Créditos vencidos hoy
             $creditosVencidosHoy = CreditoPrendario::whereDate('fecha_vencimiento', Carbon::today())

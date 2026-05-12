@@ -21,8 +21,12 @@ class ReciboController extends Controller
         $user = Auth::user();
         $query = Recibo::with(['cliente', 'usuario', 'sucursal']);
 
+        if (!$user->hasPermission('recibos', 'ver')) {
+            return response()->json(['error' => 'No tienes permisos para ver recibos'], 403);
+        }
+
         // Filtros por permisos
-        if (!in_array($user->rol, ['superadmin', 'administrador', 'gerente'])) {
+        if ($user->rol !== 'superadmin') {
             $query->where('sucursal_id', $user->sucursal_id);
         }
 
@@ -72,6 +76,10 @@ class ReciboController extends Controller
         ]);
 
         $user = Auth::user();
+
+        if (!$user->hasPermission('recibos', 'crear')) {
+            return response()->json(['error' => 'No tienes permisos para crear recibos'], 403);
+        }
 
         // Verificar caja abierta
         $cajaAbierta = CajaAperturaCierre::where('user_id', $user->id)
@@ -130,8 +138,12 @@ class ReciboController extends Controller
         $recibo = Recibo::with(['cliente', 'usuario', 'sucursal', 'caja', 'credito'])
             ->findOrFail($id);
 
+        if (!$user->hasPermission('recibos', 'ver')) {
+            return response()->json(['error' => 'No tienes permisos para ver recibos'], 403);
+        }
+
         // Verificar permisos
-        if (!in_array($user->rol, ['superadmin', 'administrador', 'gerente']) &&
+        if ($user->rol !== 'superadmin' &&
             $recibo->sucursal_id != $user->sucursal_id) {
             return response()->json(['error' => 'No tienes permisos para ver este recibo'], 403);
         }
@@ -153,8 +165,7 @@ class ReciboController extends Controller
         $recibo = Recibo::findOrFail($id);
 
         // Verificar permisos
-        if (!$user->hasPermission('recibos', 'anular') &&
-            !in_array($user->rol, ['superadmin', 'administrador', 'gerente'])) {
+        if (!$user->hasPermission('recibos', 'anular')) {
             return response()->json(['error' => 'No tienes permisos para anular recibos'], 403);
         }
 
@@ -177,6 +188,11 @@ class ReciboController extends Controller
      */
     public function buscarCliente(Request $request)
     {
+        $user = Auth::user();
+        if (!$user->hasPermission('recibos', 'crear')) {
+            return response()->json(['error' => 'No tienes permisos para crear recibos'], 403);
+        }
+
         $request->validate([
             'query' => 'required|string|min:2'
         ]);
@@ -206,8 +222,12 @@ class ReciboController extends Controller
         $recibo = Recibo::with(['cliente', 'usuario', 'sucursal', 'caja'])
             ->findOrFail($id);
 
+        if (!$user->hasPermission('recibos', 'imprimir')) {
+            return response()->json(['error' => 'No tienes permisos para imprimir recibos'], 403);
+        }
+
         // Verificar permisos
-        if (!in_array($user->rol, ['superadmin', 'administrador', 'gerente']) &&
+        if ($user->rol !== 'superadmin' &&
             $recibo->sucursal_id != $user->sucursal_id) {
             return response()->json(['error' => 'No tienes permisos para ver este recibo'], 403);
         }
@@ -228,6 +248,10 @@ class ReciboController extends Controller
     {
         $user = Auth::user();
 
+        if (!$user->hasPermission('recibos', 'ver')) {
+            return response()->json(['error' => 'No tienes permisos para ver reportes de recibos'], 403);
+        }
+
         $request->validate([
             'fecha_inicio' => 'required|date',
             'fecha_fin' => 'required|date|after_or_equal:fecha_inicio',
@@ -238,7 +262,7 @@ class ReciboController extends Controller
             ->emitidos();
 
         // Filtrar por sucursal si no es admin
-        if (!in_array($user->rol, ['superadmin', 'administrador'])) {
+        if ($user->rol !== 'superadmin') {
             $query->where('sucursal_id', $user->sucursal_id);
         } elseif ($request->sucursal_id) {
             $query->where('sucursal_id', $request->sucursal_id);
@@ -274,6 +298,10 @@ class ReciboController extends Controller
     public function siguienteNumero()
     {
         $user = Auth::user();
+        if (!$user->hasPermission('recibos', 'crear')) {
+            return response()->json(['error' => 'No tienes permisos para crear recibos'], 403);
+        }
+
         $numero = Recibo::generarNumeroRecibo($user->sucursal_id);
 
         return response()->json(['numero_recibo' => $numero]);

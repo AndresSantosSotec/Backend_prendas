@@ -666,6 +666,7 @@ class VentaMultiPrendaService
         $numeroCuotas = $data['numero_cuotas'] ?? 3;
         $tasaInteresMensual = $data['tasa_interes_mensual'] ?? 5;
         $frecuenciaPago = $data['frecuencia_pago'] ?? 'mensual';
+        $diasGracia = $data['dias_gracia'] ?? 0;
 
         // Gastos adicionales
         $gastoSeguro = $data['gasto_seguro'] ?? 0;
@@ -733,7 +734,7 @@ class VentaMultiPrendaService
             'frecuencia_pago' => $frecuenciaPago,
             'numero_cuotas' => $numeroCuotas,
             'monto_cuota' => $cuotaMensual,
-            'dias_gracia' => 0,
+            'dias_gracia' => $diasGracia,
             'dias_mora' => 0,
             'cuotas_vencidas' => 0,
             'cuotas_pagadas' => 0,

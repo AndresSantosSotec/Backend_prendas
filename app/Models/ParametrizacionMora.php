@@ -25,6 +25,10 @@ class ParametrizacionMora extends Model
         'dias_tope_mora',
         'aplicar_mora_completa',
         'dias_para_mora_completa',
+        'apartado_habilitado',
+        'dias_gracia',
+        'frecuencia_defecto',
+        'tasa_interes_defecto',
         'activo',
         'notas',
     ];
@@ -43,6 +47,9 @@ class ParametrizacionMora extends Model
         'max_dias_mora' => 'integer',
         'dias_tope_mora' => 'integer',
         'dias_para_mora_completa' => 'integer',
+        'apartado_habilitado' => 'boolean',
+        'dias_gracia' => 'integer',
+        'tasa_interes_defecto' => 'decimal:2',
     ];
 
     public function sucursal()

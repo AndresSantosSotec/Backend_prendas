@@ -139,6 +139,12 @@
                 <span class="info-label">Estado</span>
                 <span class="info-value">{{ strtoupper($credito->estado) }}</span>
             </div>
+            @if(($credito->dias_gracia ?? 0) > 0)
+            <div class="info-item">
+                <span class="info-label">Días de gracia</span>
+                <span class="info-value">{{ $credito->dias_gracia }} días</span>
+            </div>
+            @endif
             <div class="info-item">
                 <span class="info-label">Vendedor</span>
                 <span class="info-value">{{ $venta->vendedor->name ?? 'N/A' }}</span>

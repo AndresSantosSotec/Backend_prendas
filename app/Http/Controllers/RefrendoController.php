@@ -151,7 +151,7 @@ class RefrendoController extends Controller
             $rules['monto_prestamo_nuevo'] = 'required|numeric|min:0.01';
             $rules['plazo_dias_nuevo'] = 'required|integer|min:1';
             $rules['tasa_interes_nuevo'] = 'nullable|numeric|min:0';
-            $rules['tipo_interes_nuevo'] = 'nullable|string|in:diario,semanal,catorcenal,quincenal,cada_28_dias,mensual';
+            $rules['tipo_interes_nuevo'] = 'nullable|string|in:semanal,quincenal,mensual';
         }
 
         $validator = Validator::make($request->all(), $rules);

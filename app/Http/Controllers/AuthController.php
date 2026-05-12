@@ -308,31 +308,21 @@ class AuthController extends Controller
             'sucursal_id' => $user->sucursal_id,
         ];
 
-        // Cargar permisos si existen
-        if ($user->relationLoaded('permissions')) {
-            $data['permisos'] = $user->permissions->map(function ($permiso) {
-                return [
-                    'id' => $permiso->id,
-                    'modulo' => $permiso->modulo,
-                    'accion' => $permiso->accion,
-                ];
-            });
-        } else {
-            $data['permisos'] = [];
-        }
+        // Misma forma que GET /usuarios/{id}/permisos: [{ modulo, acciones: [] }, ...]
+        // (antes quedaba [] si no se hacía eager-load, y el front esperaba acciones agrupadas)
+        $data['permisos'] = $user->getFormattedPermissions();
 
         return $data;
     }
 
     /**
-     * Cambiar sucursal activa (superadmin y administrador)
+     * Cambiar sucursal activa (solo superadmin)
      */
     public function cambiarSucursal(Request $request): JsonResponse
     {
         $user = $request->user();
 
-        // SuperAdmin y Administrador pueden cambiar de sucursal
-        if (!in_array($user->rol, ['superadmin', 'administrador'])) {
+        if ($user->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
                 'message' => 'No tienes permisos para cambiar de sucursal'

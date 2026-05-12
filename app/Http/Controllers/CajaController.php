@@ -27,6 +27,11 @@ class CajaController extends Controller
      */
     public function index(Request $request)
     {
+        $user = Auth::user();
+        if (!$user->hasPermission('caja', 'ver_movimientos')) {
+            return response()->json(['error' => 'No tienes permiso para ver movimientos de caja.'], 403);
+        }
+
         $query = CajaAperturaCierre::with('user', 'sucursal')
             ->orderBy('fecha_apertura', 'desc');
 
@@ -102,7 +107,7 @@ class CajaController extends Controller
         $user = Auth::user();
         if (!$user) return response()->json(['error' => 'No autenticado'], 401);
 
-        if (!in_array($user->rol, ['administrador', 'superadmin'])) {
+        if (!$user->hasPermission('caja', 'gestionar_cajas')) {
             return response()->json(['error' => 'No tienes permiso para ver las cajas de otros usuarios.'], 403);
         }
 
@@ -141,7 +146,7 @@ class CajaController extends Controller
         $caja = CajaAperturaCierre::with(['sucursal', 'user'])->findOrFail($id);
 
         // Solo el dueño o admin/superadmin pueden ver
-        if ($caja->user_id !== $user->id && !in_array($user->rol, ['administrador', 'superadmin'])) {
+        if ($caja->user_id !== $user->id && !$user->hasPermission('caja', 'gestionar_cajas')) {
             return response()->json(['error' => 'No tienes permiso para ver esta caja.'], 403);
         }
 
@@ -180,6 +185,10 @@ class CajaController extends Controller
         ]);
 
         $user = Auth::user();
+        if (!$user->hasPermission('caja', 'abrir')) {
+            return response()->json(['error' => 'No tienes permiso para abrir caja.'], 403);
+        }
+
         $fecha = $request->fecha_apertura ?? Carbon::now()->toDateString();
 
         // PRIMERO: Verificar si hay alguna caja abierta pendiente (de cualquier fecha)
@@ -217,7 +226,7 @@ class CajaController extends Controller
 
         // Verificar si ya hay una caja cerrada para hoy
         // Los administradores y superadmin pueden saltarse esta restricción
-        if (!in_array($user->rol, ['administrador', 'superadmin'])) {
+        if ($user->rol !== 'superadmin') {
             $cajaCerradaHoy = CajaAperturaCierre::where('user_id', $user->id)
                 ->whereDate('fecha_apertura', $fecha)
                 ->where('estado', 'cerrada')
@@ -262,7 +271,11 @@ class CajaController extends Controller
         $user = Auth::user();
 
         // Verificar propiedad o rol administrador/superadmin
-        if ($caja->user_id !== $user->id && !in_array($user->rol, ['administrador', 'superadmin'])) {
+        if (!$user->hasPermission('caja', 'cerrar')) {
+            return response()->json(['error' => 'No tienes permiso para cerrar caja.'], 403);
+        }
+
+        if ($caja->user_id !== $user->id && !$user->hasPermission('caja', 'gestionar_cajas')) {
             return response()->json(['error' => 'No tienes permiso para cerrar esta caja.'], 403);
         }
 
@@ -325,7 +338,11 @@ class CajaController extends Controller
 
         // Reutilizar la misma regla de permisos que el cierre clásico:
         // solo el dueño de la caja o un admin/superadmin pueden cerrarla
-        if ($caja->user_id !== $user->id && !in_array($user->rol, ['administrador', 'superadmin'])) {
+        if (!$user->hasPermission('caja', 'cerrar')) {
+            return response()->json(['error' => 'No tienes permiso para cerrar caja.'], 403);
+        }
+
+        if ($caja->user_id !== $user->id && !$user->hasPermission('caja', 'gestionar_cajas')) {
             return response()->json(['error' => 'No tienes permiso para cerrar esta caja.'], 403);
         }
 
@@ -376,8 +393,12 @@ class CajaController extends Controller
 
             // Admin/superadmin pueden registrar movimientos en cualquier caja abierta
             $user = Auth::user();
+            if (!$user->hasPermission('caja', 'ver_movimientos')) {
+                return response()->json(['error' => 'No tienes permiso para registrar movimientos en caja.'], 403);
+            }
+
             if ($caja->user_id !== $user->id) {
-                if (!in_array($user->rol, ['administrador', 'superadmin'])) {
+                if (!$user->hasPermission('caja', 'gestionar_cajas')) {
                     return response()->json(['error' => 'No tienes permiso para registrar movimientos en esta caja.'], 403);
                 }
                 // Admin/superadmin: se permite registrar directamente en la caja indicada
@@ -423,7 +444,7 @@ class CajaController extends Controller
         $caja = CajaAperturaCierre::findOrFail($id);
 
         // Solo el dueño o admin/superadmin pueden ver los movimientos
-        if ($caja->user_id !== $user->id && !in_array($user->rol, ['administrador', 'superadmin'])) {
+        if ($caja->user_id !== $user->id && !$user->hasPermission('caja', 'gestionar_cajas')) {
             return response()->json(['error' => 'No tienes permiso para ver estos movimientos.'], 403);
         }
 

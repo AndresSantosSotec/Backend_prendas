@@ -338,6 +338,11 @@
         <div class="row">
             <span class="label">Tasa:</span> {{ number_format($venta->ventaCredito->tasa_interes, 2) }}% mensual
         </div>
+        @if($venta->ventaCredito->dias_gracia > 0)
+        <div class="row">
+            <span class="label">Gracia:</span> {{ $venta->ventaCredito->dias_gracia }} días
+        </div>
+        @endif
     </div>
     @endif
     

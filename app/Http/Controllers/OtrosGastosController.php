@@ -21,6 +21,11 @@ class OtrosGastosController extends Controller
     /** GET /otros-gastos/tipos */
     public function indexTipos(Request $request)
     {
+        $user = Auth::user();
+        if (!$user->hasPermission('otros_gastos', 'ver')) {
+            return response()->json(['success' => false, 'message' => 'Sin permisos'], 403);
+        }
+
         $query = OtroGastoTipo::query();
 
         if ($request->filled('tipo')) {
@@ -58,6 +63,11 @@ class OtrosGastosController extends Controller
     /** POST /otros-gastos/tipos */
     public function storeTipo(Request $request)
     {
+        $user = Auth::user();
+        if (!$user->hasPermission('otros_gastos', 'crear')) {
+            return response()->json(['success' => false, 'message' => 'Sin permisos'], 403);
+        }
+
         $validated = $request->validate([
             'nombre'      => 'required|string|max:150',
             'tipo'        => 'required|in:ingreso,egreso',
@@ -76,6 +86,11 @@ class OtrosGastosController extends Controller
     /** PUT /otros-gastos/tipos/{id} */
     public function updateTipo(Request $request, $id)
     {
+        $user = Auth::user();
+        if (!$user->hasPermission('otros_gastos', 'editar')) {
+            return response()->json(['success' => false, 'message' => 'Sin permisos'], 403);
+        }
+
         $tipo = OtroGastoTipo::findOrFail($id);
 
         $validated = $request->validate([
@@ -96,6 +111,11 @@ class OtrosGastosController extends Controller
     /** DELETE /otros-gastos/tipos/{id} */
     public function destroyTipo($id)
     {
+        $user = Auth::user();
+        if (!$user->hasPermission('otros_gastos', 'eliminar')) {
+            return response()->json(['success' => false, 'message' => 'Sin permisos'], 403);
+        }
+
         $tipo = OtroGastoTipo::findOrFail($id);
 
         // Soft-delete usando activo flag (tienen SoftDeletes también)
@@ -113,13 +133,16 @@ class OtrosGastosController extends Controller
     public function indexMovimientos(Request $request)
     {
         $user = Auth::user();
-        $isAdmin = in_array($user->rol, ['administrador', 'superadmin']);
+        if (!$user->hasPermission('otros_gastos', 'ver')) {
+            return response()->json(['success' => false, 'message' => 'Sin permisos'], 403);
+        }
+        $canSeeAll = $user->rol === 'superadmin';
 
         $query = OtroGastoMovimiento::with(['tipo_gasto', 'user', 'sucursal'])
             ->where('estado', '!=', 'anulado');
 
         // Filtros
-        if (!$isAdmin) {
+        if (!$canSeeAll) {
             $query->where('user_id', $user->id);
         } elseif ($request->filled('user_id')) {
             $query->where('user_id', $request->user_id);
@@ -150,7 +173,7 @@ class OtrosGastosController extends Controller
 
         // Resumen totales
         $totales = OtroGastoMovimiento::where('estado', 'aplicado')
-            ->when(!$isAdmin, fn($q) => $q->where('user_id', $user->id))
+            ->when(!$canSeeAll, fn($q) => $q->where('user_id', $user->id))
             ->when($request->filled('mes') && $request->filled('anio'), fn($q) =>
                 $q->whereMonth('fecha', $request->mes)->whereYear('fecha', $request->anio))
             ->selectRaw("
@@ -176,6 +199,11 @@ class OtrosGastosController extends Controller
     /** POST /otros-gastos/movimientos */
     public function storeMovimiento(Request $request)
     {
+        $user = Auth::user();
+        if (!$user->hasPermission('otros_gastos', 'crear')) {
+            return response()->json(['success' => false, 'message' => 'Sin permisos'], 403);
+        }
+
         $validated = $request->validate([
             'otro_gasto_tipo_id' => 'required|exists:otro_gasto_tipos,id',
             'monto'              => 'required|numeric|min:0.01',
@@ -186,7 +214,6 @@ class OtrosGastosController extends Controller
             'forma_pago'         => 'nullable|in:efectivo,transferencia,cheque,otro',
         ]);
 
-        $user   = Auth::user();
         $tipo   = OtroGastoTipo::findOrFail($validated['otro_gasto_tipo_id']);
         $fecha  = Carbon::parse($validated['fecha'] ?? now())->toDateString();
 
@@ -266,7 +293,11 @@ class OtrosGastosController extends Controller
         $user     = Auth::user();
 
         // Solo el dueño o admin/superadmin
-        if ($registro->user_id !== $user->id && !in_array($user->rol, ['administrador', 'superadmin'])) {
+        if (!$user->hasPermission('otros_gastos', 'anular')) {
+            return response()->json(['success' => false, 'message' => 'Sin permisos'], 403);
+        }
+
+        if ($registro->user_id !== $user->id && $user->rol !== 'superadmin') {
             return response()->json(['success' => false, 'message' => 'Sin permisos'], 403);
         }
 
@@ -312,14 +343,18 @@ class OtrosGastosController extends Controller
     public function resumenMes(Request $request)
     {
         $user   = Auth::user();
+        if (!$user->hasPermission('otros_gastos', 'ver')) {
+            return response()->json(['success' => false, 'message' => 'Sin permisos'], 403);
+        }
+
         $mes    = (int) $request->get('mes', now()->month);
         $anio   = (int) $request->get('anio', now()->year);
-        $isAdmin = in_array($user->rol, ['administrador', 'superadmin']);
+        $canSeeAll = $user->rol === 'superadmin';
 
         $query = OtroGastoMovimiento::where('estado', 'aplicado')
             ->whereMonth('fecha', $mes)
             ->whereYear('fecha', $anio)
-            ->when(!$isAdmin, fn($q) => $q->where('user_id', $user->id));
+            ->when(!$canSeeAll, fn($q) => $q->where('user_id', $user->id));
 
         $totales = $query->clone()->selectRaw("
             SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END) as total_ingresos,

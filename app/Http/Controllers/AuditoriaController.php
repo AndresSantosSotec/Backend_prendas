@@ -15,8 +15,7 @@ class AuditoriaController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        // Verificar que sea superadmin o administrador
-        if (!in_array($request->user()->rol, ['superadmin', 'administrador'])) {
+        if ($request->user()->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
                 'message' => 'No tienes permiso para acceder a este módulo'
@@ -102,7 +101,7 @@ class AuditoriaController extends Controller
      */
     public function estadisticas(Request $request): JsonResponse
     {
-        if (!in_array($request->user()->rol, ['superadmin', 'administrador'])) {
+        if ($request->user()->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
                 'message' => 'No tienes permiso para acceder a este módulo'
@@ -176,7 +175,7 @@ class AuditoriaController extends Controller
      */
     public function show(Request $request, $id): JsonResponse
     {
-        if (!in_array($request->user()->rol, ['superadmin', 'administrador'])) {
+        if ($request->user()->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
                 'message' => 'No tienes permiso para acceder a este módulo'
@@ -203,7 +202,7 @@ class AuditoriaController extends Controller
      */
     public function modulos(Request $request): JsonResponse
     {
-        if (!in_array($request->user()->rol, ['superadmin', 'administrador'])) {
+        if ($request->user()->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
                 'message' => 'No tienes permiso para acceder a este módulo'
@@ -225,7 +224,7 @@ class AuditoriaController extends Controller
      */
     public function acciones(Request $request): JsonResponse
     {
-        if (!in_array($request->user()->rol, ['superadmin', 'administrador'])) {
+        if ($request->user()->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
                 'message' => 'No tienes permiso para acceder a este módulo'
@@ -248,7 +247,7 @@ class AuditoriaController extends Controller
      */
     public function test(Request $request): JsonResponse
     {
-        if (!in_array($request->user()->rol, ['superadmin', 'administrador'])) {
+        if ($request->user()->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
                 'message' => 'No tienes permiso para ejecutar este test'

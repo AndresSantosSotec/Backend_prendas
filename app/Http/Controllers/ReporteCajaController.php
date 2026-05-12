@@ -16,6 +16,10 @@ class ReporteCajaController extends Controller
      */
     public function reporteMovimientos(Request $request)
     {
+        if (!Auth::user()->hasPermission('caja', 'gestionar_cajas')) {
+            return response()->json(['error' => 'No autorizado'], 403);
+        }
+
         $request->validate([
             'caja_id' => 'nullable|exists:caja_apertura_cierres,id',
             'fecha_inicio' => 'nullable|date',
@@ -58,8 +62,7 @@ class ReporteCajaController extends Controller
      */
     public function consolidado(Request $request)
     {
-        // Verificar que el usuario sea administrador o superadmin
-        if (!in_array(Auth::user()->rol, ['administrador', 'superadmin'])) {
+        if (!Auth::user()->hasPermission('caja', 'gestionar_cajas')) {
             return response()->json(['error' => 'No autorizado'], 403);
         }
 
@@ -149,6 +152,10 @@ class ReporteCajaController extends Controller
      */
     public function reportePDF(Request $request)
     {
+        if (!Auth::user()->hasPermission('caja', 'gestionar_cajas')) {
+            return response()->json(['error' => 'No autorizado'], 403);
+        }
+
         $request->validate([
             'caja_id' => 'nullable|exists:caja_apertura_cierres,id',
             'fecha_desde' => 'nullable|date',
@@ -220,8 +227,7 @@ class ReporteCajaController extends Controller
      */
     public function consolidadoPDF(Request $request)
     {
-        // Verificar que el usuario sea administrador o superadmin
-        if (!in_array(Auth::user()->rol, ['administrador', 'superadmin'])) {
+        if (!Auth::user()->hasPermission('caja', 'gestionar_cajas')) {
             return response()->json(['error' => 'No autorizado'], 403);
         }
 

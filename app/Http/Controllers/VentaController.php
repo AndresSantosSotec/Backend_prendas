@@ -169,6 +169,8 @@ class VentaController extends Controller
             // Campos específicos para apartado
             'anticipo' => 'nullable|numeric|min:0',
             'dias_apartado' => 'nullable|integer|min:1|max:365',
+            'frecuencia_pago' => 'nullable|in:semanal,quincenal,mensual',
+            'dias_gracia' => 'nullable|integer|min:0|max:30',
         ]);
 
         try {

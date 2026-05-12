@@ -14,6 +14,8 @@ class PermissionController extends Controller
      */
     public function index(): JsonResponse
     {
+        Permission::ensureDefinitionsInDatabase();
+
         $permisos = [];
         
         foreach (Permission::$permisosPorModulo as $modulo => $acciones) {
@@ -72,6 +74,13 @@ class PermissionController extends Controller
             ], 403);
         }
 
+        if ($user->rol === 'superadmin' && $currentUser->rol !== 'superadmin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Solo un SuperAdmin puede modificar permisos de otro SuperAdmin',
+            ], 403);
+        }
+
         $permisos = $request->input('permisos', []);
         $user->syncPermissions($permisos);
 
@@ -102,6 +111,13 @@ class PermissionController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'No tienes permiso para modificar permisos',
+            ], 403);
+        }
+
+        if ($user->rol === 'superadmin' && $currentUser->rol !== 'superadmin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Solo un SuperAdmin puede restablecer permisos de otro SuperAdmin',
             ], 403);
         }
 
@@ -157,4 +173,3 @@ class PermissionController extends Controller
         ]);
     }
 }
-

@@ -25,6 +25,28 @@ class Permission extends Model
     }
 
     /**
+     * Crea en BD cualquier par (módulo, acción) definido en $permisosPorModulo que aún no exista.
+     * syncPermissions() solo enlaza IDs existentes; sin esto, permisos nuevos se ignoraban en silencio.
+     */
+    public static function ensureDefinitionsInDatabase(): void
+    {
+        foreach (self::$permisosPorModulo as $modulo => $acciones) {
+            foreach ($acciones as $accion) {
+                $descripcion = match ("{$modulo}.{$accion}") {
+                    'creditos.editar_tasa_interes' => 'Permite modificar la tasa de interés % al configurar créditos prendarios',
+                    'creditos.editar_mora' => 'Permite modificar tasa de mora, tipo y monto fijo al configurar créditos prendarios',
+                    default => ucfirst(str_replace('_', ' ', (string) $accion)).' en '.ucfirst(str_replace('_', ' ', (string) $modulo)),
+                };
+
+                self::firstOrCreate(
+                    ['modulo' => $modulo, 'accion' => $accion],
+                    ['descripcion' => $descripcion]
+                );
+            }
+        }
+    }
+
+    /**
      * Permisos por módulo con sus acciones
      */
     public static array $permisosPorModulo = [
@@ -32,24 +54,25 @@ class Permission extends Model
         'clientes' => ['ver', 'crear', 'editar', 'eliminar'],
         'sucursales' => ['ver', 'crear', 'editar', 'eliminar'],
         'simulador' => ['usar', 'imprimir', 'guardar'],
-        'creditos' => ['ver', 'crear', 'renovar', 'cancelar', 'pasar_venta'],
+        'creditos' => ['ver', 'crear', 'renovar', 'cancelar', 'pasar_venta', 'editar_tasa_interes', 'editar_mora'],
         'refrendos' => ['ver', 'validar', 'calcular', 'procesar'],
         'prendas' => ['ver', 'editar', 'cambiar_estado', 'vender'],
         'ventas' => ['ver', 'tasar', 'vender', 'apartar', 'crear_plan_pago', 'modificar_precio', 'aplicar_descuento'],
-        'caja' => ['abrir', 'cerrar', 'ver_movimientos'],
+        'caja' => ['abrir', 'cerrar', 'ver_movimientos', 'gestionar_cajas'],
         'reportes' => ['generar', 'exportar'],
         'usuarios' => ['ver', 'crear', 'editar', 'eliminar', 'asignar_permisos'],
         'compras' => ['ver', 'crear', 'editar', 'eliminar'],
+        'remates' => ['ver', 'crear', 'cancelar'],
         'categorias_productos' => ['ver', 'crear', 'editar', 'eliminar', 'toggle_activa'],
         'gastos' => ['ver', 'crear', 'editar', 'eliminar', 'asignar_credito'],
         'auditoria' => ['ver', 'exportar'], // Solo para superadmin
-        'boveda' => ['ver', 'transferir', 'ver_movimientos'],
+        'boveda' => ['ver', 'crear', 'editar', 'eliminar', 'movimientos', 'aprobar', 'reportes'],
         'migracion' => ['ver', 'importar', 'descargar_plantilla'],
         'contabilidad' => ['ver', 'configurar', 'asientos', 'reportes'],
         'cobros' => ['realizar', 'ver', 'imprimir_recibo'],
-        'recibos' => ['ver', 'imprimir'],
+        'recibos' => ['ver', 'crear', 'imprimir', 'anular'],
         'historial' => ['ver'],
-        'otros_gastos' => ['ver', 'crear', 'anular'],
+        'otros_gastos' => ['ver', 'crear', 'editar', 'eliminar', 'anular'],
         'cotizaciones' => ['ver', 'crear', 'editar', 'eliminar', 'convertir'],
         'planes_interes' => ['ver', 'crear', 'editar', 'eliminar'],
         'transferencias' => ['ver', 'crear', 'aprobar', 'anular'],
@@ -71,7 +94,7 @@ class Permission extends Model
             'prendas' => ['ver'],
             'gastos' => ['ver', 'asignar_credito'],
             'cobros' => ['realizar', 'ver', 'imprimir_recibo'],
-            'recibos' => ['ver', 'imprimir'],
+            'recibos' => ['ver', 'crear', 'imprimir'],
             'historial' => ['ver'],
             'otros_gastos' => ['ver', 'crear'],
             'planes_interes' => ['ver'],
@@ -102,11 +125,12 @@ class Permission extends Model
             'prendas' => ['ver', 'cambiar_estado'],
             'ventas' => ['ver', 'modificar_precio', 'aplicar_descuento'],
             'reportes' => ['generar', 'exportar'],
+            'remates' => ['ver'],
             'caja' => ['ver_movimientos'],
             'categorias_productos' => ['ver', 'crear', 'editar'],
             'gastos' => ['ver', 'crear', 'editar', 'asignar_credito'],
             'cobros' => ['realizar', 'ver', 'imprimir_recibo'],
-            'recibos' => ['ver', 'imprimir'],
+            'recibos' => ['ver', 'crear', 'imprimir', 'anular'],
             'historial' => ['ver'],
             'otros_gastos' => ['ver', 'crear', 'anular'],
             'cotizaciones' => ['ver', 'crear', 'editar', 'eliminar', 'convertir'],
@@ -115,4 +139,3 @@ class Permission extends Model
         ],
     ];
 }
-

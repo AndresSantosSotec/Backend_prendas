@@ -93,8 +93,7 @@ class User extends Authenticatable
      */
     public function hasPermission(string $modulo, string $accion): bool
     {
-        // SuperAdmin y Administrador tienen todos los permisos
-        if (in_array($this->rol, ['superadmin', 'administrador'])) {
+        if ($this->rol === 'superadmin') {
             return true;
         }
 
@@ -109,8 +108,7 @@ class User extends Authenticatable
      */
     public function hasModuleAccess(string $modulo): bool
     {
-        // SuperAdmin y Administrador tienen acceso a todo
-        if (in_array($this->rol, ['superadmin', 'administrador'])) {
+        if ($this->rol === 'superadmin') {
             return true;
         }
 
@@ -124,8 +122,7 @@ class User extends Authenticatable
      */
     public function getFormattedPermissions(): array
     {
-        // SuperAdmin y Administrador tienen todos los permisos
-        if (in_array($this->rol, ['superadmin', 'administrador'])) {
+        if ($this->rol === 'superadmin') {
             $permisos = [];
             foreach (Permission::$permisosPorModulo as $modulo => $acciones) {
                 $permisos[] = [
@@ -133,6 +130,7 @@ class User extends Authenticatable
                     'acciones' => $acciones,
                 ];
             }
+
             return $permisos;
         }
 
@@ -154,6 +152,8 @@ class User extends Authenticatable
      */
     public function syncPermissions(array $permisos): void
     {
+        Permission::ensureDefinitionsInDatabase();
+
         $permissionIds = [];
 
         foreach ($permisos as $permiso) {
@@ -179,6 +179,8 @@ class User extends Authenticatable
      */
     public function assignDefaultPermissions(): void
     {
+        Permission::ensureDefinitionsInDatabase();
+
         $rol = $this->rol;
         $permisosRol = Permission::$permisosPorRol[$rol] ?? [];
 

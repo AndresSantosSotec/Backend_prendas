@@ -59,6 +59,10 @@ class ParametrizacionMoraController extends Controller
             'dias_tope_mora' => 'required|integer|min:0',
             'aplicar_mora_completa' => 'required|boolean',
             'dias_para_mora_completa' => 'required|integer|min:1',
+            'apartado_habilitado' => 'required|boolean',
+            'dias_gracia' => 'required|integer|min:0',
+            'frecuencia_defecto' => 'required|in:semanal,quincenal,mensual',
+            'tasa_interes_defecto' => 'required|numeric|min:0',
             'notas' => 'nullable|string|max:500',
         ]);
 
@@ -107,6 +111,10 @@ class ParametrizacionMoraController extends Controller
             'dias_tope_mora' => 'sometimes|integer|min:0',
             'aplicar_mora_completa' => 'sometimes|boolean',
             'dias_para_mora_completa' => 'sometimes|integer|min:1',
+            'apartado_habilitado' => 'sometimes|boolean',
+            'dias_gracia' => 'sometimes|integer|min:0',
+            'frecuencia_defecto' => 'sometimes|in:semanal,quincenal,mensual',
+            'tasa_interes_defecto' => 'sometimes|numeric|min:0',
             'activo' => 'sometimes|boolean',
             'notas' => 'nullable|string|max:500',
         ]);

@@ -158,8 +158,7 @@ class BovedaMovimiento extends Model
         }
 
         // Verificar si el usuario tiene permisos de aprobación
-        return $usuario->hasPermission('bovedas', 'aprobar') ||
-               in_array($usuario->rol, ['administrador', 'gerente', 'supervisor']);
+        return $usuario->hasPermission('boveda', 'aprobar');
     }
 
     public function aprobar($usuario)

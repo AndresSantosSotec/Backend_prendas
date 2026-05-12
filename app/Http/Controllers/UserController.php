@@ -20,6 +20,13 @@ class UserController extends Controller
     public function index(Request $request): JsonResponse
     {
         $authUser = $request->user();
+        if (!$authUser->hasPermission('usuarios', 'ver')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para ver usuarios'
+            ], 403);
+        }
+
         $query = User::with('sucursal');
 
         // 🔒 PROTECCIÓN DE VISTA: Ocultar superadmins a usuarios no-superadmin
@@ -125,6 +132,14 @@ class UserController extends Controller
      */
     public function show(string $id): JsonResponse
     {
+        $authUser = request()->user();
+        if (!$authUser->hasPermission('usuarios', 'ver')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para ver usuarios'
+            ], 403);
+        }
+
         $user = User::with('sucursal')->find($id);
 
         if (!$user) {
@@ -146,6 +161,12 @@ class UserController extends Controller
     public function store(Request $request): JsonResponse
     {
         $authUser = $request->user();
+        if (!$authUser->hasPermission('usuarios', 'crear')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para crear usuarios'
+            ], 403);
+        }
 
         // Determinar si el rol permite sucursal_id null
         $rolPermiteSinSucursal = in_array($request->rol, ['superadmin', 'administrador']);
@@ -221,6 +242,12 @@ class UserController extends Controller
         }
 
         $authUser = $request->user();
+        if (!$authUser->hasPermission('usuarios', 'editar')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para editar usuarios'
+            ], 403);
+        }
 
         // 🔒 PROTECCIÓN: No modificar superadmins si no eres superadmin
         if ($user->rol === 'superadmin' && $authUser->rol !== 'superadmin') {
@@ -306,6 +333,13 @@ class UserController extends Controller
 
         // 🔒 PROTECCIÓN: No eliminar superadmins si no eres superadmin
         $authUser = request()->user();
+        if (!$authUser->hasPermission('usuarios', 'eliminar')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para eliminar usuarios'
+            ], 403);
+        }
+
         if ($user->rol === 'superadmin' && $authUser->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
@@ -348,6 +382,13 @@ class UserController extends Controller
 
         // 🔒 PROTECCIÓN: No desactivar superadmins si no eres superadmin
         $authUser = request()->user();
+        if (!$authUser->hasPermission('usuarios', 'editar')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para editar usuarios'
+            ], 403);
+        }
+
         if ($user->rol === 'superadmin' && $authUser->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
@@ -394,6 +435,13 @@ class UserController extends Controller
 
         // 🔒 PROTECCIÓN: No cambiar password de superadmins si no eres superadmin
         $authUser = $request->user();
+        if (!$authUser->hasPermission('usuarios', 'editar')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para editar usuarios'
+            ], 403);
+        }
+
         if ($user->rol === 'superadmin' && $authUser->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
@@ -438,6 +486,12 @@ class UserController extends Controller
         }
 
         $authUser = $request->user();
+        if ($authUser->id != $user->id && !$authUser->hasPermission('usuarios', 'editar')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para editar usuarios'
+            ], 403);
+        }
 
         // 🔒 PROTECCIÓN: Superadmin
         if ($user->rol === 'superadmin' && $authUser->rol !== 'superadmin') {
@@ -447,8 +501,8 @@ class UserController extends Controller
             ], 403);
         }
 
-        // Validar permisos: Mismo usuario O Admin (para otros)
-        if ($authUser->id != $user->id && !in_array($authUser->rol, ['superadmin', 'administrador'])) {
+        // Validar permisos: mismo usuario o permiso explícito para editar usuarios
+        if ($authUser->id != $user->id && !$authUser->hasPermission('usuarios', 'editar')) {
              return response()->json([
                 'success' => false,
                 'message' => 'No autorizado'
@@ -521,4 +575,3 @@ class UserController extends Controller
         ];
     }
 }
-

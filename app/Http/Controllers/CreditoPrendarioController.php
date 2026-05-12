@@ -254,7 +254,7 @@ class CreditoPrendarioController extends Controller
             'tasa_mora' => 'nullable|numeric|min:0',
             'tipo_mora' => 'nullable|in:porcentaje,monto_fijo',
             'mora_monto_fijo' => 'nullable|numeric|min:0',
-            'tipo_interes' => 'nullable|in:diario,semanal,catorcenal,quincenal,cada_28_dias,mensual',
+            'tipo_interes' => 'nullable|in:semanal,quincenal,mensual',
             'metodo_calculo' => 'nullable|in:francesa,flat',
             'afecta_interes_mensual' => 'nullable|boolean',
             'permite_pago_capital_diferente' => 'nullable|boolean',
@@ -432,9 +432,25 @@ class CreditoPrendarioController extends Controller
             if ($request->plan_interes_id) {
                 $plan = \App\Models\PlanInteresCategoria::find($request->plan_interes_id);
             }
-            $tasaMora = $request->tasa_mora ?? $plan?->tasa_moratorios ?? $categoria?->tasa_mora_default ?? 0;
-            $tipoMora = $request->tipo_mora ?? $plan?->tipo_mora ?? $categoria?->tipo_mora_default ?? 'porcentaje';
-            $moraMontoFijo = $request->mora_monto_fijo ?? $plan?->mora_monto_fijo ?? $categoria?->mora_monto_fijo_default ?? null;
+            $user = Auth::user();
+            $tasaInteresPlanOCat = (float) ($plan?->tasa_interes ?? $categoria?->tasa_interes_default ?? 0);
+            if ($user && $user->hasPermission('creditos', 'editar_tasa_interes')) {
+                $tasaInteresFinal = $request->filled('tasa_interes')
+                    ? (float) $request->tasa_interes
+                    : $tasaInteresPlanOCat;
+            } else {
+                $tasaInteresFinal = $tasaInteresPlanOCat;
+            }
+
+            if ($user && $user->hasPermission('creditos', 'editar_mora')) {
+                $tasaMora = $request->tasa_mora ?? $plan?->tasa_moratorios ?? $categoria?->tasa_mora_default ?? 0;
+                $tipoMora = $request->tipo_mora ?? $plan?->tipo_mora ?? $categoria?->tipo_mora_default ?? 'porcentaje';
+                $moraMontoFijo = $request->mora_monto_fijo ?? $plan?->mora_monto_fijo ?? $categoria?->mora_monto_fijo_default ?? null;
+            } else {
+                $tasaMora = $plan?->tasa_moratorios ?? $categoria?->tasa_mora_default ?? 0;
+                $tipoMora = $plan?->tipo_mora ?? $categoria?->tipo_mora_default ?? 'porcentaje';
+                $moraMontoFijo = $plan?->mora_monto_fijo ?? $categoria?->mora_monto_fijo_default ?? null;
+            }
 
             // Crear crédito prendario con todos los campos
             $datosCredito = [
@@ -446,7 +462,7 @@ class CreditoPrendarioController extends Controller
                 'monto_solicitado' => $request->monto_solicitado,
                 'monto_aprobado' => $request->monto_aprobado ?? $request->monto_solicitado,
                 'valor_tasacion' => $request->valor_tasacion,
-                'tasa_interes' => $request->tasa_interes ?? ($categoria?->tasa_interes_default ?? 0),
+                'tasa_interes' => $tasaInteresFinal,
                 'tasa_mora' => $tasaMora,
                 'tipo_mora' => $tipoMora,
                 'mora_monto_fijo' => $moraMontoFijo,
@@ -774,9 +790,14 @@ class CreditoPrendarioController extends Controller
                     $clienteNombre = $credito->cliente->nombres . ' ' . $credito->cliente->apellidos;
                 }
 
-                // 🔒 REQUERIR CAJA ABIERTA para desembolso en efectivo
+                // 🔒 REQUERIR CAJA ABIERTA para desembolso en efectivo (422 con mensaje claro; no usar excepción genérica que en prod ocultaba el detalle)
                 if (!CajaService::tieneCajaAbierta()) {
-                    throw new \Exception('Debe tener una caja abierta para realizar desembolsos en efectivo. Vaya a Caja → Aperturar Caja.');
+                    DB::rollBack();
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Debe tener una caja abierta para realizar desembolsos en efectivo. Vaya a Caja → Aperturar Caja.',
+                    ], 422);
                 }
                 CajaService::registrarDesembolso(
                     $montoDesembolso,
@@ -845,12 +866,19 @@ class CreditoPrendarioController extends Controller
                 'request' => $request->all()
             ]);
 
+            $technical = $e->getMessage();
+            $userMessage = 'Error al crear el crédito prendario';
+            // Mensajes de negocio ya redactados en español (evitar respuesta opaca en producción)
+            if (str_contains($technical, 'caja abierta')) {
+                $userMessage = $technical;
+            }
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error al crear el crédito prendario',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
+                'message' => $userMessage,
+                'error' => config('app.debug') ? $technical : ($userMessage === 'Error al crear el crédito prendario' ? 'Error interno del servidor' : null),
                 'trace' => config('app.debug') ? $e->getTraceAsString() : null
-            ], 500);
+            ], $userMessage !== 'Error al crear el crédito prendario' ? 422 : 500);
         }
     }
 
@@ -3507,6 +3535,15 @@ class CreditoPrendarioController extends Controller
 
             // Guardar estado anterior para auditoría
             $estadoAnterior = $credito->estado;
+
+            if ($request->has('tasa_interes') && ! $request->user()->hasPermission('creditos', 'editar_tasa_interes')) {
+                DB::rollBack();
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No tienes permiso para modificar la tasa de interés.',
+                ], 403);
+            }
 
             // Actualizar campos permitidos
             $camposActualizables = [
