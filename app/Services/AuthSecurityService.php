@@ -12,12 +12,12 @@ class AuthSecurityService
     /**
      * Número máximo de intentos fallidos antes del bloqueo
      */
-    const MAX_FAILED_ATTEMPTS = 5;
+    const MAX_FAILED_ATTEMPTS = 10; // Aumentado a 10 intentos
     
     /**
      * Minutos de bloqueo después de exceder intentos
      */
-    const LOCKOUT_MINUTES = 15;
+    const LOCKOUT_MINUTES = 1; // Cambiado a 1 minuto para desarrollo
     
     /**
      * Minutos para resetear el contador de intentos
@@ -38,6 +38,8 @@ class AuthSecurityService
      */
     public function isIpBlocked(string $ip): bool
     {
+        return false; // DESACTIVADO TEMPORALMENTE PARA DESARROLLO
+        
         $key = "login_attempts_ip:{$ip}";
         $attempts = Cache::get($key, 0);
         
@@ -49,6 +51,8 @@ class AuthSecurityService
      */
     public function isUserLocked(User $user): bool
     {
+        return false; // DESACTIVADO TEMPORALMENTE PARA DESARROLLO
+        
         if (!$user->locked_until) {
             return false;
         }

@@ -14,7 +14,7 @@ use App\Models\VentaCreditoPlanPago;
 use App\Models\VentaCreditoMovimiento;
 use App\Enums\EstadoPrenda;
 use App\Enums\EstadoVenta;
-use App\Services\ContabilidadService;
+use App\Services\ContabilidadAutomaticaService;
 use Carbon\Carbon;
 use App\Services\CajaService;
 use Illuminate\Support\Facades\Auth;
@@ -310,32 +310,34 @@ class VentaMultiPrendaService
      */
     private function generarAsientoContable(Venta $venta): void
     {
-        if (!class_exists('\App\Services\ContabilidadService')) {
+        if (!class_exists('\App\Services\ContabilidadAutomaticaService')) {
             return;
         }
 
-        $contabilidadService = app('\App\Services\ContabilidadService');
+        $contabilidadService = app('\App\Services\ContabilidadAutomaticaService');
 
-        // Asiento: Caja (debe) / Ventas (haber)
-        $contabilidadService->registrarAsiento([
-            'tipo' => 'ingreso',
-            'concepto' => "Venta de prendas {$venta->codigo_venta}",
-            'referencia' => $venta->codigo_venta,
-            'fecha' => $venta->fecha_venta,
-            'movimientos' => [
-                [
-                    'cuenta' => config('contabilidad.cuentas.caja', '1101'),
-                    'debe' => $venta->total_final,
-                    'haber' => 0,
-                    'descripcion' => 'Ingreso por venta de prendas'
-                ],
-                [
-                    'cuenta' => config('contabilidad.cuentas.ventas', '4101'),
-                    'debe' => 0,
-                    'haber' => $venta->total_final,
-                    'descripcion' => "{$venta->detalles->count()} prendas vendidas"
-                ]
-            ]
+        // Determinar el tipo de asiento según el tipo de venta
+        $tipoAsiento = match ($venta->tipo_venta) {
+            'contado' => 'venta_contado',
+            'credito' => 'venta_enganche',
+            'apartado' => 'venta_enganche',
+            default => 'venta_contado'
+        };
+
+        $total = (float) ($venta->total_final ?? 0);
+        $enganche = (float) ($venta->total_pagado ?? $venta->enganche ?? 0);
+
+        // Registrar asiento contable con la firma correcta
+        $contabilidadService->registrarAsiento($tipoAsiento, [
+            'sucursal_id' => $venta->sucursal_id,
+            'usuario_id' => $venta->usuario_id ?? Auth::id(),
+            'venta_id' => $venta->id,
+            'numero_documento' => $venta->codigo_venta,
+            'glosa' => "Venta {$venta->tipo_venta} #{$venta->codigo_venta} - {$venta->detalles->count()} prendas",
+            'fecha_documento' => $venta->fecha_venta ?? now(),
+            'total' => $total,
+            'enganche' => $enganche,
+            'saldo_financiar' => max(0, $total - $enganche),
         ]);
 
         Log::info("Asiento contable generado para venta {$venta->codigo_venta}");

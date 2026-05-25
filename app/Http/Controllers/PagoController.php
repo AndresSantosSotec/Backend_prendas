@@ -77,10 +77,17 @@ class PagoController extends Controller
 
         } catch (\Exception $e) {
             Log::error('Error al ejecutar pago: ' . $e->getMessage());
+
+            $mensaje = $e->getMessage();
+            $status = 422;
+            if (str_contains(strtolower($mensaje), 'ya fue procesada')) {
+                $status = 409;
+            }
+
             return response()->json([
                 'success' => false,
-                'message' => $e->getMessage(), // Mensaje seguro para el usuario (validaciones de negocio)
-            ], 400);
+                'message' => $mensaje, // Mensaje seguro para el usuario (validaciones de negocio)
+            ], $status);
         }
     }
 

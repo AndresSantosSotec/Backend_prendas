@@ -47,6 +47,82 @@ class PagoService
 
         $diasTranscurridos = max(1, abs($fechaCalculo->diffInDays($fechaBase)));
 
+        // Si existe plan de pagos, usar saldos pendientes reales para mantener coherencia
+        // entre el detalle del crédito y el modal de registro de pago.
+        $cuotasPendientes = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
+            ->orderBy('numero_cuota', 'asc')
+            ->get();
+
+        if ($cuotasPendientes->isNotEmpty()) {
+            $capitalPendiente = 0.0;
+            $interesTotal = 0.0;
+            $moraTotal = 0.0;
+            $otrosTotal = 0.0;
+            $diasMora = 0;
+
+            foreach ($cuotasPendientes as $cuota) {
+                $capitalPendienteCuota = (float) ($cuota->capital_pendiente ?? max(0, ((float) $cuota->capital_proyectado - (float) ($cuota->capital_pagado ?? 0))));
+                $interesPendienteCuota = (float) ($cuota->interes_pendiente ?? max(0, ((float) $cuota->interes_proyectado - (float) ($cuota->interes_pagado ?? 0))));
+                $moraPendienteCuota = (float) ($cuota->mora_pendiente ?? max(0, ((float) ($cuota->mora_proyectada ?? 0) - (float) ($cuota->mora_pagada ?? 0))));
+                $otrosPendienteCuota = (float) ($cuota->otros_cargos_pendientes ?? max(0, ((float) ($cuota->otros_cargos_proyectados ?? 0) - (float) ($cuota->otros_cargos_pagados ?? 0))));
+
+                $capitalPendiente += max(0, $capitalPendienteCuota);
+                $interesTotal += max(0, $interesPendienteCuota);
+                $moraTotal += max(0, $moraPendienteCuota);
+                $otrosTotal += max(0, $otrosPendienteCuota);
+
+                $diasMoraCuota = (int) ($cuota->dias_mora ?? 0);
+                if ($diasMoraCuota <= 0 && $cuota->fecha_vencimiento && $fechaCalculo->gt($cuota->fecha_vencimiento)) {
+                    $diasMoraCuota = (int) $cuota->fecha_vencimiento->diffInDays($fechaCalculo);
+                }
+                $diasMora = max($diasMora, $diasMoraCuota);
+            }
+
+            $periodosCobrar = $this->calcularPeriodos($diasTranscurridos, $credito->tipo_interes);
+            $primeraCuota = $cuotasPendientes->first();
+
+            $cuotaCapital = round((float) ($primeraCuota->capital_pendiente ?? 0), 2);
+            $cuotaInteres = round((float) ($primeraCuota->interes_pendiente ?? 0), 2);
+            $cuotaMora = round((float) ($primeraCuota->mora_pendiente ?? 0), 2);
+            $cuotaGastos = round((float) ($primeraCuota->otros_cargos_pendientes ?? 0), 2);
+            $montoCuotaActual = round($cuotaCapital + $cuotaInteres + $cuotaMora + $cuotaGastos, 2);
+
+            $interesPorPeriodo = $cuotaInteres;
+            if ($interesPorPeriodo <= 0) {
+                $tasaPorPeriodo = $this->calcularTasaPorPeriodo((float) $credito->tasa_interes, (string) $credito->tipo_interes);
+                $interesPorPeriodo = max(0, $capitalPendiente * $tasaPorPeriodo);
+            }
+
+            $minimoRenovacion = $moraTotal + $interesPorPeriodo;
+            $totalPagar = $capitalPendiente + $interesTotal + $moraTotal + $otrosTotal;
+
+            return [
+                'fecha_calculo' => $fechaCalculo->format('Y-m-d'),
+                'dias_transcurridos' => $diasTranscurridos,
+                'periodos_cobrados' => $periodosCobrar,
+                'tipo_periodo' => $credito->tipo_interes,
+                'capital_pendiente' => round($capitalPendiente, 2),
+                'interes_acumulado' => round($interesTotal, 2),
+                'interes_periodo_actual' => round($interesPorPeriodo, 2),
+                'mora_acumulada' => round($moraTotal, 2),
+                'dias_mora' => $diasMora,
+                'total_para_liquidar' => round($totalPagar, 2),
+                'minimo_renovacion' => round($minimoRenovacion, 2),
+                'interes_por_periodo' => round($interesPorPeriodo, 2),
+                'monto_cuota_actual' => round($montoCuotaActual, 2),
+                'cuota_capital' => $cuotaCapital,
+                'cuota_interes' => $cuotaInteres,
+                'cuota_mora' => $cuotaMora,
+                'cuota_gastos' => $cuotaGastos,
+                'cuota_numero' => $primeraCuota?->numero_cuota,
+                'fecha_vencimiento' => $credito->fecha_vencimiento?->format('Y-m-d'),
+                'en_mora' => ($diasMora > 0) || ($moraTotal > 0),
+                'opciones_adelanto' => $this->calcularOpcionesRenovacion($credito, $interesPorPeriodo, $minimoRenovacion),
+                'opciones_cuotas_adelanto' => $this->calcularOpcionesCuotasAdelanto($credito),
+            ];
+        }
+
         // ============== CÁLCULO DE INTERÉS ==============
         $tasaInteres = $credito->tasa_interes / 100;
         $periodosCobrar = $this->calcularPeriodos($diasTranscurridos, $credito->tipo_interes);
