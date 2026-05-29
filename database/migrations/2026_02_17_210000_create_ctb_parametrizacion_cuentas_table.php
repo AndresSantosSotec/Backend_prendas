@@ -83,8 +83,9 @@ return new class extends Migration
             });
         }
 
-        // Insertar parametrizaciones por defecto
-        $this->insertDefaultParametrizaciones();
+        // NOTA: Las parametrizaciones por defecto se insertan mediante el seeder
+        // ParametrizacionCuentasContablesSeeder que se ejecuta después de PlanCuentasSeeder
+        // $this->insertDefaultParametrizaciones();
     }
 
     /**
