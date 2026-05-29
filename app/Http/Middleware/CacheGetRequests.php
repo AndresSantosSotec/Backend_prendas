@@ -11,12 +11,11 @@ class CacheGetRequests
 {
     /**
      * Lista de rutas que deben ser cacheadas
+     * NOTA: 'sucursales' NO se cachea porque debe reflejar cambios en tiempo real
      */
     protected $cacheableRoutes = [
-        'categorias-producto',
         'denominaciones',
         'monedas',
-        'sucursales',
     ];
 
     /**
