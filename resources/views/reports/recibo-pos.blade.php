@@ -9,7 +9,7 @@
             size: 80mm auto;
             margin: 0;
         }
-        
+
         body {
             font-family: 'Courier New', 'Consolas', monospace;
             font-size: 10px;
@@ -21,17 +21,17 @@
             max-width: 80mm;
             background: white;
         }
-        
+
         /* Centrado */
         .center {
             text-align: center;
         }
-        
+
         /* Negrita */
         .bold {
             font-weight: bold;
         }
-        
+
         /* Header del negocio */
         .header {
             text-align: center;
@@ -39,81 +39,81 @@
             padding-bottom: 6px;
             border-bottom: 1px dashed #000;
         }
-        
+
         .header .empresa {
             font-size: 13px;
             font-weight: bold;
             margin-bottom: 3px;
         }
-        
+
         .header .info {
             font-size: 9px;
             line-height: 1.4;
         }
-        
+
         /* Información del documento */
         .doc-info {
             margin: 8px 0;
             font-size: 9px;
             line-height: 1.5;
         }
-        
+
         .doc-info .row {
             margin: 2px 0;
         }
-        
+
         .doc-info .label {
             display: inline-block;
             width: 70px;
             font-weight: bold;
         }
-        
+
         /* Separador */
         .separator {
             border-top: 1px dashed #000;
             margin: 6px 0;
         }
-        
+
         .separator-double {
             border-top: 1px solid #000;
             margin: 6px 0;
         }
-        
+
         /* Productos */
         .productos {
             margin: 8px 0;
         }
-        
+
         .producto {
             margin: 5px 0;
             padding: 3px 0;
             border-bottom: 1px dotted #ccc;
         }
-        
+
         .producto-desc {
             font-size: 9px;
             word-wrap: break-word;
         }
-        
+
         .producto-detalle {
             font-size: 9px;
             margin-top: 2px;
             display: flex;
             justify-content: space-between;
         }
-        
+
         /* Totales */
         .totales {
             margin: 8px 0;
             font-size: 10px;
         }
-        
+
         .total-row {
             display: flex;
             justify-content: space-between;
             padding: 2px 0;
         }
-        
+
         .total-row.highlight {
             font-weight: bold;
             font-size: 11px;
@@ -122,19 +122,19 @@
             border-bottom: 1px solid #000;
             margin-top: 4px;
         }
-        
+
         /* Pagos */
         .pagos {
             margin: 8px 0;
             font-size: 9px;
         }
-        
+
         .pago-row {
             display: flex;
             justify-content: space-between;
             padding: 1px 0;
         }
-        
+
         /* Footer */
         .footer {
             margin-top: 10px;
@@ -144,7 +144,7 @@
             font-size: 8px;
             line-height: 1.4;
         }
-        
+
         /* Estado badge */
         .badge {
             display: inline-block;
@@ -154,7 +154,7 @@
             border: 1px solid #000;
             margin: 3px 0;
         }
-        
+
         /* Espacio de corte */
         .cut-space {
             height: 30mm;
@@ -163,13 +163,13 @@
             text-align: center;
             padding-top: 5mm;
         }
-        
+
         .cut-space::before {
             content: "✂ -- Cortar aquí --";
             font-size: 8px;
             color: #666;
         }
-        
+
         /* Responsive a menos de 80mm */
         @media print {
             body {
@@ -195,7 +195,7 @@
             NIT: {{ $venta->sucursal->nit ?? 'CF' }}
         </div>
     </div>
-    
+
     <!-- INFORMACIÓN DEL DOCUMENTO -->
     <div class="doc-info">
         <div class="row">
@@ -219,9 +219,9 @@
         </div>
         @endif
     </div>
-    
+
     <div class="separator"></div>
-    
+
     <!-- ESTADO -->
     <div class="center">
         <span class="badge">
@@ -233,9 +233,9 @@
         </span>
         @endif
     </div>
-    
+
     <div class="separator-double"></div>
-    
+
     <!-- PRODUCTOS -->
     <div class="productos">
         @foreach($venta->detalles as $detalle)
@@ -256,29 +256,29 @@
             </div>
         @endforeach
     </div>
-    
+
     <div class="separator-double"></div>
-    
+
     <!-- TOTALES -->
     <div class="totales">
         <div class="total-row">
             <span>SUBTOTAL:</span>
             <span>{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($venta->subtotal, 2) }}</span>
         </div>
-        
+
         @if($venta->total_descuentos > 0)
         <div class="total-row">
             <span>DESCUENTOS:</span>
             <span>-{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($venta->total_descuentos, 2) }}</span>
         </div>
         @endif
-        
+
         <div class="total-row highlight">
             <span>TOTAL:</span>
             <span>{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($venta->total_final, 2) }}</span>
         </div>
     </div>
-    
+
     <!-- INFORMACIÓN DE PAGO -->
     @if($venta->pagos && $venta->pagos->count() > 0)
     <div class="separator"></div>
@@ -295,21 +295,21 @@
             </div>
             @endif
         @endforeach
-        
+
         <div class="separator" style="margin: 4px 0;"></div>
-        
+
         <div class="pago-row bold">
             <span>TOTAL PAGADO:</span>
             <span>{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($venta->total_pagado, 2) }}</span>
         </div>
-        
+
         @if($venta->saldo_pendiente > 0)
         <div class="pago-row bold" style="color: #d00;">
             <span>SALDO PENDIENTE:</span>
             <span>{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($venta->saldo_pendiente, 2) }}</span>
         </div>
         @endif
-        
+
         @if(($venta->total_pagado - $venta->total_final) > 0)
         <div class="pago-row">
             <span>CAMBIO:</span>
@@ -318,7 +318,7 @@
         @endif
     </div>
     @endif
-    
+
     <!-- INFORMACIÓN ADICIONAL PARA CRÉDITO/APARTADO -->
     @if($venta->tipo_venta === 'credito' && $venta->ventaCredito)
     <div class="separator"></div>
@@ -345,7 +345,7 @@
         @endif
     </div>
     @endif
-    
+
     @if($venta->tipo_venta === 'apartado' && $venta->apartado)
     <div class="separator"></div>
     <div class="center bold" style="margin: 6px 0; font-size: 10px;">
@@ -363,7 +363,7 @@
         </div>
     </div>
     @endif
-    
+
     <!-- CERTIFICACIÓN -->
     @if($venta->certificada && $venta->no_autorizacion)
     <div class="separator"></div>
@@ -372,7 +372,7 @@
         <div>Autorización: {{ $venta->no_autorizacion }}</div>
     </div>
     @endif
-    
+
     <!-- FOOTER -->
     <div class="footer">
         <div class="bold">¡GRACIAS POR SU COMPRA!</div>
@@ -389,7 +389,7 @@
         </div>
         @endif
     </div>
-    
+
     <!-- ESPACIO DE CORTE -->
     <div class="cut-space"></div>
 </body>

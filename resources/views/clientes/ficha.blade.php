@@ -235,6 +235,7 @@
 </head>
 <body>
     <header>
+
         <div class="header-inner">
             <div class="brand">Avanza</div>
             <div class="doc-type">Ficha de Cliente — Documento interno</div>
