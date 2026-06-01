@@ -220,6 +220,9 @@ class UserController extends Controller
 
         $user = User::create($data);
 
+        // 🔐 Asignar permisos por defecto según el rol
+        $user->assignDefaultPermissions();
+
         return response()->json([
             'success' => true,
             'message' => 'Usuario creado exitosamente',
@@ -308,7 +311,15 @@ class UserController extends Controller
             ], 422);
         }
 
+        // Guardar el rol anterior para detectar cambios
+        $rolAnterior = $user->rol;
+
         $user->update($data);
+
+        // 🔐 Si cambió el rol, reasignar permisos por defecto del nuevo rol
+        if (isset($data['rol']) && $data['rol'] !== $rolAnterior) {
+            $user->assignDefaultPermissions();
+        }
 
         return response()->json([
             'success' => true,
