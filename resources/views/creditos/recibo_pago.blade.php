@@ -128,7 +128,7 @@
 
 {{-- ENCABEZADO --}}
 <div class="header">
-    <div class="brand-title">{{ $sucursal->nombre ?? config('app.name', 'DigiPrenda') }}</div>
+    <div class="brand-title">{{ $sucursal->nombre ?? config('app.name', 'Avanza') }}</div>
     @if(!empty($sucursal->direccion))
     <div class="brand-sub">{{ $sucursal->direccion }}</div>
     @endif
@@ -327,7 +327,7 @@
 {{-- PIE --}}
 <div class="footer">
     <p>Este documento es un comprobante oficial de pago. Consérvelo para sus registros.</p>
-    <p>{{ config('app.name', 'DigiPrenda') }} &bull; {{ \Carbon\Carbon::now()->format('d/m/Y H:i:s') }} &bull; {{ $sucursal->nombre ?? '' }}</p>
+    <p>{{ config('app.name', 'Avanza') }} &bull; {{ \Carbon\Carbon::now()->format('d/m/Y H:i:s') }} &bull; {{ $sucursal->nombre ?? '' }}</p>
 </div>
 
 </body>

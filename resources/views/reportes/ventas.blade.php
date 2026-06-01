@@ -150,7 +150,7 @@
     </table>
 
     <div class="footer">
-        DigiPrenda &mdash; Reporte generado automáticamente &mdash; {{ $generado_en }}
+        Avanza &mdash; Reporte generado automáticamente &mdash; {{ $generado_en }}
     </div>
 
 </body>

@@ -310,7 +310,7 @@
     <!-- Footer -->
     <div class="footer">
         <p>
-            DigiPrenda - Reporte generado por: {{ $usuario->nombre ?? 'Sistema' }}
+            Avanza - Reporte generado por: {{ $usuario->nombre ?? 'Sistema' }}
         </p>
         <p>Página {PAGE_NUM} de {PAGE_COUNT}</p>
     </div>

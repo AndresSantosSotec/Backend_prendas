@@ -184,7 +184,7 @@
 <body>
     <!-- HEADER -->
     <div class="header">
-        <div class="empresa">{{ $venta->sucursal->nombre ?? 'DIGIPRENDA' }}</div>
+        <div class="empresa">{{ $venta->sucursal->nombre ?? 'AVANZA' }}</div>
         <div class="info">
             @if($venta->sucursal)
                 {{ $venta->sucursal->direccion ?? '' }}<br>

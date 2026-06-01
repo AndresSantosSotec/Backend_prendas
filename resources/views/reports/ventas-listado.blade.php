@@ -34,7 +34,7 @@
 <body>
     <div class="header">
         <h1>LISTADO DE VENTAS</h1>
-        <p>DigiPrenda - Reporte generado el {{ now()->format('d/m/Y H:i:s') }}</p>
+        <p>Avanza - Reporte generado el {{ now()->format('d/m/Y H:i:s') }}</p>
     </div>
 
     <div class="filters">
@@ -107,7 +107,7 @@
     </div>
 
     <div class="footer">
-        DigiPrenda - {{ now()->format('Y') }}
+        Avanza - {{ now()->format('Y') }}
     </div>
 </body>
 </html>

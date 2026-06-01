@@ -221,7 +221,7 @@
     @endif
 
     <div class="footer">
-        <p>DigiPrenda - Sistema de Gestión de Empeños</p>
+        <p>Avanza - Sistema de Gestión de Empeños</p>
         <p>Documento generado el {{ $fecha_generacion }}</p>
     </div>
 </body>

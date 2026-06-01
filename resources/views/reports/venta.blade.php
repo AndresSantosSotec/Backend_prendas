@@ -26,7 +26,7 @@
 </head>
 <body>
     <div class="header">
-        <h1>DIGIPRENDA</h1>
+        <h1>AVANZA</h1>
         <p>{{ $venta->sucursal->nombre ?? 'Tienda Principal' }}</p>
         <p>{{ $venta->sucursal->direccion ?? '' }}</p>
         <p>Documento: {{ $venta->tipo_documento }} - {{ $venta->codigo_venta }}</p>

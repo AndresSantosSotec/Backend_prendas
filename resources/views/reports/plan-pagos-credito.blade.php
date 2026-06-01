@@ -93,7 +93,7 @@
 </head>
 <body>
     <header>
-        <div class="brand-title">{{ $venta->sucursal->nombre ?? 'DIGIPRENDA' }}</div>
+        <div class="brand-title">{{ $venta->sucursal->nombre ?? 'AVANZA' }}</div>
         <div class="brand-subtitle">{{ $venta->sucursal->direccion ?? 'Sistema de Gestión de Empeños' }}</div>
     </header>
 

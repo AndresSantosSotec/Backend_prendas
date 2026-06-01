@@ -299,7 +299,7 @@
     @endif
 
     <div class="footer">
-        <p>Generado el {{ $fecha_generacion }} | Reporte exclusivo para administradores | DigiPrenda &copy;</p>
+        <p>Generado el {{ $fecha_generacion }} | Reporte exclusivo para administradores | Avanza &copy;</p>
     </div>
 </body>
 </html>
