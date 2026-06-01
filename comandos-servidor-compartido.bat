@@ -16,26 +16,41 @@ echo ║    COMANDOS PARA SERVIDOR COMPARTIDO                 ║
 echo ║              Sistema DigiPrenda                      ║
 echo ╚═══════════════════════════════════════════════════════╝
 echo.
+echo 📌 IMPORTANTE: Este proyecto usa ea-php83 (EasyApache PHP 8.3)
+echo    Todos los comandos artisan deben usar el prefijo: ea-php83
 echo.
-echo PASO 1: Copiar estos comandos y ejecutarlos UNO POR UNO
+echo OPCION 1: RESET COMPLETO (Elimina todos los datos)
 echo ══════════════════════════════════════════════════════════
 echo.
-echo php artisan migrate:fresh --force
-echo php artisan db:seed --class=DatabaseProdSeeder --force
-echo php artisan config:clear
-echo php artisan cache:clear
-echo php artisan route:clear
-echo php artisan optimize
+echo cd /home/tu_usuario/public_html/api
+echo git pull origin main
+echo ea-php83 artisan migrate:fresh --force
+echo ea-php83 artisan db:seed --class=DatabaseProdSeeder --force
+echo ea-php83 artisan optimize:clear
+echo ea-php83 artisan config:cache
+echo ea-php83 artisan route:cache
 echo.
 echo ══════════════════════════════════════════════════════════
 echo.
-echo ALTERNATIVA: Si solo necesitas agregar usuarios (sin borrar datos)
+echo OPCION 2: SOLO AGREGAR USUARIOS (Sin borrar datos)
 echo ══════════════════════════════════════════════════════════
 echo.
-echo php artisan db:seed --class=SucursalProdSeeder --force
-echo php artisan db:seed --class=UserProdSeeder --force
-echo php artisan permissions:assign-missing
-echo php artisan optimize:clear
+echo cd /home/tu_usuario/public_html/api
+echo git pull origin main
+echo ea-php83 artisan migrate --force
+echo ea-php83 artisan db:seed --class=SucursalProdSeeder
+echo ea-php83 artisan db:seed --class=UserProdSeeder
+echo ea-php83 artisan permissions:assign-missing
+echo ea-php83 artisan optimize:clear
+echo.
+echo ══════════════════════════════════════════════════════════
+echo.
+echo OPCION 3: SOLO ASIGNAR PERMISOS (Sin agregar usuarios)
+echo ══════════════════════════════════════════════════════════
+echo.
+echo cd /home/tu_usuario/public_html/api
+echo ea-php83 artisan permissions:assign-missing
+echo ea-php83 artisan optimize:clear
 echo.
 echo ══════════════════════════════════════════════════════════
 echo.
