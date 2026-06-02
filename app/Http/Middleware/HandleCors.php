@@ -40,17 +40,7 @@ class HandleCors
 
         $isAllowed = $origin && (in_array($origin, $allowedOrigins) || $isLocalhost);
 
-        // Para peticiones OPTIONS (preflight) interceptarlas tempranamente
-        if ($request->getMethod() === 'OPTIONS') {
-            return response('', 200)
-                ->header('Access-Control-Allow-Origin', $origin ?: 'https://avanzadigiprenda.stockgenius-sotecpro.com')
-                ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH')
-                ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Client-ID')
-                ->header('Access-Control-Allow-Credentials', 'true')
-                ->header('Access-Control-Max-Age', '86400');
-        }
-
-        $response = $next($request);
+        // El manejo de OPTIONS lo hará el CORS nativo de Laravel (config/cors.php)        $response = $next($request);
 
         if ($isAllowed) {
             // Manejar StreamedResponse y BinaryFileResponse de manera diferente
