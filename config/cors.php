@@ -29,7 +29,6 @@ return [
         'http://127.0.0.1:3000',
         'https://digiprenda.inniserver.net',
         'https://avanzadigiprenda.stockgenius-sotecpro.com',
-        '*',
     ],
 
     'allowed_origins_patterns' => [

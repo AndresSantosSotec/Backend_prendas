@@ -43,7 +43,7 @@ class HandleCors
         // Para peticiones OPTIONS (preflight) interceptarlas tempranamente
         if ($request->getMethod() === 'OPTIONS') {
             return response('', 200)
-                ->header('Access-Control-Allow-Origin', $origin ?: '*')
+                ->header('Access-Control-Allow-Origin', $origin ?: 'https://avanzadigiprenda.stockgenius-sotecpro.com')
                 ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH')
                 ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Client-ID')
                 ->header('Access-Control-Allow-Credentials', 'true')
