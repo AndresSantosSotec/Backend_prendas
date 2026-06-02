@@ -92,9 +92,19 @@
     </style>
 </head>
 <body>
-    <header>
-        <div style="font-size: 18px; font-weight: bold; padding-top: 15px;">Avanza</div>
-        <div style="font-size: 10px; color: #666;">Reporte de Inventario de Prendas</div>
+    <header style="padding-bottom: 5px;">
+        <table width="100%" style="margin-top: 5px;">
+            <tr>
+                <td width="25%" style="text-align: left; vertical-align: middle; border: none;">
+                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 60px; margin-left: 10px;">
+                </td>
+                <td width="50%" style="text-align: center; vertical-align: middle; border: none; line-height: 1.2;">
+                    <div style="font-size: 18px; font-weight: bold;">Avanza</div>
+                    <div style="font-size: 10px; color: #666;">Reporte de Inventario de Prendas</div>
+                </td>
+                <td width="25%" style="border: none;"></td>
+            </tr>
+        </table>
     </header>
 
     <footer>

@@ -8,10 +8,10 @@
     # CORS Headers - Permitir peticiones desde Avanza
     Header always set Access-Control-Allow-Origin "*"
     Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-    Header always set Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-XSRF-TOKEN, User-Agent"
+    Header always set Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-XSRF-TOKEN, X-Client-ID"
     Header always set Access-Control-Allow-Credentials "true"
     Header always set Access-Control-Max-Age "3600"
-    
+
     # Handle preflight OPTIONS requests
     RewriteCond %{REQUEST_METHOD} OPTIONS
     RewriteRule ^(.*)$ $1 [R=204,L]
@@ -23,6 +23,10 @@
     # Handle User-Agent Header (para Cloudflare)
     RewriteCond %{HTTP:User-Agent} .
     RewriteRule .* - [E=HTTP_USER_AGENT:%{HTTP:User-Agent}]
+
+    # Handle X-Client-ID Header (identificador personalizado desde frontend)
+    RewriteCond %{HTTP:X-Client-ID} .
+    RewriteRule .* - [E=HTTP_X_CLIENT_ID:%{HTTP:X-Client-ID}]
 
     # Handle X-XSRF-Token Header
     RewriteCond %{HTTP:x-xsrf-token} .

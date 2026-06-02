@@ -127,14 +127,24 @@
 <body>
 
 {{-- ENCABEZADO --}}
-<div class="header">
-    <div class="brand-title">{{ $sucursal->nombre ?? config('app.name', 'Avanza') }}</div>
-    @if(!empty($sucursal->direccion))
-    <div class="brand-sub">{{ $sucursal->direccion }}</div>
-    @endif
-    @if(!empty($sucursal->telefono))
-    <div class="brand-sub">Tel: {{ $sucursal->telefono }}</div>
-    @endif
+<div class="header" style="padding-bottom: 10px; border-bottom: 1px solid #ccc; margin-bottom: 15px;">
+    <table width="100%">
+        <tr>
+            <td width="25%" style="text-align: left; vertical-align: middle;">
+                <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+            </td>
+            <td width="50%" style="text-align: center; vertical-align: middle;">
+                <div class="brand-title">{{ $sucursal->nombre ?? config('app.name', 'Avanza') }}</div>
+                @if(!empty($sucursal->direccion))
+                <div class="brand-sub">{{ $sucursal->direccion }}</div>
+                @endif
+                @if(!empty($sucursal->telefono))
+                <div class="brand-sub">Tel: {{ $sucursal->telefono }}</div>
+                @endif
+            </td>
+            <td width="25%"></td>
+        </tr>
+    </table>
 </div>
 
 <div class="doc-title">Recibo de Pago</div>

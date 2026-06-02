@@ -186,10 +186,20 @@
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>RECIBO DE COMPRA</h1>
-        <p>{{ config('app.name', 'Sistema de Gestión') }}</p>
-        <p style="font-size: 9px; margin-top: 2px;">{{ $compra->sucursal->nombre ?? 'N/A' }} | {{ $compra->fecha_compra->format('d/m/Y H:i') }}</p>
+    <div class="header" style="padding-bottom: 10px; border-bottom: 1px solid #ccc; margin-bottom: 15px;">
+        <table width="100%">
+            <tr>
+                <td width="25%" style="text-align: left; vertical-align: middle;">
+                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                </td>
+                <td width="50%" style="text-align: center; vertical-align: middle;">
+                    <h1>RECIBO DE COMPRA</h1>
+                    <p>{{ config('app.name', 'Sistema de Gestión') }}</p>
+                    <p style="font-size: 9px; margin-top: 2px;">{{ $compra->sucursal->nombre ?? 'N/A' }} | {{ $compra->fecha_compra->format('d/m/Y H:i') }}</p>
+                </td>
+                <td width="25%"></td>
+            </tr>
+        </table>
     </div>
 
     <div class="codigo-recibo">

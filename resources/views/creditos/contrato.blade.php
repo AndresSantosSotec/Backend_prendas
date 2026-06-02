@@ -97,21 +97,34 @@
 <body>
 
 {{-- ENCABEZADO --}}
-<header>
-    <div class="hdr-name">{{ $sucursal->nombre ?? 'GRUPO VALOR, SOCIEDAD ANÓNIMA' }}</div>
-    @if(!empty($sucursal->direccion))<div class="hdr-detail">{{ $sucursal->direccion }}</div>@endif
-    <div class="hdr-detail">
-        @if(!empty($sucursal->telefono))Tel.: {{ $sucursal->telefono }}@endif
-        @if(!empty($sucursal->telefono) && !empty($sucursal->email)) &nbsp;|&nbsp; @endif
-        @if(!empty($sucursal->email)){{ $sucursal->email }}@endif
-        @if(!empty($sucursal->nit)) &nbsp;|&nbsp; NIT: {{ $sucursal->nit }}@endif
-    </div>
+<header style="border-bottom: 0; padding-bottom: 0; margin-bottom: 5px;">
+    <table width="100%" style="border-bottom: 1.5px solid #000; padding-bottom: 5px;">
+        <tr>
+            <td width="25%" style="text-align: left; vertical-align: middle;">
+                <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+            </td>
+            <td width="50%" style="text-align: center; vertical-align: middle;">
+                <div class="hdr-name">{{ $sucursal->nombre ?? 'AVANZA' }}</div>
+                @if(!empty($sucursal->direccion))<div class="hdr-detail">{{ $sucursal->direccion }}</div>@endif
+                <div class="hdr-detail">
+                    @if(!empty($sucursal->telefono))Tel.: {{ $sucursal->telefono }}@endif
+                    @if(!empty($sucursal->telefono) && !empty($sucursal->email)) &nbsp;|&nbsp; @endif
+                    @if(!empty($sucursal->email)){{ $sucursal->email }}@endif
+                    @if(!empty($sucursal->nit)) &nbsp;|&nbsp; NIT: {{ $sucursal->nit }}@endif
+                </div>
+            </td>
+            <td width="25%"></td>
+        </tr>
+    </table>
 </header>
 
 {{-- TÍTULO + DECLARACIONES --}}
+<div class="seccion-heading" style="margin-top:0; font-size: 11px;">
+    GRUPO AVANZA, SOCIEDAD ANÓNIMA
+</div>
 <div class="seccion-heading" style="margin-top:0;">
     Contrato de Adhesión de Mutuo con Garantía Prendaria que celebra
-    {{ strtoupper($sucursal->nombre ?? 'GRUPO VALOR, SOCIEDAD ANÓNIMA') }} (La Acreedora),
+    {{ strtoupper($sucursal->nombre ?? 'AVANZA') }} (La Acreedora),
     y la Persona Física cuyo nombre aparece al anverso de este documento
     (Deudor Prendario), conforme las Declaraciones y Cláusulas siguientes:
 </div>
@@ -132,11 +145,11 @@
 {{-- CLÁUSULAS --}}
 <p class="seccion-heading">Cláusulas</p>
 
-<div class="clausula"><span class="clausula-num">Primera: Objeto (Préstamo a Mutuo).</span> El deudor por el presente acto se reconoce lino y llano deudor de {{ strtoupper($sucursal->nombre ?? 'GRUPO VALOR, SOCIEDAD ANÓNIMA') }} por la cantidad y demás condiciones que se detallan en el anverso del presente documento y de conformidad con el presente contrato de mutuo mercantil, cantidad que tiene recibida en efectivo y a su entera satisfacción.</div>
+<div class="clausula"><span class="clausula-num">Primera: Objeto (Préstamo a Mutuo).</span> El deudor por el presente acto se reconoce lino y llano deudor de {{ strtoupper($sucursal->nombre ?? 'AVANZA') }} por la cantidad y demás condiciones que se detallan en el anverso del presente documento y de conformidad con el presente contrato de mutuo mercantil, cantidad que tiene recibida en efectivo y a su entera satisfacción.</div>
 
 <div class="clausula"><span class="clausula-num">Segunda: Condiciones.</span> El deudor se obliga a pagar la cantidad adeudada en la forma, modo, con el interés, que se detalla en el anverso, tales tasas serán devengadas inclusive en los casos en que la ACREEDORA retenga la prenda, a la que se refiere este contrato por falta de pago del mutuo y sus accesorios. Además, el pago deberá hacerse en efectivo junto con los intereses y almacenaje en el mismo establecimiento en que se suscribe este documento dentro del plazo máximo estipulado en el anverso de este documento, plazo que podrá prorrogarse por periodos iguales, previo cumplimiento de las demás condiciones establecidas en este instrumento. El deudor podrá realizar pagos parciales a cuenta del mutuo, los interés y accesorios a su cargo, los cuales devengaran interés a favor del deudor, a la misma tasa del mutuo y se aplicara a amortizar el adeudo, en el orden siguiente: Capital (Mutuo), intereses y accesorios, al momento de establecer las condiciones de pago establecidas en el anverso al realizarse la venta directa del bien. En caso de Prorroga, los pagos a cuenta y los intereses que devengan se acreditaran al pago de los intereses, y deposito, en el orden ya indicado.</div>
 
-<div class="clausula"><span class="clausula-num">Tercera: Garantía.</span> En garantía del capital, intereses, gastos y costas si llegaren a causarse, EL DEUDOR constituye a favor de {{ strtoupper($sucursal->nombre ?? 'GRUPO VALOR, S.A.') }}, en calidad de PRENDA, el bien mueble usado que se describe en el anverso, en el entendido de que esta entrega del bien convierte a la ACREEDORA en propietaria de la prenda.</div>
+<div class="clausula"><span class="clausula-num">Tercera: Garantía.</span> En garantía del capital, intereses, gastos y costas si llegaren a causarse, EL DEUDOR constituye a favor de {{ strtoupper($sucursal->nombre ?? 'AVANZA') }}, en calidad de PRENDA, el bien mueble usado que se describe en el anverso, en el entendido de que esta entrega del bien convierte a la ACREEDORA en propietaria de la prenda.</div>
 
 <div class="clausula"><span class="clausula-num">Cuarta:</span> El valor de la prenda es el que se establece en el anverso, en virtud del avalúo practicado por LA ACREEDORA, con criterio de objetividad y equidad y la entera satisfacción de ambas partes.</div>
 
@@ -190,7 +203,7 @@
         <td class="firma-celda">
             <div class="firma-linea"></div>
             <div class="firma-nombre">"Acreedora"</div>
-            <div class="firma-rol">{{ strtoupper($sucursal->nombre ?? 'GRUPO VALOR, SOCIEDAD ANÓNIMA') }}</div>
+            <div class="firma-rol">{{ strtoupper($sucursal->nombre ?? 'AVANZA') }}</div>
         </td>
         <td style="width:16%;"></td>
         <td class="firma-celda">
@@ -204,7 +217,7 @@
 {{-- PIE — solo primera página --}}
 <footer>
     Contrato No. {{ $credito->codigo_credito ?? $credito->numero_credito }}
-    &nbsp;&mdash;&nbsp; {{ $sucursal->nombre ?? 'GRUPO VALOR, S.A.' }}
+    &nbsp;&mdash;&nbsp; {{ $sucursal->nombre ?? 'AVANZA' }}
 </footer>
 
 {{-- ANVERSO — última página --}}
