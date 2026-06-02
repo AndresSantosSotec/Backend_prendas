@@ -40,7 +40,8 @@ class HandleCors
 
         $isAllowed = $origin && (in_array($origin, $allowedOrigins) || $isLocalhost);
 
-        // El manejo de OPTIONS lo hará el CORS nativo de Laravel (config/cors.php)        $response = $next($request);
+        // El manejo de OPTIONS lo hará el CORS nativo de Laravel (config/cors.php)
+        $response = $next($request);
 
         if ($isAllowed) {
             // Manejar StreamedResponse y BinaryFileResponse de manera diferente
