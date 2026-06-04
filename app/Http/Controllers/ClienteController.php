@@ -895,6 +895,8 @@ class ClienteController extends Controller
             'nit' => $cliente->nit,
             'fechaNacimiento' => $cliente->fecha_nacimiento->format('Y-m-d'),
             'genero' => $cliente->genero,
+            'estadoCivil' => $cliente->estado_civil,
+            'profesion' => $cliente->profesion,
             'telefono' => $cliente->telefono,
             'telefonoSecundario' => $cliente->telefono_secundario,
             'email' => $cliente->email,

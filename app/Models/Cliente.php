@@ -23,6 +23,8 @@ class Cliente extends Model
         'nit',
         'fecha_nacimiento',
         'genero',
+        'estado_civil',
+        'profesion',
         'telefono',
         'telefono_secundario',
         'email',

@@ -226,7 +226,7 @@ class CajaController extends Controller
 
         // Verificar si ya hay una caja cerrada para hoy
         // Los administradores y superadmin pueden saltarse esta restricción
-        if ($user->rol !== 'superadmin') {
+        if (!in_array($user->rol, ['superadmin', 'administrador'])) {
             $cajaCerradaHoy = CajaAperturaCierre::where('user_id', $user->id)
                 ->whereDate('fecha_apertura', $fecha)
                 ->where('estado', 'cerrada')

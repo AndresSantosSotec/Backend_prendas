@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 namespace App\Http\Controllers;
 
@@ -26,7 +26,7 @@ class ReciboController extends Controller
         }
 
         // Filtros por permisos
-        if ($user->rol !== 'superadmin') {
+        if (!in_array($user->rol, ['superadmin', 'administrador'])) {
             $query->where('sucursal_id', $user->sucursal_id);
         }
 
@@ -143,7 +143,7 @@ class ReciboController extends Controller
         }
 
         // Verificar permisos
-        if ($user->rol !== 'superadmin' &&
+        if (!in_array($user->rol, ['superadmin', 'administrador']) &&
             $recibo->sucursal_id != $user->sucursal_id) {
             return response()->json(['error' => 'No tienes permisos para ver este recibo'], 403);
         }
@@ -227,7 +227,7 @@ class ReciboController extends Controller
         }
 
         // Verificar permisos
-        if ($user->rol !== 'superadmin' &&
+        if (!in_array($user->rol, ['superadmin', 'administrador']) &&
             $recibo->sucursal_id != $user->sucursal_id) {
             return response()->json(['error' => 'No tienes permisos para ver este recibo'], 403);
         }
@@ -262,7 +262,7 @@ class ReciboController extends Controller
             ->emitidos();
 
         // Filtrar por sucursal si no es admin
-        if ($user->rol !== 'superadmin') {
+        if (!in_array($user->rol, ['superadmin', 'administrador'])) {
             $query->where('sucursal_id', $user->sucursal_id);
         } elseif ($request->sucursal_id) {
             $query->where('sucursal_id', $request->sucursal_id);

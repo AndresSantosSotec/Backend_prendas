@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 namespace App\Http\Controllers;
 
@@ -32,7 +32,7 @@ class BovedaController extends Controller
         }
 
         // Filtros por permisos
-        if ($user->rol !== 'superadmin') {
+        if (!in_array($user->rol, ['superadmin', 'administrador'])) {
             // Usuarios normales solo ven bóvedas de su sucursal
             $query->where('sucursal_id', $user->sucursal_id);
         }
@@ -83,7 +83,7 @@ class BovedaController extends Controller
         }
 
         // Solo admin puede crear bóvedas en otras sucursales
-        if ($user->rol !== 'superadmin' && $request->sucursal_id != $user->sucursal_id) {
+        if (!in_array($user->rol, ['superadmin', 'administrador']) && $request->sucursal_id != $user->sucursal_id) {
             return response()->json(['error' => 'Solo puedes crear bóvedas en tu sucursal'], 403);
         }
 
@@ -158,7 +158,7 @@ class BovedaController extends Controller
         }
 
         // Verificar permisos
-        if ($user->rol !== 'superadmin' &&
+        if (!in_array($user->rol, ['superadmin', 'administrador']) &&
             $boveda->sucursal_id != $user->sucursal_id) {
             return response()->json(['error' => 'No tienes permisos para ver esta bóveda'], 403);
         }
@@ -201,7 +201,7 @@ class BovedaController extends Controller
             return response()->json(['error' => 'No tienes permisos para editar bóvedas'], 403);
         }
 
-        if ($user->rol !== 'superadmin' && $boveda->sucursal_id != $user->sucursal_id) {
+        if (!in_array($user->rol, ['superadmin', 'administrador']) && $boveda->sucursal_id != $user->sucursal_id) {
             return response()->json(['error' => 'Solo puedes editar bóvedas de tu sucursal'], 403);
         }
 
@@ -260,7 +260,7 @@ class BovedaController extends Controller
             return response()->json(['error' => 'No tienes permisos para realizar movimientos'], 403);
         }
 
-        if ($user->rol !== 'superadmin' && $boveda->sucursal_id != $user->sucursal_id) {
+        if (!in_array($user->rol, ['superadmin', 'administrador']) && $boveda->sucursal_id != $user->sucursal_id) {
             return response()->json(['error' => 'Solo puedes operar bóvedas de tu sucursal'], 403);
         }
 
@@ -381,7 +381,7 @@ class BovedaController extends Controller
             ->orderBy('created_at', 'desc');
 
         // Filtrar por sucursal si no es admin
-        if ($user->rol !== 'superadmin') {
+        if (!in_array($user->rol, ['superadmin', 'administrador'])) {
             $query->where('sucursal_id', $user->sucursal_id);
         }
 
@@ -447,7 +447,7 @@ class BovedaController extends Controller
         $boveda = Boveda::findOrFail($id);
 
         // Verificar permisos
-        if ($user->rol !== 'superadmin' && $boveda->sucursal_id != $user->sucursal_id) {
+        if (!in_array($user->rol, ['superadmin', 'administrador']) && $boveda->sucursal_id != $user->sucursal_id) {
             return response()->json(['error' => 'No tienes permisos para ver esta bóveda'], 403);
         }
 
@@ -490,12 +490,12 @@ class BovedaController extends Controller
         $query = Boveda::with(['sucursal', 'movimientosAprobados']);
 
         // Filtrar por sucursal si no es admin
-        if ($user->rol !== 'superadmin' && $request->sucursal_id) {
+        if (!in_array($user->rol, ['superadmin', 'administrador']) && $request->sucursal_id) {
             if ($request->sucursal_id != $user->sucursal_id) {
                 return response()->json(['error' => 'Solo puedes ver reportes de tu sucursal'], 403);
             }
             $query->where('sucursal_id', $request->sucursal_id);
-        } elseif ($user->rol !== 'superadmin') {
+        } elseif (!in_array($user->rol, ['superadmin', 'administrador'])) {
             $query->where('sucursal_id', $user->sucursal_id);
         }
 
@@ -586,7 +586,7 @@ class BovedaController extends Controller
             return response()->json(['error' => 'No tienes permisos para exportar reportes'], 403);
         }
 
-        if ($user->rol !== 'superadmin' && $boveda->sucursal_id != $user->sucursal_id) {
+        if (!in_array($user->rol, ['superadmin', 'administrador']) && $boveda->sucursal_id != $user->sucursal_id) {
             return response()->json(['error' => 'No tienes permisos para exportar esta bóveda'], 403);
         }
 
@@ -644,7 +644,7 @@ class BovedaController extends Controller
             return response()->json(['error' => 'No tienes permisos para exportar reportes'], 403);
         }
 
-        if ($user->rol !== 'superadmin' && $boveda->sucursal_id != $user->sucursal_id) {
+        if (!in_array($user->rol, ['superadmin', 'administrador']) && $boveda->sucursal_id != $user->sucursal_id) {
             return response()->json(['error' => 'No tienes permisos para exportar esta bóveda'], 403);
         }
 
@@ -706,12 +706,12 @@ class BovedaController extends Controller
 
         $query = Boveda::with(['sucursal', 'movimientosAprobados']);
 
-        if ($user->rol !== 'superadmin' && $request->sucursal_id) {
+        if (!in_array($user->rol, ['superadmin', 'administrador']) && $request->sucursal_id) {
             if ($request->sucursal_id != $user->sucursal_id) {
                 return response()->json(['error' => 'Solo puedes ver reportes de tu sucursal'], 403);
             }
             $query->where('sucursal_id', $request->sucursal_id);
-        } elseif ($user->rol !== 'superadmin') {
+        } elseif (!in_array($user->rol, ['superadmin', 'administrador'])) {
             $query->where('sucursal_id', $user->sucursal_id);
         }
 

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Carbon\Carbon;
 
 class CompraController extends Controller
 {
@@ -341,6 +342,222 @@ class CompraController extends Controller
                 'error' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
+    }
+
+    /**
+     * Generar PDF del contrato de compraventa de bien mueble
+     */
+    public function generarContratoPDF($id)
+    {
+        try {
+            $compra = $this->compraService->obtenerDetalle($id);
+            $cliente = $compra->cliente;
+            $sucursal = $compra->sucursal;
+
+            // Formatear fecha en español
+            Carbon::setLocale('es');
+            $fechaCompra = $compra->fecha_compra ? Carbon::parse($compra->fecha_compra) : now();
+            $meses = [
+                1 => 'enero', 2 => 'febrero', 3 => 'marzo', 4 => 'abril',
+                5 => 'mayo', 6 => 'junio', 7 => 'julio', 8 => 'agosto',
+                9 => 'septiembre', 10 => 'octubre', 11 => 'noviembre', 12 => 'diciembre'
+            ];
+            
+            $diaNum = $fechaCompra->day;
+            $diaLetras = ($diaNum === 1) ? 'primero' : $this->numeroALetras($diaNum);
+            $mesLetras = $meses[$fechaCompra->month];
+            $anioLetras = $this->numeroALetras($fechaCompra->year);
+
+            // Edad del cliente
+            $edad = '___';
+            $edadLetras = '__________';
+            if ($cliente && $cliente->fecha_nacimiento) {
+                $fechaNac = Carbon::parse($cliente->fecha_nacimiento);
+                $edad = $fechaNac->age;
+                $edadLetras = $this->numeroALetras($edad);
+            }
+
+            // Estado civil y Profesión
+            $estadoCivil = ($cliente && $cliente->estado_civil) ? $cliente->estado_civil : '__________';
+            $profesion = ($cliente && $cliente->profesion) ? $cliente->profesion : '__________';
+
+            // Documento del cliente (CUI/DPI)
+            $dpi = $compra->cliente_documento ?? ($cliente->dpi ?? null);
+            $dpiLetras = '______________________';
+            $dpiFormateado = '_______ ______ _______';
+            if ($dpi) {
+                $cleanDpi = preg_replace('/[^0-9]/', '', $dpi);
+                if (strlen($cleanDpi) === 13) {
+                    $dpiLetras = $this->cuiEnLetras($cleanDpi);
+                    $dpiFormateado = substr($cleanDpi, 0, 4) . ' ' . substr($cleanDpi, 4, 5) . ' ' . substr($cleanDpi, 9, 4);
+                } else {
+                    $dpiFormateado = $dpi;
+                }
+            }
+
+            // Monto de compra en letras
+            $monto = (float)$compra->monto_pagado;
+            $enteros = (int)floor($monto);
+            $centavos = (int)round(($monto - $enteros) * 100);
+            $montoLetras = $this->numeroALetras($enteros);
+            if ($centavos > 0) {
+                $montoCompleto = strtoupper($montoLetras) . ' QUETZALES CON ' . str_pad($centavos, 2, '0', STR_PAD_LEFT) . '/100';
+            } else {
+                $montoCompleto = strtoupper($montoLetras) . ' QUETZALES EXACTOS';
+            }
+
+            // Identificación detallada (Serie, color, descripción, etc.)
+            $identificacionPartes = [];
+            if ($compra->serie) $identificacionPartes[] = "Serie: {$compra->serie}";
+            if ($compra->color) $identificacionPartes[] = "Color: {$compra->color}";
+            if ($compra->descripcion) $identificacionPartes[] = "Descripción: {$compra->descripcion}";
+            
+            // Campos dinámicos si existen
+            if ($compra->camposDinamicos && $compra->camposDinamicos->count() > 0) {
+                foreach ($compra->camposDinamicos as $campo) {
+                    $identificacionPartes[] = "{$campo->campo_nombre}: {$campo->valor}";
+                }
+            }
+            $identificacion = implode(', ', $identificacionPartes);
+
+            // Estado físico
+            $estadoFisico = ucfirst(str_replace('_', ' ', $compra->condicion ?? 'usado'));
+            if ($compra->observaciones) {
+                $estadoFisico .= " ({$compra->observaciones})";
+            }
+
+            $pdf = Pdf::loadView('pdf.contrato-compra', [
+                'compra' => $compra,
+                'cliente' => $cliente,
+                'sucursal' => $sucursal,
+                'dia' => $diaLetras,
+                'mes' => $mesLetras,
+                'anio' => $anioLetras,
+                'edad' => $edad,
+                'edadLetras' => $edadLetras,
+                'estadoCivil' => $estadoCivil,
+                'profesion' => $profesion,
+                'dpiLetras' => $dpiLetras,
+                'dpiFormateado' => $dpiFormateado,
+                'montoCompleto' => $montoCompleto,
+                'identificacion' => $identificacion,
+                'estadoFisico' => $estadoFisico,
+                'fecha_actual' => now()->format('d/m/Y H:i')
+            ]);
+
+            $pdf->setPaper('letter', 'portrait');
+
+            return $pdf->download('contrato-compra-' . $compra->codigo_compra . '.pdf');
+
+        } catch (\Exception $e) {
+            Log::error('Error al generar contrato de compra PDF: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el contrato',
+                'error' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
+        }
+    }
+
+    /**
+     * Convertir número a letras en español
+     */
+    private function numeroALetras($number)
+    {
+        if ($number == 0) return 'cero';
+        
+        $unidades = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
+        $decenas = ['', 'diez', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
+        $especiales = [
+            10 => 'diez', 11 => 'once', 12 => 'doce', 13 => 'trece', 14 => 'catorce', 15 => 'quince',
+            16 => 'dieciséis', 17 => 'diecisiete', 18 => 'dieciocho', 19 => 'diecinueve',
+            20 => 'veinte', 21 => 'veintiuno', 22 => 'veintidós', 23 => 'veintitrés', 24 => 'veinticuatro',
+            25 => 'veinticinco', 26 => 'veintiséis', 27 => 'veintisiete', 28 => 'veintiocho', 29 => 'veintinueve'
+        ];
+        $centenas = [
+            '', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos',
+            'seiscientos', 'setecientos', 'ochocientos', 'novecientos'
+        ];
+
+        if ($number < 0) return 'menos ' . $this->numeroALetras(abs($number));
+
+        $letras = '';
+
+        if ($number >= 1000) {
+            $miles = floor($number / 1000);
+            $resto = $number % 1000;
+            if ($miles == 1) {
+                $letras .= 'mil ';
+            } else {
+                $letras .= $this->numeroALetras($miles) . ' mil ';
+            }
+            $number = $resto;
+        }
+
+        if ($number >= 100) {
+            $cents = floor($number / 100);
+            $resto = $number % 100;
+            if ($cents == 1 && $resto == 0) {
+                $letras .= 'cien ';
+            } else {
+                $letras .= $centenas[$cents] . ' ';
+            }
+            $number = $resto;
+        }
+
+        if ($number > 0) {
+            if (isset($especiales[$number])) {
+                $letras .= $especiales[$number];
+            } else {
+                $decs = floor($number / 10);
+                $units = $number % 10;
+                if ($decs > 0) {
+                    $letras .= $decenas[$decs];
+                    if ($units > 0) {
+                        $letras .= ' y ' . $unidades[$units];
+                    }
+                } else {
+                    $letras .= $unidades[$units];
+                }
+            }
+        }
+
+        return trim($letras);
+    }
+
+    /**
+     * Convertir CUI (13 dígitos) a letras
+     */
+    private function cuiEnLetras($dpi)
+    {
+        $dpi = preg_replace('/[^0-9]/', '', $dpi);
+        if (strlen($dpi) !== 13) {
+            return $dpi;
+        }
+        
+        $part1 = substr($dpi, 0, 4);
+        $part2 = substr($dpi, 4, 5);
+        $part3 = substr($dpi, 9, 4);
+        
+        $text1 = $this->numeroALetras((int)$part1);
+        $text2 = $this->numeroALetras((int)$part2);
+        
+        $text3 = '';
+        if (str_starts_with($part3, '0')) {
+            $zeros = 0;
+            while (isset($part3[$zeros]) && $part3[$zeros] === '0') {
+                $zeros++;
+            }
+            $text3 .= str_repeat('cero ', $zeros);
+            $remainder = (int)substr($part3, $zeros);
+            if ($remainder > 0) {
+                $text3 .= $this->numeroALetras($remainder);
+            }
+        } else {
+            $text3 = $this->numeroALetras((int)$part3);
+        }
+        
+        return trim($text1) . ' espacio ' . trim($text2) . ' espacio ' . trim($text3);
     }
 }
 

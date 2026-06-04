@@ -383,6 +383,7 @@ Route::prefix('v1')->group(function () {
             Route::delete('/compras/{id}', [CompraController::class, 'destroy']);
             Route::post('/compras/{id}/cancelar', [CompraController::class, 'cancel']);
             Route::get('/compras/{id}/recibo-pdf', [CompraController::class, 'generarReciboPDF']);
+            Route::get('/compras/{id}/contrato-pdf', [CompraController::class, 'generarContratoPDF']);
 
             // Reportes de Compras
             Route::get('/reportes/compras/pdf', [ReporteComprasController::class, 'generarPDF']);
