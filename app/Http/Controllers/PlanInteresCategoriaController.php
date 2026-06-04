@@ -195,7 +195,11 @@ class PlanInteresCategoriaController extends Controller
                 }
             }
 
-            $plan = PlanInteresCategoria::create($request->all());
+            $plan = PlanInteresCategoria::create(
+                collect($request->all())
+                    ->except(['_sucursal_scope', '_token', '_method'])
+                    ->toArray()
+            );
 
             DB::commit();
 
@@ -275,7 +279,11 @@ class PlanInteresCategoriaController extends Controller
                 }
             }
 
-            $plan->update($request->all());
+            $plan->update(
+                collect($request->all())
+                    ->except(['_sucursal_scope', '_token', '_method'])
+                    ->toArray()
+            );
 
             DB::commit();
 

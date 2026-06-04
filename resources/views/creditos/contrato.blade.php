@@ -120,11 +120,11 @@
 
 {{-- TÍTULO + DECLARACIONES --}}
 <div class="seccion-heading" style="margin-top:0; font-size: 11px;">
-    GRUPO AVANZA, SOCIEDAD ANÓNIMA
+    GRUPO VALOR, SOCIEDAD ANÓNIMA
 </div>
 <div class="seccion-heading" style="margin-top:0;">
     Contrato de Adhesión de Mutuo con Garantía Prendaria que celebra
-    {{ strtoupper($sucursal->nombre ?? 'AVANZA') }} (La Acreedora),
+    GRUPO VALOR, SOCIEDAD ANÓNIMA – {{ strtoupper($sucursal->nombre ?? 'AVANZA') }} (La Acreedora),
     y la Persona Física cuyo nombre aparece al anverso de este documento
     (Deudor Prendario), conforme las Declaraciones y Cláusulas siguientes:
 </div>
