@@ -16,7 +16,7 @@ class PlanInteresCategoriaController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = PlanInteresCategoria::with('categoria');
+            $query = PlanInteresCategoria::with('categoria', 'categorias');
 
             // Filtros
             if ($request->has('categoria_id')) {
@@ -119,7 +119,7 @@ class PlanInteresCategoriaController extends Controller
     public function show($id)
     {
         try {
-            $plan = PlanInteresCategoria::with('categoria', 'creditos')->findOrFail($id);
+            $plan = PlanInteresCategoria::with('categoria', 'categorias', 'creditos')->findOrFail($id);
 
             return response()->json([
                 'success' => true,
@@ -144,7 +144,9 @@ class PlanInteresCategoriaController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'categoria_producto_id' => 'required|exists:categoria_productos,id',
+            'categoria_producto_id' => 'nullable|exists:categoria_productos,id',
+            'categoria_ids' => 'nullable|array',
+            'categoria_ids.*' => 'integer|exists:categoria_productos,id',
             'nombre' => 'required|string|max:100',
             'codigo' => 'nullable|string|max:50',
             'tipo_periodo' => 'required|in:semanal,quincenal,mensual',
@@ -183,30 +185,45 @@ class PlanInteresCategoriaController extends Controller
 
             // Verificar código único si se proporciona
             if ($request->codigo) {
-                $existe = PlanInteresCategoria::where('categoria_producto_id', $request->categoria_producto_id)
+                $existe = PlanInteresCategoria::where(function ($q) use ($request) {
+                        if ($request->categoria_producto_id) {
+                            $q->where('categoria_producto_id', $request->categoria_producto_id);
+                        } else {
+                            $q->whereNull('categoria_producto_id');
+                        }
+                    })
                     ->where('codigo', $request->codigo)
                     ->exists();
 
                 if ($existe) {
                     return response()->json([
                         'success' => false,
-                        'message' => 'Ya existe un plan con ese código para esta categoría'
+                        'message' => 'Ya existe un plan con ese código'
                     ], 422);
                 }
             }
 
             $plan = PlanInteresCategoria::create(
                 collect($request->all())
-                    ->except(['_sucursal_scope', '_token', '_method'])
+                    ->except(['_sucursal_scope', '_token', '_method', 'categoria_ids'])
                     ->toArray()
             );
+
+            // Sincronizar categorías en la tabla pivote
+            if ($request->has('categoria_ids')) {
+                $plan->syncCategorias($request->categoria_ids);
+            } elseif ($request->filled('categoria_producto_id')) {
+                $plan->syncCategorias([$request->categoria_producto_id]);
+            } else {
+                $plan->syncCategorias([]);
+            }
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Plan de interés creado exitosamente',
-                'data' => $plan->load('categoria')
+                'data' => $plan->load('categoria', 'categorias')
             ], 201);
 
         } catch (\Exception $e) {
@@ -226,6 +243,9 @@ class PlanInteresCategoriaController extends Controller
     public function update(Request $request, $id)
     {
         $validator = Validator::make($request->all(), [
+            'categoria_producto_id' => 'nullable|exists:categoria_productos,id',
+            'categoria_ids' => 'nullable|array',
+            'categoria_ids.*' => 'integer|exists:categoria_productos,id',
             'nombre' => 'sometimes|string|max:100',
             'codigo' => 'nullable|string|max:50',
             'tipo_periodo' => 'sometimes|in:semanal,quincenal,mensual',
@@ -266,7 +286,14 @@ class PlanInteresCategoriaController extends Controller
 
             // Verificar código único si se cambia
             if ($request->has('codigo') && $request->codigo !== $plan->codigo) {
-                $existe = PlanInteresCategoria::where('categoria_producto_id', $plan->categoria_producto_id)
+                $existe = PlanInteresCategoria::where(function ($q) use ($plan, $request) {
+                        $catId = $request->has('categoria_producto_id') ? $request->categoria_producto_id : $plan->categoria_producto_id;
+                        if ($catId) {
+                            $q->where('categoria_producto_id', $catId);
+                        } else {
+                            $q->whereNull('categoria_producto_id');
+                        }
+                    })
                     ->where('codigo', $request->codigo)
                     ->where('id', '!=', $id)
                     ->exists();
@@ -274,23 +301,34 @@ class PlanInteresCategoriaController extends Controller
                 if ($existe) {
                     return response()->json([
                         'success' => false,
-                        'message' => 'Ya existe un plan con ese código para esta categoría'
+                        'message' => 'Ya existe un plan con ese código'
                     ], 422);
                 }
             }
 
             $plan->update(
                 collect($request->all())
-                    ->except(['_sucursal_scope', '_token', '_method'])
+                    ->except(['_sucursal_scope', '_token', '_method', 'categoria_ids'])
                     ->toArray()
             );
+
+            // Sincronizar categorías en la tabla pivote si se envían
+            if ($request->has('categoria_ids')) {
+                $plan->syncCategorias($request->categoria_ids);
+            } elseif ($request->has('categoria_producto_id')) {
+                if ($request->filled('categoria_producto_id')) {
+                    $plan->syncCategorias([$request->categoria_producto_id]);
+                } else {
+                    $plan->syncCategorias([]);
+                }
+            }
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Plan de interés actualizado exitosamente',
-                'data' => $plan->load('categoria')
+                'data' => $plan->load('categoria', 'categorias')
             ]);
 
         } catch (\Exception $e) {
@@ -315,7 +353,13 @@ class PlanInteresCategoriaController extends Controller
             DB::beginTransaction();
 
             // Quitar default de otros planes de la misma categoría
-            PlanInteresCategoria::where('categoria_producto_id', $plan->categoria_producto_id)
+            PlanInteresCategoria::where(function ($q) use ($plan) {
+                    if ($plan->categoria_producto_id) {
+                        $q->where('categoria_producto_id', $plan->categoria_producto_id);
+                    } else {
+                        $q->whereNull('categoria_producto_id');
+                    }
+                })
                 ->where('id', '!=', $id)
                 ->update(['es_default' => false]);
 
@@ -353,7 +397,13 @@ class PlanInteresCategoriaController extends Controller
 
             // Si se está desactivando y es el default, buscar otro para marcar como default
             if (!$nuevoEstado && $plan->es_default) {
-                $otroActivo = PlanInteresCategoria::where('categoria_producto_id', $plan->categoria_producto_id)
+                $otroActivo = PlanInteresCategoria::where(function ($q) use ($plan) {
+                        if ($plan->categoria_producto_id) {
+                            $q->where('categoria_producto_id', $plan->categoria_producto_id);
+                        } else {
+                            $q->whereNull('categoria_producto_id');
+                        }
+                    })
                     ->where('id', '!=', $id)
                     ->where('activo', true)
                     ->first();

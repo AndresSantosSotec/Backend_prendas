@@ -167,6 +167,10 @@ class PlanInteresCategoria extends Model
             $this->withoutEvents(function () use ($ids) {
                 $this->update(['categoria_producto_id' => $ids[0]]);
             });
+        } else {
+            $this->withoutEvents(function () {
+                $this->update(['categoria_producto_id' => null]);
+            });
         }
     }
 
@@ -203,7 +207,8 @@ class PlanInteresCategoria extends Model
     public function scopeDeCategoria($query, $categoriaId)
     {
         return $query->where(function ($q) use ($categoriaId) {
-            $q->where('categoria_producto_id', $categoriaId)
+            $q->where('planes_interes_categoria.categoria_producto_id', $categoriaId)
+              ->orWhereNull('planes_interes_categoria.categoria_producto_id')
               ->orWhereHas('categorias', fn($r) => $r->where('categoria_productos.id', $categoriaId));
         });
     }
@@ -221,9 +226,13 @@ class PlanInteresCategoria extends Model
      */
     public function scopePlanDefault($query, $categoriaId)
     {
-        return $query->where('categoria_producto_id', $categoriaId)
+        return $query->where(function ($q) use ($categoriaId) {
+                         $q->where('planes_interes_categoria.categoria_producto_id', $categoriaId)
+                           ->orWhereNull('planes_interes_categoria.categoria_producto_id');
+                     })
                      ->where('es_default', true)
-                     ->where('activo', true);
+                     ->where('activo', true)
+                     ->orderByRaw('planes_interes_categoria.categoria_producto_id DESC');
     }
 
     /**
@@ -261,7 +270,13 @@ class PlanInteresCategoria extends Model
         $base = "{$prefijo}{$numero}{$unidad}";
 
         // Verificar unicidad dentro de la misma categoría
-        $query = static::where('categoria_producto_id', $this->categoria_producto_id)
+        $query = static::where(function ($q) {
+            if ($this->categoria_producto_id) {
+                $q->where('categoria_producto_id', $this->categoria_producto_id);
+            } else {
+                $q->whereNull('categoria_producto_id');
+            }
+        })
             ->where('codigo', 'like', "{$base}%");
 
         // Excluir el registro actual al actualizar
