@@ -133,8 +133,15 @@ class CompraService
     private function generarCodigoCompra(int $sucursalId): string
     {
         $prefix = 'CMP-' . str_pad($sucursalId, 3, '0', STR_PAD_LEFT);
-        $count = Compra::where('codigo_compra', 'like', $prefix . '%')->count() + 1;
 
+        // Obtener el número más alto ya utilizado para este prefijo
+        $ultimo = Compra::where('codigo_compra', 'like', $prefix . '-%')
+            ->selectRaw('MAX(CAST(SUBSTRING_INDEX(codigo_compra, "-", -1) AS UNSIGNED)) as max_num')
+            ->value('max_num');
+
+        $count = ($ultimo ?? 0) + 1;
+
+        // Verificar que no exista (salvaguarda ante concurrencia)
         do {
             $codigo = $prefix . '-' . str_pad($count, 6, '0', STR_PAD_LEFT);
             $existe = Compra::where('codigo_compra', $codigo)->exists();
@@ -150,8 +157,15 @@ class CompraService
     private function generarCodigoPrenda($categoriaId): string
     {
         $prefix = 'PRD-CMP-' . str_pad($categoriaId, 2, '0', STR_PAD_LEFT);
-        $count = Prenda::where('codigo_prenda', 'like', $prefix . '%')->count() + 1;
 
+        // Obtener el número más alto ya utilizado para este prefijo
+        $ultimo = Prenda::where('codigo_prenda', 'like', $prefix . '-%')
+            ->selectRaw('MAX(CAST(SUBSTRING_INDEX(codigo_prenda, "-", -1) AS UNSIGNED)) as max_num')
+            ->value('max_num');
+
+        $count = ($ultimo ?? 0) + 1;
+
+        // Verificar que no exista (salvaguarda ante concurrencia)
         do {
             $codigo = $prefix . '-' . str_pad($count, 6, '0', STR_PAD_LEFT);
             $existe = Prenda::where('codigo_prenda', $codigo)->exists();
@@ -160,6 +174,7 @@ class CompraService
 
         return $codigo;
     }
+
 
     /**
      * Crear prenda en inventario
