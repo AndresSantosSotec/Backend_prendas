@@ -11,33 +11,25 @@
         * { box-sizing: border-box; }
         body {
             font-family: 'Arial Narrow', Arial, Helvetica, sans-serif;
-            font-size: 7.6px;
+            font-size: 10px;
             color: #000;
-            line-height: 1.12;
-            margin-top: 0.8cm;
-            margin-bottom: 0.8cm;
-            margin-left: 2.8cm;
-            margin-right: 1.2cm;
+            line-height: 1.0;
+            margin-top: 2.5cm;
+            margin-bottom: 1cm;
+            margin-left: 3.5cm;
+            margin-right: 1.5cm;
             text-align: justify;
         }
-        /* ENCABEZADO — solo primera página (flujo normal) */
+        /* ENCABEZADO — solo primera página */
         header {
             border-bottom: 1.5px solid #000;
             text-align: center;
             padding-bottom: 3px;
             margin-bottom: 5px;
         }
-        .hdr-name   { font-size: 10px; font-weight: bold; text-transform: uppercase; }
-        .hdr-detail { font-size: 7.5px; }
-        /* PIE — solo primera página (flujo normal, al final del contrato) */
-        footer {
-            border-top: 1px solid #000;
-            font-size: 7.5px;
-            text-align: center;
-            line-height: 1.3;
-            margin-top: 10px;
-            padding-top: 3px;
-        }
+        .hdr-name   { font-size: 11px; font-weight: bold; text-transform: uppercase; }
+        .hdr-detail { font-size: 10px; }
+        
         /* TÍTULO */
         .titulo-empresa {
             text-align: center;
@@ -48,18 +40,18 @@
         }
         .titulo-contrato {
             text-align: center;
-            font-size: 9px;
+            font-size: 10px;
             font-weight: bold;
             text-transform: uppercase;
             margin-bottom: 8px;
-            line-height: 1.4;
+            line-height: 1.2;
         }
         /* CUERPO */
         .seccion-heading {
             font-weight: bold;
             text-transform: uppercase;
             margin: 3px 0 1px 0;
-            font-size: 8.5px;
+            font-size: 10px;
         }
         .parrafo  { margin-bottom: 2px; text-align: justify; }
         .clausula { margin-bottom: 2px; text-align: justify; }
@@ -69,32 +61,8 @@
         .firmas-tabla { width: 100%; border-collapse: collapse; margin-top: 15px; }
         .firma-celda  { width: 42%; text-align: center; vertical-align: bottom; padding-top: 15px; }
         .firma-linea  { border-top: 1px solid #000; margin: 0 auto 3px auto; width: 85%; }
-        .firma-nombre { font-weight: bold; font-size: 9px; text-transform: uppercase; }
-        .firma-rol    { font-size: 8px; }
-        /* REVERSO (Segunda página) */
-        .anverso {
-            page-break-before: always;
-            border: 1.5px solid #000;
-            padding: 7px 8px;
-        }
-        .anverso-titulo {
-            text-align: center;
-            font-size: 10px;
-            font-weight: bold;
-            text-transform: uppercase;
-            border-bottom: 1px solid #000;
-            padding-bottom: 4px;
-            margin-bottom: 6px;
-        }
-        .contrato-no { text-align: center; font-size: 11px; font-weight: bold; margin-bottom: 6px; }
-        .av-table { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
-        .av-table td { padding: 2px 4px; vertical-align: top; font-size: 9.5px; }
-        .etq { font-weight: bold; text-transform: uppercase; font-size: 8px; border-bottom: 1px solid #000; white-space: nowrap; }
-        .val { border-bottom: 1px solid #000; }
-        .separador { border-top: 1px solid #000; margin: 5px 0; }
-        .prenda-table { width: 100%; border-collapse: collapse; margin: 4px 0; }
-        .prenda-table th { border: 1px solid #000; padding: 3px 5px; font-size: 8px; font-weight: bold; text-transform: uppercase; text-align: left; }
-        .prenda-table td { border: 1px solid #000; padding: 3px 5px; font-size: 9px; }
+        .firma-nombre { font-weight: bold; font-size: 10px; text-transform: uppercase; }
+        .firma-rol    { font-size: 10px; }
     </style>
 </head>
 <body>
@@ -217,124 +185,7 @@
     </tr>
 </table>
 
-{{-- PIE — solo primera página --}}
-<footer>
-    Contrato No. {{ $credito->codigo_credito ?? $credito->numero_credito }}
-    &nbsp;&mdash;&nbsp; {{ $sucursal->nombre ?? 'GRUPO VALOR' }}
-</footer>
 
-{{-- REVERSO — Segunda página (datos del contrato) --}}
-<div class="anverso">
-    <div class="anverso-titulo">Reverso del Contrato &mdash; Datos del Cliente y Condiciones</div>
-    <div class="contrato-no">No. de Contrato: {{ $credito->codigo_credito ?? $credito->numero_credito }}</div>
-
-    <table class="av-table">
-        <tr>
-            <td width="58%" style="vertical-align:top;">
-                <table width="100%">
-                    <tr>
-                        <td width="38%"><span class="etq">Nombre Completo</span></td>
-                        <td width="62%"><span class="val">{{ $cliente->nombres }} {{ $cliente->apellidos }}</span></td>
-                    </tr>
-                    <tr>
-                        <td><span class="etq">DPI / Pasaporte</span></td>
-                        <td><span class="val">{{ $cliente->dpi ?? $cliente->nit ?? 'N/A' }}</span></td>
-                    </tr>
-                    <tr>
-                        <td><span class="etq">Dirección</span></td>
-                        <td><span class="val">{{ $cliente->direccion ?? '---' }}</span></td>
-                    </tr>
-                    <tr>
-                        <td><span class="etq">Teléfono</span></td>
-                        <td><span class="val">{{ $cliente->telefono ?? '---' }}</span></td>
-                    </tr>
-                    <tr>
-                        <td><span class="etq">Fecha del Contrato</span></td>
-                        <td><span class="val">{{ $fechaContrato }}</span></td>
-                    </tr>
-                </table>
-            </td>
-            <td width="42%" style="vertical-align:top; padding-left:8px; border-left:1px solid #000;">
-                <table width="100%">
-                    <tr>
-                        <td width="50%"><span class="etq">Monto del Préstamo</span></td>
-                        <td width="50%"><span class="val" style="font-weight:bold; font-size:11px;">Q {{ number_format($credito->monto_aprobado, 2) }}</span></td>
-                    </tr>
-                    <tr>
-                        <td><span class="etq">Tasa de Interés</span></td>
-                        <td><span class="val">{{ number_format($credito->tasa_interes, 2) }}% {{ $credito->tipo_interes ?? 'mensual' }}</span></td>
-                    </tr>
-                    <tr>
-                        <td><span class="etq">Plazo</span></td>
-                        <td><span class="val">{{ $credito->numero_cuotas }} cuota(s)</span></td>
-                    </tr>
-                    <tr>
-                        <td><span class="etq">Días de Gracia</span></td>
-                        <td><span class="val">{{ $credito->dias_gracia ?? 0 }} días</span></td>
-                    </tr>
-                    <tr>
-                        <td><span class="etq">Fecha de Vencimiento</span></td>
-                        <td><span class="val" style="font-weight:bold;">{{ \Carbon\Carbon::parse($credito->fecha_vencimiento)->format('d/m/Y') }}</span></td>
-                    </tr>
-                    @if(!empty($credito->cuota_mensual))
-                    <tr>
-                        <td><span class="etq">Cuota Mensual</span></td>
-                        <td><span class="val">Q {{ number_format($credito->cuota_mensual, 2) }}</span></td>
-                    </tr>
-                    @endif
-                    <tr>
-                        <td><span class="etq">Frecuencia de Pago</span></td>
-                        <td><span class="val">{{ $credito->frecuencia_pago ?? 'Mensual' }}</span></td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-
-    @if($prendas && count($prendas) > 0)
-    <div class="separador"></div>
-    <div style="font-weight:bold; text-transform:uppercase; font-size:8.5px; margin-bottom:4px;">Descripción de la Prenda (Garantía)</div>
-    <table class="prenda-table">
-        <thead>
-            <tr>
-                <th width="10%">Código</th>
-                <th width="44%">Descripción</th>
-                <th width="18%">Marca / Modelo</th>
-                <th width="18%">Serie / No.</th>
-                <th width="10%">Estado</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach($prendas as $prenda)
-            <tr>
-                <td>{{ $prenda->codigo_prenda ?? $prenda->codigo ?? '-' }}</td>
-                <td>{{ $prenda->descripcion_general ?? $prenda->descripcion }}</td>
-                <td>{{ trim(($prenda->marca ?? '') . ' ' . ($prenda->modelo ?? '')) ?: '-' }}</td>
-                <td>{{ $prenda->serie ?? $prenda->numero_serie ?? '-' }}</td>
-                <td>Usado</td>
-            </tr>
-            @endforeach
-
-        </tbody>
-    </table>
-    @endif
-
-    <div class="separador"></div>
-    <table class="av-table">
-        <tr>
-            <td width="55%">
-                <span class="etq">Gastos de Operación / Comisión por Venta:</span>
-                <span class="val"> Según tarifa vigente</span>
-            </td>
-            <td width="45%" style="text-align:right;">
-                <span class="etq">Intereses Estimados al Vencimiento:</span>
-                <span class="val" style="font-weight:bold;">
-                    Q {{ number_format($credito->monto_aprobado * ($credito->tasa_interes / 100) * ($credito->numero_cuotas ?? 1), 2) }}
-                </span>
-            </td>
-        </tr>
-    </table>
-</div>
 
 </body>
 </html>
