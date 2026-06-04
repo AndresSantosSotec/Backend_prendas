@@ -72,7 +72,7 @@
     <table width="100%" style="border-bottom: 1.5px solid #000; padding-bottom: 5px;">
         <tr>
             <td width="25%" style="text-align: left; vertical-align: middle;">
-                <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 48px;">
+                <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 64px;">
             </td>
             <td width="50%" style="text-align: center; vertical-align: middle;">
                 <div class="hdr-name">{{ $sucursal->nombre ?? 'GRUPO VALOR' }}</div>
@@ -90,7 +90,7 @@
 </header>
 
 {{-- TÍTULO + DECLARACIONES --}}
-<div class="seccion-heading" style="margin-top:0; font-size: 10px; text-align: center;">
+<div class="seccion-heading" style="margin-top:0; font-size: 10px; text-align: left;">
     GRUPO VALOR, SOCIEDAD ANÓNIMA
 </div>
 <div class="seccion-heading" style="margin-top:0;">
