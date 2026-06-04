@@ -19,6 +19,8 @@ class PlanInteresCategoria extends Model
 
     protected $table = 'planes_interes_categoria';
 
+    protected $appends = ['categorias_ids'];
+
     // Constantes de tipos de periodo
     public const PERIODO_DIARIO = 'diario';
     public const PERIODO_SEMANAL = 'semanal';
@@ -316,6 +318,16 @@ class PlanInteresCategoria extends Model
     {
         $tasaTotal = $this->tasa_interes + $this->tasa_almacenaje;
 
+        $divisor = match($this->tipo_periodo) {
+            self::PERIODO_DIARIO => 30.0,
+            self::PERIODO_SEMANAL => 4.0,
+            self::PERIODO_QUINCENAL => 2.0,
+            self::PERIODO_MENSUAL => 1.0,
+            default => 1.0,
+        };
+
+        $tasaProrrateada = $tasaTotal / $divisor;
+
         // Calcular según el tipo de periodo
         $numeroPeriodos = match($this->tipo_periodo) {
             self::PERIODO_DIARIO => $this->plazo_dias_total,
@@ -325,7 +337,7 @@ class PlanInteresCategoria extends Model
             default => $this->plazo_numero,
         };
 
-        return round($montoCapital * ($tasaTotal / 100) * $numeroPeriodos, 2);
+        return round($montoCapital * ($tasaProrrateada / 100) * $numeroPeriodos, 2);
     }
 
     /**

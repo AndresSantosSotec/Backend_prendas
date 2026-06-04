@@ -1296,8 +1296,8 @@ class CreditoPrendarioController extends Controller
             //   2 cuotas: interés total = Q150, por cuota = Q75.00
             //   3 cuotas: interés total = Q150, por cuota = Q50.00
 
-            $interesTotal = $montoAprobado * $tasaPorPeriodo;
-            $interesPorCuota = $interesTotal / $numeroCuotas;
+            $interesPorCuota = $montoAprobado * $tasaPorPeriodo;
+            $interesTotal = $interesPorCuota * $numeroCuotas;
 
             // Capital por cuota = Monto / Número_cuotas
             $capitalPorCuota = $montoAprobado / $numeroCuotas;
@@ -1556,9 +1556,23 @@ class CreditoPrendarioController extends Controller
 
     private function calcularTasaPorPeriodo(float $tasaInteres, string $tipoInteres): float
     {
-        // La tasa ingresada YA es la tasa por período (ej: 15% mensual = 15% por mes)
-        // Solo convertimos de porcentaje a decimal
-        return $tasaInteres / 100;
+        // La tasa ingresada es la tasa mensual (ej: 15% mensual).
+        // Se divide según el tipo de interés para obtener la tasa por período en decimal.
+        switch ($tipoInteres) {
+            case 'diario':
+                return ($tasaInteres / 30) / 100;
+            case 'semanal':
+                return ($tasaInteres / 4) / 100;
+            case 'catorcenal':
+                return ($tasaInteres / 2.14) / 100;
+            case 'quincenal':
+                return ($tasaInteres / 2) / 100;
+            case 'cada_28_dias':
+                return ($tasaInteres * (28 / 30)) / 100;
+            case 'mensual':
+            default:
+                return $tasaInteres / 100;
+        }
     }
 
     // ============================================
@@ -2996,8 +3010,8 @@ class CreditoPrendarioController extends Controller
             // Interés total = monto × tasa (fijo, NO se multiplica por cuotas)
             // Interés por cuota = interés total / número de cuotas
             $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres);
-            $interesTotal = round($montoAprobado * $tasaPorPeriodo, 2);
-            $interesPorCuota = round($interesTotal / $numeroCuotas, 2);
+            $interesPorCuota = round($montoAprobado * $tasaPorPeriodo, 2);
+            $interesTotal = round($interesPorCuota * $numeroCuotas, 2);
             $capitalPorCuota = round($montoAprobado / $numeroCuotas, 2);
 
             $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);
@@ -3149,8 +3163,8 @@ class CreditoPrendarioController extends Controller
             // Interés total = monto × tasa (fijo, NO se multiplica por cuotas)
             // Interés por cuota = interés total / número de cuotas
             $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres);
-            $interesTotal = round($montoAprobado * $tasaPorPeriodo, 2);
-            $interesPorCuota = round($interesTotal / $numeroCuotas, 2);
+            $interesPorCuota = round($montoAprobado * $tasaPorPeriodo, 2);
+            $interesTotal = round($interesPorCuota * $numeroCuotas, 2);
             $capitalPorCuota = round($montoAprobado / $numeroCuotas, 2);
 
             $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);

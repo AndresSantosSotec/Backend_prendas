@@ -249,22 +249,22 @@ class PagoService
     /**
      * Convierte la tasa anual a tasa por período
      */
-    private function calcularTasaPorPeriodo(float $tasaAnual, string $tipoInteres): float
+    private function calcularTasaPorPeriodo(float $tasaMensual, string $tipoInteres): float
     {
         switch ($tipoInteres) {
             case 'diario':
-                return $tasaAnual / 100 / 365;
+                return ($tasaMensual / 30) / 100;
             case 'semanal':
-                return $tasaAnual / 100 / 52;
+                return ($tasaMensual / 4) / 100;
             case 'catorcenal':
-                return $tasaAnual / 100 / 26; // 26 catorcenas al año
+                return ($tasaMensual / 2.14) / 100;
             case 'quincenal':
-                return $tasaAnual / 100 / 24;
+                return ($tasaMensual / 2) / 100;
             case 'cada_28_dias':
-                return $tasaAnual / 100 / 13; // 13 períodos de 28 días al año
+                return ($tasaMensual * (28 / 30)) / 100;
             case 'mensual':
             default:
-                return $tasaAnual / 100 / 12;
+                return $tasaMensual / 100;
         }
     }
 
