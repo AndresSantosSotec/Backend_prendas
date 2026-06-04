@@ -2624,9 +2624,14 @@ class CreditoPrendarioController extends Controller
     public function descargarPlanPagos(string $id)
     {
         try {
-            $credito = CreditoPrendario::with(['cliente', 'sucursal', 'planPagos' => function($query) {
-                $query->orderBy('numero_cuota', 'asc');
-            }])->findOrFail($id);
+            $credito = CreditoPrendario::with([
+                'cliente',
+                'sucursal',
+                'gastos',
+                'planPagos' => function($query) {
+                    $query->orderBy('numero_cuota', 'asc');
+                }
+            ])->findOrFail($id);
 
             $planPagos = $credito->planPagos;
 
@@ -2637,11 +2642,20 @@ class CreditoPrendarioController extends Controller
                 ], 404);
             }
 
+            // Calcular total de gastos para mostrar en el resumen
+            $totalGastos = 0;
+            if ($credito->gastos && $credito->gastos->count() > 0) {
+                $totalGastos = $credito->gastos->sum(function ($gasto) {
+                    return (float) ($gasto->pivot->valor_calculado ?? 0);
+                });
+            }
+
             $data = [
                 'credito' => $credito,
                 'cliente' => $credito->cliente,
                 'sucursal' => $credito->sucursal,
                 'planPagos' => $planPagos,
+                'totalGastos' => $totalGastos,
                 'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
             ];
 

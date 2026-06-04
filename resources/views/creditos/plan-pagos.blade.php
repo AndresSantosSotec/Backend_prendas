@@ -203,8 +203,14 @@
             </div>
             <div class="info-item">
                 <span class="info-label">Tasa de Interés</span>
-                <span class="info-value">{{ number_format($credito->tasa_interes ?? 0, 2) }}% {{ ucfirst($credito->tipo_interes ?? 'mensual') }}</span>
+                <span class="info-value">{{ number_format($credito->tasa_interes ?? 0, 2) }}% Mensual</span>
             </div>
+            @if(isset($credito->tipo_interes) && $credito->tipo_interes !== 'mensual')
+            <div class="info-item">
+                <span class="info-label">Frecuencia de Pago</span>
+                <span class="info-value">{{ ucfirst($credito->tipo_interes ?? 'mensual') }}</span>
+            </div>
+            @endif
             <div class="info-item">
                 <div style="display: inline-block; width: 45%;">
                     <span class="info-label">Plazo</span>
@@ -303,8 +309,17 @@
     </table>
 
     <div class="disclaimer">
-        Nota: Este documento es un plan de pagos proyectado. Los montos de mora pueden variar dependiendo de la fecha real de pago.
-        El pago puntual evita recargos adicionales y mantiene su buen historial crediticio.
+        <strong>Importante:</strong>
+        <ul style="margin: 5px 0 0 20px; padding: 0;">
+            <li><strong>Tasa de Interés:</strong> {{ number_format($credito->tasa_interes ?? 0, 2) }}% mensual aplicada {{ $credito->tipo_interes ?? 'mensualmente' }}. Los intereses se calculan sobre el monto total del crédito.</li>
+            @if(isset($totalGastos) && $totalGastos > 0)
+            <li><strong>Otros Cargos:</strong> Incluye gastos administrativos (Q {{ number_format($totalGastos, 2, '.', ',') }} total) distribuidos proporcionalmente en las cuotas.</li>
+            @else
+            <li><strong>Otros Cargos:</strong> No se aplicaron gastos adicionales a este crédito.</li>
+            @endif
+            <li><strong>Mora:</strong> Este documento es un plan proyectado. Los montos de mora pueden variar según la fecha real de pago.</li>
+            <li>El pago puntual evita recargos adicionales y mantiene su buen historial crediticio.</li>
+        </ul>
     </div>
 </body>
 </html>

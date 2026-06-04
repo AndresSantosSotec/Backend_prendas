@@ -147,7 +147,7 @@ class PlanInteresCategoriaController extends Controller
             'categoria_producto_id' => 'required|exists:categoria_productos,id',
             'nombre' => 'required|string|max:100',
             'codigo' => 'nullable|string|max:50',
-            'tipo_periodo' => 'required|in:diario,semanal,quincenal,mensual',
+            'tipo_periodo' => 'required|in:semanal,quincenal,mensual',
             'plazo_numero' => 'required|integer|min:1',
             'plazo_unidad' => 'required|in:dias,semanas,quincenas,meses',
             'tasa_interes' => 'required|numeric|min:0',
@@ -228,7 +228,7 @@ class PlanInteresCategoriaController extends Controller
         $validator = Validator::make($request->all(), [
             'nombre' => 'sometimes|string|max:100',
             'codigo' => 'nullable|string|max:50',
-            'tipo_periodo' => 'sometimes|in:diario,semanal,quincenal,mensual',
+            'tipo_periodo' => 'sometimes|in:semanal,quincenal,mensual',
             'plazo_numero' => 'sometimes|integer|min:1',
             'plazo_unidad' => 'sometimes|in:dias,semanas,quincenas,meses',
             'tasa_interes' => 'sometimes|numeric|min:0',

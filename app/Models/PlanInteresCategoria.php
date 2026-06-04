@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PlanInteresCategoria extends Model
@@ -25,7 +26,6 @@ class PlanInteresCategoria extends Model
     public const PERIODO_MENSUAL = 'mensual';
 
     public const PERIODOS = [
-        self::PERIODO_DIARIO,
         self::PERIODO_SEMANAL,
         self::PERIODO_QUINCENAL,
         self::PERIODO_MENSUAL,
@@ -116,21 +116,66 @@ class PlanInteresCategoria extends Model
                 $plan->codigo = $plan->generarCodigo();
             }
 
-            // Solo puede haber un plan default por categoría
-            if ($plan->es_default) {
-                static::where('categoria_producto_id', $plan->categoria_producto_id)
-                    ->where('id', '!=', $plan->id)
-                    ->update(['es_default' => false]);
-            }
+            // Nota: el es_default de la tabla principal ya no se usa para multi-categoría.
+            // El default por categoría se gestiona en el pivote plan_interes_categorias.
         });
     }
 
     /**
      * Relación con categoría de producto
      */
+    /**
+     * Relación primaria (legada): categoría directa (para créditos existentes)
+     */
     public function categoria(): BelongsTo
     {
         return $this->belongsTo(CategoriaProducto::class, 'categoria_producto_id');
+    }
+
+    /**
+     * Relación many-to-many con categorías (nueva - multi-categoría)
+     */
+    public function categorias(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            CategoriaProducto::class,
+            'plan_interes_categorias',
+            'plan_id',
+            'categoria_id'
+        )->withPivot(['es_default', 'orden'])->withTimestamps();
+    }
+
+    /**
+     * Sincronizar categorías del plan con el pivote.
+     * $ids = array de categoria_id a asociar.
+     * $defaultId = (opcional) categoría que será default.
+     */
+    public function syncCategorias(array $ids, ?int $defaultId = null): void
+    {
+        $syncData = [];
+        foreach ($ids as $i => $categoriaId) {
+            $syncData[$categoriaId] = [
+                'es_default' => ($defaultId !== null) ? ($categoriaId == $defaultId) : ($i === 0),
+                'orden'      => $i,
+            ];
+        }
+        $this->categorias()->sync($syncData);
+
+        // También actualizar categoria_producto_id principal con la primera categoría
+        // para mantener compatibilidad con créditos ya otorgados
+        if (!empty($ids)) {
+            $this->withoutEvents(function () use ($ids) {
+                $this->update(['categoria_producto_id' => $ids[0]]);
+            });
+        }
+    }
+
+    /**
+     * IDs de categorías asociadas (para el formulario)
+     */
+    public function getCategoriasIdsAttribute(): array
+    {
+        return $this->categorias()->pluck('categoria_productos.id')->toArray();
     }
 
     /**
@@ -152,9 +197,15 @@ class PlanInteresCategoria extends Model
     /**
      * Scope: Planes de una categoría
      */
+    /**
+     * Scope: planes que aplican a una categoría (por pivote O por FK directa)
+     */
     public function scopeDeCategoria($query, $categoriaId)
     {
-        return $query->where('categoria_producto_id', $categoriaId);
+        return $query->where(function ($q) use ($categoriaId) {
+            $q->where('categoria_producto_id', $categoriaId)
+              ->orWhereHas('categorias', fn($r) => $r->where('categoria_productos.id', $categoriaId));
+        });
     }
 
     /**
