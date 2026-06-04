@@ -246,27 +246,8 @@ class CajaController extends Controller
             ], 400);
         }
 
-        // Verificar si ya hay una caja cerrada para hoy
-        // Los administradores y superadmin pueden saltarse esta restricción
-        if (!in_array($user->rol, ['superadmin', 'administrador'])) {
-            $cajaCerradaHoy = CajaAperturaCierre::where('user_id', $user->id)
-                ->whereDate('fecha_apertura', $fecha)
-                ->where('estado', 'cerrada')
-                ->first();
-
-            if ($cajaCerradaHoy) {
-                Log::warning('Apertura de caja rechazada: ya cerró su caja hoy', [
-                    'user_id'        => $user->id,
-                    'user_rol'       => $user->rol,
-                    'fecha'          => $fecha,
-                    'caja_cerrada_id' => $cajaCerradaHoy->id,
-                ]);
-                return response()->json([
-                    'error' => 'Ya cerraste tu caja hoy. No puedes abrir otra caja el mismo día.',
-                    'caja_cerrada' => true
-                ], 400);
-            }
-        }
+        // Nota: se permite abrir nueva caja aunque ya se haya cerrado una el mismo día.
+        // Un cajero puede necesitar reabrir su caja en el mismo turno.
 
         // Crear nueva apertura
         $caja = new CajaAperturaCierre();
