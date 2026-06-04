@@ -251,12 +251,26 @@
             @endphp
             @foreach($planPagos as $cuota)
                 @php
-                    $capital = $cuota->capital_proyectado ?? 0;
-                    $interes = $cuota->interes_proyectado ?? 0;
-                    $mora = $cuota->mora_proyectada ?? 0;
-                    // Soportar tanto créditos reales (otros_cargos_proyectados) como simulaciones (otros_proyectados)
-                    $otros = $cuota->otros_cargos_proyectados ?? $cuota->otros_proyectados ?? 0;
-                    $totalCuota = $cuota->monto_cuota_proyectado ?? ($capital + $interes + $mora + $otros);
+                    // Compatibilidad amplia entre estructuras de cuota (crédito generado, simulación JSON y preliminar).
+                    $capital = (float) ($cuota->capital_proyectado ?? $cuota->capital_pendiente ?? $cuota->capital ?? 0);
+                    $interes = (float) ($cuota->interes_proyectado ?? $cuota->interes_pendiente ?? $cuota->interes ?? $cuota->cuota_interes ?? 0);
+                    $mora = (float) ($cuota->mora_proyectada ?? $cuota->mora_pendiente ?? $cuota->mora ?? $cuota->cuota_mora ?? 0);
+                    $otros = (float) (
+                        $cuota->otros_cargos_proyectados
+                        ?? $cuota->otros_cargos_pendientes
+                        ?? $cuota->otros_proyectados
+                        ?? $cuota->gastos_proyectado
+                        ?? $cuota->gastos
+                        ?? $cuota->otros
+                        ?? $cuota->cuota_gastos
+                        ?? 0
+                    );
+
+                    // El total debe reflejar SIEMPRE capital + interés + mora + otros.
+                    $totalCuota = round($capital + $interes + $mora + $otros, 2);
+                    if ($totalCuota <= 0) {
+                        $totalCuota = (float) ($cuota->monto_cuota_proyectado ?? $cuota->cuota_total ?? $cuota->cuota ?? 0);
+                    }
 
                     $totalCapital += $capital;
                     $totalInteres += $interes;

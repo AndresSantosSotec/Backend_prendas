@@ -442,6 +442,16 @@ class CreditoPrendarioController extends Controller
                 $tasaInteresFinal = $tasaInteresPlanOCat;
             }
 
+            // Fallback de seguridad: si no hubo parametrización aplicable pero el request trae tasa,
+            // usarla para no generar planes con interés en cero por omisión de plan/categoría.
+            if ($tasaInteresFinal <= 0 && $request->filled('tasa_interes')) {
+                $tasaInteresFinal = (float) $request->tasa_interes;
+            }
+
+            if ($tasaInteresFinal < 0) {
+                $tasaInteresFinal = 0;
+            }
+
             if ($user && $user->hasPermission('creditos', 'editar_mora')) {
                 $tasaMora = $request->tasa_mora ?? $plan?->tasa_moratorios ?? $categoria?->tasa_mora_default ?? 0;
                 $tipoMora = $request->tipo_mora ?? $plan?->tipo_mora ?? $categoria?->tipo_mora_default ?? 'porcentaje';
