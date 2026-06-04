@@ -250,7 +250,7 @@ class CreditoPrendarioController extends Controller
             'monto_solicitado' => 'required|numeric|min:0',
             'monto_aprobado' => 'nullable|numeric|min:0',
             'valor_tasacion' => 'nullable|numeric|min:0',
-            'tasa_interes' => 'nullable|numeric|min:0',
+            'tasa_interes' => 'nullable|numeric|gt:0',
             'tasa_mora' => 'nullable|numeric|min:0',
             'tipo_mora' => 'nullable|in:porcentaje,monto_fijo',
             'mora_monto_fijo' => 'nullable|numeric|min:0',
@@ -434,6 +434,18 @@ class CreditoPrendarioController extends Controller
             }
             $user = Auth::user();
             $tasaInteresPlanOCat = (float) ($plan?->tasa_interes ?? $categoria?->tasa_interes_default ?? 0);
+
+            if ($request->filled('tasa_interes') && (float) $request->tasa_interes <= 0) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La tasa de interés debe ser mayor a 0',
+                    'errors' => [
+                        'tasa_interes' => ['La tasa de interés debe ser mayor a 0']
+                    ]
+                ], 422);
+            }
+
             if ($user && $user->hasPermission('creditos', 'editar_tasa_interes')) {
                 $tasaInteresFinal = $request->filled('tasa_interes')
                     ? (float) $request->tasa_interes
@@ -448,8 +460,8 @@ class CreditoPrendarioController extends Controller
                 $tasaInteresFinal = (float) $request->tasa_interes;
             }
 
-            if ($tasaInteresFinal < 0) {
-                $tasaInteresFinal = 0;
+            if ($tasaInteresFinal <= 0) {
+                $tasaInteresFinal = 15.0;
             }
 
             if ($user && $user->hasPermission('creditos', 'editar_mora')) {
@@ -2791,7 +2803,7 @@ class CreditoPrendarioController extends Controller
                 'credito' => 'required|array',
                 'credito.numero_credito' => 'required|string',
                 'credito.monto_aprobado' => 'required|numeric',
-                'credito.tasa_interes' => 'required|numeric',
+                'credito.tasa_interes' => 'required|numeric|gt:0',
                 'credito.tipo_interes' => 'required|string',
                 'credito.plazo_dias' => 'nullable|integer',
                 'credito.numero_cuotas' => 'nullable|integer',
@@ -2885,7 +2897,7 @@ class CreditoPrendarioController extends Controller
                 'credito' => 'required|array',
                 'credito.numero_credito' => 'required|string',
                 'credito.monto_aprobado' => 'required|numeric',
-                'credito.tasa_interes' => 'required|numeric',
+                'credito.tasa_interes' => 'required|numeric|gt:0',
                 'credito.tipo_interes' => 'required|string',
                 'credito.plazo_dias' => 'nullable|integer',
                 'credito.numero_cuotas' => 'nullable|integer',
@@ -2976,7 +2988,7 @@ class CreditoPrendarioController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'monto' => 'required|numeric|min:0',
-                'tasa_interes' => 'required|numeric|min:0',
+                'tasa_interes' => 'required|numeric|gt:0',
                 'tipo_interes' => 'required|string',
                 'numero_cuotas' => 'required|integer|min:1',
                 'plazo_dias' => 'nullable|integer',
@@ -3129,7 +3141,7 @@ class CreditoPrendarioController extends Controller
                 'credito' => 'required|array',
                 'credito.numero_credito' => 'required|string',
                 'credito.monto_aprobado' => 'required|numeric',
-                'credito.tasa_interes' => 'required|numeric',
+                'credito.tasa_interes' => 'required|numeric|gt:0',
                 'credito.tipo_interes' => 'required|string',
                 'credito.numero_cuotas' => 'required|integer|min:1',
             ]);
@@ -3558,7 +3570,7 @@ class CreditoPrendarioController extends Controller
                 'observaciones' => 'nullable|string|max:500',
                 'monto_aprobado' => 'sometimes|numeric|min:0',
                 'plazo_dias' => 'sometimes|integer|min:1',
-                'tasa_interes' => 'sometimes|numeric|min:0',
+                'tasa_interes' => 'sometimes|numeric|gt:0',
             ]);
 
             if ($validator->fails()) {
