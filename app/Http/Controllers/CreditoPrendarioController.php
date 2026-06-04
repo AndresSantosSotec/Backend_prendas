@@ -1351,18 +1351,14 @@ class CreditoPrendarioController extends Controller
 
         // Generar cada cuota
         for ($numeroCuota = 1; $numeroCuota <= $numeroCuotas; $numeroCuota++) {
-            // Calcular fecha de vencimiento (en base a meses calendario, no días fijos)
-            if ($fechaPrimerPago) {
-                if ($numeroCuota === 1) {
-                    $fechaVencimiento = $fechaPrimerPago->copy();
-                } else {
-                    // Sumar meses en lugar de días para mantener el mismo día del mes
-                    $fechaVencimiento = $fechaPrimerPago->copy()->addMonths($numeroCuota - 1);
-                }
-            } else {
-                // Sumar meses en lugar de días para mantener el mismo día del mes
-                $fechaVencimiento = $fechaDesembolso->copy()->addMonths($numeroCuota - 1);
-            }
+            // Calcular fecha de vencimiento según la periodicidad seleccionada.
+            $fechaBaseCuota = $fechaPrimerPago ? $fechaPrimerPago : $fechaDesembolso;
+            $fechaVencimiento = $this->calcularFechaVencimientoPorCuota(
+                $fechaBaseCuota,
+                $numeroCuota,
+                $tipoInteres,
+                $diasEntreCuotas
+            );
 
             // Si hay días de gracia en la primera cuota, agregarlos
             if ($numeroCuota === 1 && $diasGracia > 0 && !$fechaPrimerPago) {
@@ -1551,6 +1547,24 @@ class CreditoPrendarioController extends Controller
             default:
                 return 30;
         }
+    }
+
+    /**
+     * Calcular fecha de vencimiento por número de cuota respetando el tipo de período.
+     */
+    private function calcularFechaVencimientoPorCuota(Carbon $fechaBase, int $numeroCuota, string $tipoInteres, int $diasEntreCuotas): Carbon
+    {
+        $offset = max(0, $numeroCuota - 1);
+
+        if ($offset === 0) {
+            return $fechaBase->copy();
+        }
+
+        if ($tipoInteres === 'mensual') {
+            return $fechaBase->copy()->addMonths($offset);
+        }
+
+        return $fechaBase->copy()->addDays($offset * $diasEntreCuotas);
     }
 
     /**
@@ -3043,17 +3057,13 @@ class CreditoPrendarioController extends Controller
             $totalInteresPlan = 0;
 
             for ($i = 1; $i <= $numeroCuotas; $i++) {
-                if ($fechaPrimerPago) {
-                    if ($i === 1) {
-                         $fechaVencimiento = $fechaPrimerPago->copy();
-                    } else {
-                         // Sumar meses en lugar de días para mantener el mismo día del mes
-                         $fechaVencimiento = $fechaPrimerPago->copy()->addMonths($i - 1);
-                    }
-                } else {
-                    // Sumar meses en lugar de días para mantener el mismo día del mes
-                    $fechaVencimiento = $fechaDesembolso->copy()->addMonths($i - 1);
-                }
+                $fechaBaseCuota = $fechaPrimerPago ? $fechaPrimerPago : $fechaDesembolso;
+                $fechaVencimiento = $this->calcularFechaVencimientoPorCuota(
+                    $fechaBaseCuota,
+                    $i,
+                    $tipoInteres,
+                    $diasEntreCuotas
+                );
 
                 if ($i === 1 && $diasGracia > 0 && !$fechaPrimerPago) {
                     $fechaVencimiento->addDays($diasGracia);
@@ -3195,17 +3205,13 @@ class CreditoPrendarioController extends Controller
             $saldoCapital = $montoAprobado;
 
              for ($i = 1; $i <= $numeroCuotas; $i++) {
-                if ($fechaPrimerPago) {
-                    if ($i === 1) {
-                         $fechaVencimiento = $fechaPrimerPago->copy();
-                    } else {
-                         // Sumar meses en lugar de días para mantener el mismo día del mes
-                         $fechaVencimiento = $fechaPrimerPago->copy()->addMonths($i - 1);
-                    }
-                } else {
-                    // Sumar meses en lugar de días para mantener el mismo día del mes
-                    $fechaVencimiento = $fechaDesembolso->copy()->addMonths($i - 1);
-                }
+                $fechaBaseCuota = $fechaPrimerPago ? $fechaPrimerPago : $fechaDesembolso;
+                $fechaVencimiento = $this->calcularFechaVencimientoPorCuota(
+                    $fechaBaseCuota,
+                    $i,
+                    $tipoInteres,
+                    $diasEntreCuotas
+                );
 
                 if ($i === 1 && $diasGracia > 0 && !$fechaPrimerPago) {
                     $fechaVencimiento->addDays($diasGracia);
