@@ -185,7 +185,23 @@ class CajaController extends Controller
         ]);
 
         $user = Auth::user();
+
+        // LOG: contexto de la solicitud para facilitar debugging
+        Log::info('Intento de apertura de caja', [
+            'user_id'       => $user->id,
+            'user_email'    => $user->email,
+            'user_rol'      => $user->rol,
+            'fecha_solicitada' => $request->fecha_apertura,
+            'saldo_inicial' => $request->saldo_inicial,
+            'permisos_caja' => $user->permissions()->where('modulo', 'caja')->pluck('accion')->toArray(),
+        ]);
+
         if (!$user->hasPermission('caja', 'abrir')) {
+            Log::warning('Apertura de caja rechazada: sin permiso caja.abrir', [
+                'user_id'  => $user->id,
+                'user_rol' => $user->rol,
+                'permisos' => $user->permissions()->where('modulo', 'caja')->pluck('accion')->toArray(),
+            ]);
             return response()->json(['error' => 'No tienes permiso para abrir caja.'], 403);
         }
 
@@ -215,6 +231,12 @@ class CajaController extends Controller
             }
 
             // Si es de otro día, NO permitir apertura hasta cerrar
+            Log::warning('Apertura de caja rechazada: caja pendiente de cierre de otro día', [
+                'user_id'          => $user->id,
+                'user_rol'         => $user->rol,
+                'caja_pendiente_id' => $cajaPendiente->id,
+                'fecha_pendiente'  => $cajaPendiente->fecha_apertura,
+            ]);
             return response()->json([
                 'error' => 'No puedes abrir una nueva caja. Tienes una caja pendiente de cierre del ' .
                     Carbon::parse($cajaPendiente->fecha_apertura)->format('d/m/Y') .
@@ -233,6 +255,12 @@ class CajaController extends Controller
                 ->first();
 
             if ($cajaCerradaHoy) {
+                Log::warning('Apertura de caja rechazada: ya cerró su caja hoy', [
+                    'user_id'        => $user->id,
+                    'user_rol'       => $user->rol,
+                    'fecha'          => $fecha,
+                    'caja_cerrada_id' => $cajaCerradaHoy->id,
+                ]);
                 return response()->json([
                     'error' => 'Ya cerraste tu caja hoy. No puedes abrir otra caja el mismo día.',
                     'caja_cerrada' => true
