@@ -4,6 +4,31 @@
     <meta charset="UTF-8">
     <title>Contrato Prendario - {{ $credito->codigo_credito ?? $credito->numero_credito }}</title>
     <style>
+        @font-face {
+            font-family: 'Arial Narrow';
+            src: url('{{ resource_path('fonts/ARIALN.TTF') }}') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'Arial Narrow';
+            src: url('{{ resource_path('fonts/ARIALNB.TTF') }}') format('truetype');
+            font-weight: bold;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'Arial Narrow';
+            src: url('{{ resource_path('fonts/ARIALNI.TTF') }}') format('truetype');
+            font-weight: normal;
+            font-style: italic;
+        }
+        @font-face {
+            font-family: 'Arial Narrow';
+            src: url('{{ resource_path('fonts/ARIALNBI.TTF') }}') format('truetype');
+            font-weight: bold;
+            font-style: italic;
+        }
+
         @page {
             margin: 0;
             size: letter;
@@ -11,7 +36,7 @@
         * { box-sizing: border-box; }
         body {
             font-family: 'Arial Narrow', Arial, Helvetica, sans-serif;
-            font-size: 10px;
+            font-size: 12px;
             color: #000;
             line-height: 1.0;
             margin-top: 2.5cm;
@@ -20,6 +45,10 @@
             margin-right: 1.5cm;
             text-align: justify;
         }
+        /* Mantener fidelidad del documento: texto general en 10 puntos */
+        p, div, span, td, th {
+            font-size: 12px;
+        }
         /* ENCABEZADO — solo primera página */
         header {
             border-bottom: 1.5px solid #000;
@@ -27,20 +56,20 @@
             padding-bottom: 3px;
             margin-bottom: 5px;
         }
-        .hdr-name   { font-size: 11px; font-weight: bold; text-transform: uppercase; }
-        .hdr-detail { font-size: 10px; }
-        
+        .hdr-name   { font-size: 12px; font-weight: bold; text-transform: uppercase; }
+        .hdr-detail { font-size: 12px; }
+
         /* TÍTULO */
         .titulo-empresa {
             text-align: center;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: bold;
             text-transform: uppercase;
             margin-bottom: 3px;
         }
         .titulo-contrato {
             text-align: center;
-            font-size: 10px;
+            font-size: 12px;
             font-weight: bold;
             text-transform: uppercase;
             margin-bottom: 8px;
@@ -51,7 +80,7 @@
             font-weight: bold;
             text-transform: uppercase;
             margin: 3px 0 1px 0;
-            font-size: 10px;
+            font-size: 12px;
         }
         .parrafo  { margin-bottom: 2px; text-align: justify; }
         .clausula { margin-bottom: 2px; text-align: justify; }
@@ -61,8 +90,8 @@
         .firmas-tabla { width: 100%; border-collapse: collapse; margin-top: 15px; }
         .firma-celda  { width: 42%; text-align: center; vertical-align: bottom; padding-top: 15px; }
         .firma-linea  { border-top: 1px solid #000; margin: 0 auto 3px auto; width: 85%; }
-        .firma-nombre { font-weight: bold; font-size: 10px; text-transform: uppercase; }
-        .firma-rol    { font-size: 10px; }
+        .firma-nombre { font-weight: bold; font-size: 12px; text-transform: uppercase; }
+        .firma-rol    { font-size: 12px; }
     </style>
 </head>
 <body>
@@ -99,10 +128,8 @@
     y la Persona Física cuyo nombre aparece al anverso de este documento
     (Deudor Prendario), conforme las Declaraciones y Cláusulas siguientes:
 </div>
-<p class="seccion-heading" style="margin-top:2px;">Declaraciones:</p>
-
-<p class="parrafo">
-    Declara el <strong>MUTUANTE:</strong> (Acreedor Prendario) que su representada legalmente constituida conforme a las leyes de la República de Guatemala, según consta en el primer testimonio de la escritura pública número 175 de fecha 10 de octubre de 2025 y su ampliación escritura No. 180 de fecha 23 de octubre de 2025, ambas autorizadas en la ciudad de Esquipulas, departamento de Chiquimula por el Notario Fredy Osvaldo Orozco Nova e inscrita en el Registro Mercantil General de la República bajo el No. 39,329 folio 798 del Libro 27 electrónicos de Sociedades Mercantiles; b) Que su representada cuenta con las facultades necesarias para la celebración del presente contrato de mutuo con garantía prendaria en los artículos 1, 5, 6, 47 y 52 del Decreto 08-2003, Ley de Protección al Consumidor y Usuario, y por los artículos 10, 12, 13, 38, 58, 60, 65, 75 y 78 del Decreto Número 51-2007, Ley de Garantías Mobiliarias, y su reglamento.
+<p class="parrafo" style="margin-top:2px;">
+    <strong>Declaraciones:</strong> Declara el <strong>MUTUANTE:</strong> (Acreedor Prendario) que su representada legalmente constituida conforme a las leyes de la República de Guatemala, según consta en el primer testimonio de la escritura pública número 175 de fecha 10 de octubre de 2025 y su ampliación escritura No. 180 de fecha 23 de octubre de 2025, ambas autorizadas en la ciudad de Esquipulas, departamento de Chiquimula por el Notario Fredy Osvaldo Orozco Nova e inscrita en el Registro Mercantil General de la República bajo el No. 39,329 folio 798 del Libro 27 electrónicos de Sociedades Mercantiles; b) Que su representada cuenta con las facultades necesarias para la celebración del presente contrato de mutuo con garantía prendaria en los artículos 1, 5, 6, 47 y 52 del Decreto 08-2003, Ley de Protección al Consumidor y Usuario, y por los artículos 10, 12, 13, 38, 58, 60, 65, 75 y 78 del Decreto Número 51-2007, Ley de Garantías Mobiliarias, y su reglamento.
 </p>
 
 <p class="parrafo">
