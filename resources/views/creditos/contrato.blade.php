@@ -4,71 +4,74 @@
     <meta charset="UTF-8">
     <title>Contrato Prendario - {{ $credito->codigo_credito ?? $credito->numero_credito }}</title>
     <style>
-        @page { margin: 0; }
+        @page {
+            margin: 0;
+            size: letter;
+        }
         * { box-sizing: border-box; }
         body {
             font-family: 'Arial Narrow', Arial, Helvetica, sans-serif;
-            font-size: 10px;
+            font-size: 7.6px;
             color: #000;
-            line-height: 1.5;
-            margin-top: 1.5cm;
-            margin-bottom: 1.5cm;
-            margin-left: 3.5cm;
-            margin-right: 1.5cm;
+            line-height: 1.12;
+            margin-top: 0.8cm;
+            margin-bottom: 0.8cm;
+            margin-left: 2.8cm;
+            margin-right: 1.2cm;
             text-align: justify;
         }
         /* ENCABEZADO — solo primera página (flujo normal) */
         header {
             border-bottom: 1.5px solid #000;
             text-align: center;
-            padding-bottom: 5px;
-            margin-bottom: 10px;
+            padding-bottom: 3px;
+            margin-bottom: 5px;
         }
-        .hdr-name   { font-size: 11px; font-weight: bold; text-transform: uppercase; }
-        .hdr-detail { font-size: 8px; }
+        .hdr-name   { font-size: 10px; font-weight: bold; text-transform: uppercase; }
+        .hdr-detail { font-size: 7.5px; }
         /* PIE — solo primera página (flujo normal, al final del contrato) */
         footer {
             border-top: 1px solid #000;
-            font-size: 8px;
+            font-size: 7.5px;
             text-align: center;
-            line-height: 1.4;
-            margin-top: 16px;
-            padding-top: 4px;
+            line-height: 1.3;
+            margin-top: 10px;
+            padding-top: 3px;
         }
         /* TÍTULO */
         .titulo-empresa {
             text-align: center;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: bold;
             text-transform: uppercase;
-            margin-bottom: 5px;
+            margin-bottom: 3px;
         }
         .titulo-contrato {
             text-align: center;
-            font-size: 10px;
+            font-size: 9px;
             font-weight: bold;
             text-transform: uppercase;
-            margin-bottom: 12px;
-            line-height: 1.6;
+            margin-bottom: 8px;
+            line-height: 1.4;
         }
         /* CUERPO */
         .seccion-heading {
             font-weight: bold;
             text-transform: uppercase;
-            margin: 8px 0 4px 0;
-            font-size: 10px;
+            margin: 3px 0 1px 0;
+            font-size: 8.5px;
         }
-        .parrafo  { margin-bottom: 6px; text-align: justify; }
-        .clausula { margin-bottom: 6px; text-align: justify; }
+        .parrafo  { margin-bottom: 2px; text-align: justify; }
+        .clausula { margin-bottom: 2px; text-align: justify; }
         .clausula-num { font-weight: bold; text-transform: uppercase; }
-        .cierre   { margin-top: 16px; text-align: justify; }
+        .cierre   { margin-top: 6px; text-align: justify; }
         /* FIRMAS */
-        .firmas-tabla { width: 100%; border-collapse: collapse; margin-top: 36px; }
-        .firma-celda  { width: 42%; text-align: center; vertical-align: bottom; padding-top: 36px; }
-        .firma-linea  { border-top: 1px solid #000; margin: 0 auto 4px auto; width: 85%; }
-        .firma-nombre { font-weight: bold; font-size: 10px; text-transform: uppercase; }
-        .firma-rol    { font-size: 9px; }
-        /* ANVERSO */
+        .firmas-tabla { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .firma-celda  { width: 42%; text-align: center; vertical-align: bottom; padding-top: 15px; }
+        .firma-linea  { border-top: 1px solid #000; margin: 0 auto 3px auto; width: 85%; }
+        .firma-nombre { font-weight: bold; font-size: 9px; text-transform: uppercase; }
+        .firma-rol    { font-size: 8px; }
+        /* REVERSO (Segunda página) */
         .anverso {
             page-break-before: always;
             border: 1.5px solid #000;
@@ -101,10 +104,10 @@
     <table width="100%" style="border-bottom: 1.5px solid #000; padding-bottom: 5px;">
         <tr>
             <td width="25%" style="text-align: left; vertical-align: middle;">
-                <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 48px;">
             </td>
             <td width="50%" style="text-align: center; vertical-align: middle;">
-                <div class="hdr-name">{{ $sucursal->nombre ?? 'AVANZA' }}</div>
+                <div class="hdr-name">{{ $sucursal->nombre ?? 'GRUPO VALOR' }}</div>
                 @if(!empty($sucursal->direccion))<div class="hdr-detail">{{ $sucursal->direccion }}</div>@endif
                 <div class="hdr-detail">
                     @if(!empty($sucursal->telefono))Tel.: {{ $sucursal->telefono }}@endif
@@ -119,12 +122,12 @@
 </header>
 
 {{-- TÍTULO + DECLARACIONES --}}
-<div class="seccion-heading" style="margin-top:0; font-size: 11px;">
+<div class="seccion-heading" style="margin-top:0; font-size: 10px; text-align: center;">
     GRUPO VALOR, SOCIEDAD ANÓNIMA
 </div>
 <div class="seccion-heading" style="margin-top:0;">
     Contrato de Adhesión de Mutuo con Garantía Prendaria que celebra
-    GRUPO VALOR, SOCIEDAD ANÓNIMA – {{ strtoupper($sucursal->nombre ?? 'AVANZA') }} (La Acreedora),
+    GRUPO VALOR, SOCIEDAD ANÓNIMA (La Acreedora),
     y la Persona Física cuyo nombre aparece al anverso de este documento
     (Deudor Prendario), conforme las Declaraciones y Cláusulas siguientes:
 </div>
@@ -145,11 +148,11 @@
 {{-- CLÁUSULAS --}}
 <p class="seccion-heading">Cláusulas</p>
 
-<div class="clausula"><span class="clausula-num">Primera: Objeto (Préstamo a Mutuo).</span> El deudor por el presente acto se reconoce lino y llano deudor de {{ strtoupper($sucursal->nombre ?? 'AVANZA') }} por la cantidad y demás condiciones que se detallan en el anverso del presente documento y de conformidad con el presente contrato de mutuo mercantil, cantidad que tiene recibida en efectivo y a su entera satisfacción.</div>
+<div class="clausula"><span class="clausula-num">Primera: Objeto (Préstamo a Mutuo).</span> El deudor por el presente acto se reconoce lino y llano deudor de GRUPO VALOR, SOCIEDAD ANÓNIMA por la cantidad y demás condiciones que se detallan en el anverso del presente documento y de conformidad con el presente contrato de mutuo mercantil, cantidad que tiene recibida en efectivo y a su entera satisfacción.</div>
 
 <div class="clausula"><span class="clausula-num">Segunda: Condiciones.</span> El deudor se obliga a pagar la cantidad adeudada en la forma, modo, con el interés, que se detalla en el anverso, tales tasas serán devengadas inclusive en los casos en que la ACREEDORA retenga la prenda, a la que se refiere este contrato por falta de pago del mutuo y sus accesorios. Además, el pago deberá hacerse en efectivo junto con los intereses y almacenaje en el mismo establecimiento en que se suscribe este documento dentro del plazo máximo estipulado en el anverso de este documento, plazo que podrá prorrogarse por periodos iguales, previo cumplimiento de las demás condiciones establecidas en este instrumento. El deudor podrá realizar pagos parciales a cuenta del mutuo, los interés y accesorios a su cargo, los cuales devengaran interés a favor del deudor, a la misma tasa del mutuo y se aplicara a amortizar el adeudo, en el orden siguiente: Capital (Mutuo), intereses y accesorios, al momento de establecer las condiciones de pago establecidas en el anverso al realizarse la venta directa del bien. En caso de Prorroga, los pagos a cuenta y los intereses que devengan se acreditaran al pago de los intereses, y deposito, en el orden ya indicado.</div>
 
-<div class="clausula"><span class="clausula-num">Tercera: Garantía.</span> En garantía del capital, intereses, gastos y costas si llegaren a causarse, EL DEUDOR constituye a favor de {{ strtoupper($sucursal->nombre ?? 'AVANZA') }}, en calidad de PRENDA, el bien mueble usado que se describe en el anverso, en el entendido de que esta entrega del bien convierte a la ACREEDORA en propietaria de la prenda.</div>
+<div class="clausula"><span class="clausula-num">Tercera: Garantía.</span> En garantía del capital, intereses, gastos y costas si llegaren a causarse, EL DEUDOR constituye a favor de GRUPO VALOR, SOCIEDAD ANÓNIMA, en calidad de PRENDA, el bien mueble usado que se describe en el anverso, en el entendido de que esta entrega del bien convierte a la ACREEDORA en propietaria de la prenda.</div>
 
 <div class="clausula"><span class="clausula-num">Cuarta:</span> El valor de la prenda es el que se establece en el anverso, en virtud del avalúo practicado por LA ACREEDORA, con criterio de objetividad y equidad y la entera satisfacción de ambas partes.</div>
 
@@ -203,7 +206,7 @@
         <td class="firma-celda">
             <div class="firma-linea"></div>
             <div class="firma-nombre">"Acreedora"</div>
-            <div class="firma-rol">{{ strtoupper($sucursal->nombre ?? 'AVANZA') }}</div>
+            <div class="firma-rol">GRUPO VALOR, SOCIEDAD ANÓNIMA</div>
         </td>
         <td style="width:16%;"></td>
         <td class="firma-celda">
@@ -217,12 +220,12 @@
 {{-- PIE — solo primera página --}}
 <footer>
     Contrato No. {{ $credito->codigo_credito ?? $credito->numero_credito }}
-    &nbsp;&mdash;&nbsp; {{ $sucursal->nombre ?? 'AVANZA' }}
+    &nbsp;&mdash;&nbsp; {{ $sucursal->nombre ?? 'GRUPO VALOR' }}
 </footer>
 
-{{-- ANVERSO — última página --}}
+{{-- REVERSO — Segunda página (datos del contrato) --}}
 <div class="anverso">
-    <div class="anverso-titulo">Anverso del Contrato &mdash; Datos del Cliente y Condiciones</div>
+    <div class="anverso-titulo">Reverso del Contrato &mdash; Datos del Cliente y Condiciones</div>
     <div class="contrato-no">No. de Contrato: {{ $credito->codigo_credito ?? $credito->numero_credito }}</div>
 
     <table class="av-table">
