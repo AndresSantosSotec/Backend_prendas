@@ -96,6 +96,9 @@ class PagoService
 
             $minimoRenovacion = $moraTotal + $interesPorPeriodo;
             $totalPagar = $capitalPendiente + $interesTotal + $moraTotal + $otrosTotal;
+            $totalRecalculado = round($capitalPendiente + $interesTotal + $moraTotal + $otrosTotal, 2);
+            $totalParaLiquidar = round($totalPagar, 2);
+            $diferenciaTotal = round($totalParaLiquidar - $totalRecalculado, 2);
 
             $debugCuotas = $cuotasPendientes->map(function ($cuota) {
                 return [
@@ -121,7 +124,7 @@ class PagoService
                 'mora_acumulada' => round($moraTotal, 2),
                 'otros_acumulados' => round($otrosTotal, 2),
                 'dias_mora' => $diasMora,
-                'total_para_liquidar' => round($totalPagar, 2),
+                'total_para_liquidar' => $totalParaLiquidar,
                 'minimo_renovacion' => round($minimoRenovacion, 2),
                 'interes_por_periodo' => round($interesPorPeriodo, 2),
                 'monto_cuota_actual' => round($montoCuotaActual, 2),
@@ -137,6 +140,14 @@ class PagoService
                     'fecha_base' => $fechaBase?->format('Y-m-d'),
                     'dias_transcurridos' => $diasTranscurridos,
                     'cuotas_pendientes_count' => $cuotasPendientes->count(),
+                    'capital_total' => round($capitalPendiente, 2),
+                    'interes_total' => round($interesTotal, 2),
+                    'mora_total' => round($moraTotal, 2),
+                    'otros_total' => round($otrosTotal, 2),
+                    'total_para_liquidar' => $totalParaLiquidar,
+                    'total_recalculado' => $totalRecalculado,
+                    'diferencia_total' => $diferenciaTotal,
+                    'incluye_otros' => true,
                     'cuotas' => $debugCuotas,
                 ],
                 'opciones_adelanto' => $this->calcularOpcionesRenovacion($credito, $interesPorPeriodo, $minimoRenovacion),
@@ -197,7 +208,11 @@ class PagoService
         $interesTotal = $interesHistorico + $interesDevengado;
         $moraTotal = $moraHistorica + $moraDevengada;
 
-        $totalPagar = $credito->capital_pendiente + $interesTotal + $moraTotal;
+        $otrosTotal = max(0, (float) ($credito->otros_cargos_pendientes ?? 0));
+        $totalPagar = $credito->capital_pendiente + $interesTotal + $moraTotal + $otrosTotal;
+        $totalRecalculado = round((float) $credito->capital_pendiente + $interesTotal + $moraTotal + $otrosTotal, 2);
+        $totalParaLiquidar = round($totalPagar, 2);
+        $diferenciaTotal = round($totalParaLiquidar - $totalRecalculado, 2);
 
         // Interés por un periodo (para cálculo de adelantos y renovación)
         // Usar tasa convertida al período correcto (mensual, semanal, etc.)
@@ -235,9 +250,9 @@ class PagoService
             'interes_acumulado' => round($interesTotal, 2),
             'interes_periodo_actual' => round($interesDevengado, 2),
             'mora_acumulada' => round($moraTotal, 2),
-            'otros_acumulados' => 0,
+            'otros_acumulados' => round($otrosTotal, 2),
             'dias_mora' => $diasMora,
-            'total_para_liquidar' => round($totalPagar, 2),
+            'total_para_liquidar' => $totalParaLiquidar,
             'minimo_renovacion' => round($minimoRenovacion, 2),
             'interes_por_periodo' => round($interesPorPeriodo, 2),
             'monto_cuota_actual' => round($montoCuotaActual, 2),
@@ -255,6 +270,14 @@ class PagoService
                 'tasa_mensual' => round((float) $credito->tasa_interes, 4),
                 'tipo_interes' => (string) $credito->tipo_interes,
                 'periodos_cobrados' => $periodosCobrar,
+                'capital_total' => round((float) $credito->capital_pendiente, 2),
+                'interes_total' => round($interesTotal, 2),
+                'mora_total' => round($moraTotal, 2),
+                'otros_total' => round($otrosTotal, 2),
+                'total_para_liquidar' => $totalParaLiquidar,
+                'total_recalculado' => $totalRecalculado,
+                'diferencia_total' => $diferenciaTotal,
+                'incluye_otros' => true,
             ],
             // Opciones para renovación (pagos de interés adelantado)
             'opciones_adelanto' => $this->calcularOpcionesRenovacion($credito, $interesPorPeriodo, $minimoRenovacion),
