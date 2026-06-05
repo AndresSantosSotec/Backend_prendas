@@ -97,6 +97,19 @@ class PagoService
             $minimoRenovacion = $moraTotal + $interesPorPeriodo;
             $totalPagar = $capitalPendiente + $interesTotal + $moraTotal + $otrosTotal;
 
+            $debugCuotas = $cuotasPendientes->map(function ($cuota) {
+                return [
+                    'numero_cuota' => (int) $cuota->numero_cuota,
+                    'estado' => (string) $cuota->estado,
+                    'fecha_vencimiento' => $cuota->fecha_vencimiento?->format('Y-m-d'),
+                    'capital_pendiente' => round((float) ($cuota->capital_pendiente ?? 0), 2),
+                    'interes_pendiente' => round((float) ($cuota->interes_pendiente ?? 0), 2),
+                    'mora_pendiente' => round((float) ($cuota->mora_pendiente ?? 0), 2),
+                    'otros_pendiente' => round((float) ($cuota->otros_cargos_pendientes ?? 0), 2),
+                    'monto_pendiente' => round((float) ($cuota->monto_pendiente ?? 0), 2),
+                ];
+            })->values()->all();
+
             return [
                 'fecha_calculo' => $fechaCalculo->format('Y-m-d'),
                 'dias_transcurridos' => $diasTranscurridos,
@@ -106,6 +119,7 @@ class PagoService
                 'interes_acumulado' => round($interesTotal, 2),
                 'interes_periodo_actual' => round($interesPorPeriodo, 2),
                 'mora_acumulada' => round($moraTotal, 2),
+                'otros_acumulados' => round($otrosTotal, 2),
                 'dias_mora' => $diasMora,
                 'total_para_liquidar' => round($totalPagar, 2),
                 'minimo_renovacion' => round($minimoRenovacion, 2),
@@ -118,6 +132,13 @@ class PagoService
                 'cuota_numero' => $primeraCuota?->numero_cuota,
                 'fecha_vencimiento' => $credito->fecha_vencimiento?->format('Y-m-d'),
                 'en_mora' => ($diasMora > 0) || ($moraTotal > 0),
+                'debug_calculo' => [
+                    'usa_plan_pagos' => true,
+                    'fecha_base' => $fechaBase?->format('Y-m-d'),
+                    'dias_transcurridos' => $diasTranscurridos,
+                    'cuotas_pendientes_count' => $cuotasPendientes->count(),
+                    'cuotas' => $debugCuotas,
+                ],
                 'opciones_adelanto' => $this->calcularOpcionesRenovacion($credito, $interesPorPeriodo, $minimoRenovacion),
                 'opciones_cuotas_adelanto' => $this->calcularOpcionesCuotasAdelanto($credito),
             ];
@@ -214,6 +235,7 @@ class PagoService
             'interes_acumulado' => round($interesTotal, 2),
             'interes_periodo_actual' => round($interesDevengado, 2),
             'mora_acumulada' => round($moraTotal, 2),
+            'otros_acumulados' => 0,
             'dias_mora' => $diasMora,
             'total_para_liquidar' => round($totalPagar, 2),
             'minimo_renovacion' => round($minimoRenovacion, 2),
@@ -226,6 +248,14 @@ class PagoService
             'cuota_numero' => $primeraCuota?->numero_cuota,
             'fecha_vencimiento' => $credito->fecha_vencimiento?->format('Y-m-d'),
             'en_mora' => $diasMora > 0,
+            'debug_calculo' => [
+                'usa_plan_pagos' => false,
+                'fecha_base' => $fechaBase?->format('Y-m-d'),
+                'dias_transcurridos' => $diasTranscurridos,
+                'tasa_mensual' => round((float) $credito->tasa_interes, 4),
+                'tipo_interes' => (string) $credito->tipo_interes,
+                'periodos_cobrados' => $periodosCobrar,
+            ],
             // Opciones para renovación (pagos de interés adelantado)
             'opciones_adelanto' => $this->calcularOpcionesRenovacion($credito, $interesPorPeriodo, $minimoRenovacion),
             // Opciones para adelanto de cuotas completas

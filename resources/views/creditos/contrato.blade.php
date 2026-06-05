@@ -136,7 +136,7 @@
 </p>
 
 <p class="parrafo">
-    Declara el <strong>MUTUARIO:</strong> (Deudor Prendario) a) Que tiene su domicilio como se describe en el anverso de este documento; b) Enterado de las penas relativas al delito de perjuicio manifiesta, que es legítimo propietario de los bienes que se describen en el anverso del presente contrato y conforme lo establecido en la cláusula QUINTA de este contrato.
+    Declara el <strong>MUTUARIO:</strong> ({{ strtoupper($cliente->nombres . ' ' . $cliente->apellidos) }}) a) Que tiene su domicilio como se describe en el anverso de este documento; b) Enterado de las penas relativas al delito de perjuicio manifiesta, que es legítimo propietario de los bienes que se describen en el anverso del presente contrato y conforme lo establecido en la cláusula QUINTA de este contrato.
 </p>
 
 <p class="parrafo">
