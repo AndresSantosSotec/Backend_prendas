@@ -244,10 +244,9 @@ class PlanInteresCategoriaController extends Controller
                     ->exists();
 
                 if ($existe) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Ya existe un plan con ese código'
-                    ], 422);
+                    // Si el código ya existe en un plan activo, permitir continuar
+                    // y delegar la generación de código único al modelo.
+                    $payload['codigo'] = null;
                 }
             }
 
@@ -381,10 +380,9 @@ class PlanInteresCategoriaController extends Controller
                     ->exists();
 
                 if ($existe) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Ya existe un plan con ese código'
-                    ], 422);
+                    // Si el código existe en otro plan activo, no bloquear la operación.
+                    // Se vacía para que el modelo regenere un código único.
+                    $payload['codigo'] = null;
                 }
             }
 
