@@ -3154,6 +3154,8 @@ class CreditoPrendarioController extends Controller
                 'credito.tasa_interes' => 'required|numeric|gt:0',
                 'credito.tipo_interes' => 'required|string',
                 'credito.numero_cuotas' => 'required|integer|min:1',
+                'credito.gas_ids' => 'nullable|array',
+                'credito.gas_ids.*' => 'nullable|integer|exists:gastos,id_gasto',
             ]);
 
             if ($validator->fails()) {
@@ -3174,22 +3176,47 @@ class CreditoPrendarioController extends Controller
             $fechaDesembolso = isset($datosCredito['fecha_desembolso']) ? Carbon::parse($datosCredito['fecha_desembolso']) : Carbon::now();
             $fechaPrimerPago = isset($datosCredito['fecha_primer_pago']) ? Carbon::parse($datosCredito['fecha_primer_pago']) : null;
 
-            // Calcular gastos si están incluidos
-            $gastosIds = $datosCredito['gas_ids'] ?? [];
+            // Calcular gastos si están incluidos (robusto ante distintos formatos del payload)
+            $gastosIdsRaw = $datosCredito['gas_ids']
+                ?? $request->input('credito.gas_ids')
+                ?? $request->input('gas_ids')
+                ?? [];
+
+            if (is_string($gastosIdsRaw)) {
+                $decoded = json_decode($gastosIdsRaw, true);
+                if (is_array($decoded)) {
+                    $gastosIdsRaw = $decoded;
+                } else {
+                    $gastosIdsRaw = array_filter(array_map('trim', explode(',', $gastosIdsRaw)));
+                }
+            }
+
+            $gastosIds = collect(is_array($gastosIdsRaw) ? $gastosIdsRaw : [])
+                ->map(fn ($id) => (int) $id)
+                ->filter(fn ($id) => $id > 0)
+                ->unique()
+                ->values()
+                ->all();
+
             $totalGastos = 0;
-            $gastosPorCuota = 0;
+            $gastosPorCuota = [];
 
             if (!empty($gastosIds)) {
-                $gastos = \App\Models\Gasto::whereIn('id_gasto', $gastosIds)->get();
-                foreach ($gastos as $gasto) {
-                    if ($gasto->tipo === 'FIJO') {
-                        $totalGastos += $gasto->monto;
-                    } else {
-                        $totalGastos += ($montoAprobado * $gasto->porcentaje) / 100;
-                    }
-                }
-                $gastosPorCuota = round($totalGastos / $numeroCuotas, 2);
+                $gastosService = app(\App\Services\GastosService::class);
+                $gastos = \App\Models\Gasto::whereIn('id_gasto', $gastosIds)->activos()->get();
+                $resultado = $gastosService->calcularValoresGastos($gastos, (float) $montoAprobado);
+
+                $totalGastos = (float) ($resultado['total_gastos'] ?? 0);
+                $gastosPorCuota = $gastosService->calcularProrrateoPorCuota($totalGastos, (int) $numeroCuotas);
             }
+
+            Log::info('Plan preliminar - cálculo de gastos', [
+                'numero_credito' => $datosCredito['numero_credito'] ?? null,
+                'tipo_interes' => $tipoInteres,
+                'gas_ids_recibidos' => $gastosIds,
+                'total_gastos' => $totalGastos,
+                'gastos_por_cuota' => $gastosPorCuota,
+            ]);
 
             // Cálculo tipo "flat" prendario:
             // Interés total = monto × tasa (fijo, NO se multiplica por cuotas)
@@ -3222,11 +3249,7 @@ class CreditoPrendarioController extends Controller
                     $abonoCapital = $saldoCapital;
                 }
 
-                // Ajustar gastos en la última cuota si hay diferencia por redondeo
-                $gastosEstaCuota = $gastosPorCuota;
-                if ($i === $numeroCuotas && $totalGastos > 0) {
-                    $gastosEstaCuota = $totalGastos - ($gastosPorCuota * ($numeroCuotas - 1));
-                }
+                $gastosEstaCuota = (float) ($gastosPorCuota[$i - 1] ?? 0);
 
                 $totalCuota = $abonoCapital + $interesPorCuota + $gastosEstaCuota;
 
