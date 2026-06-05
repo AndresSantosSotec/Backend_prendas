@@ -272,7 +272,7 @@ class PlanInteresCategoria extends Model
         $base = "{$prefijo}{$numero}{$unidad}";
 
         // Verificar unicidad dentro de la misma categoría
-        $query = static::where(function ($q) {
+        $query = static::withTrashed()->where(function ($q) {
             if ($this->categoria_producto_id) {
                 $q->where('categoria_producto_id', $this->categoria_producto_id);
             } else {
