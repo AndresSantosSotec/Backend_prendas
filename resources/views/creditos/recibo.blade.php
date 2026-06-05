@@ -218,20 +218,17 @@
 
         <div class="summary-row">
             <span>Tasa de Interés:</span>
-            <span>{{ number_format($credito->tasa_interes ?? 0, 2) }}% {{ ucfirst($credito->tipo_interes ?? 'mensual') }}</span>
+            <span>{{ number_format($credito->tasa_interes ?? 0, 2) }}%</span>
         </div>
-        @if(isset($credito->tasa_mora) && $credito->tasa_mora)
-        <div class="summary-row">
-            <span>Tasa de Mora:</span>
-            <span>{{ number_format($credito->tasa_mora, 2) }}% diario</span>
-        </div>
-        @endif
+
         <div class="summary-row">
             <span>Plazo:</span>
-            @if(isset($credito->tipo_interes) && strtolower($credito->tipo_interes) == 'mensual')
-                <span>{{ $credito->numero_cuotas ?? 'N/A' }} {{ ($credito->numero_cuotas ?? 0) == 1 ? 'mes' : 'meses' }}</span>
+            @if(isset($credito->plazo_dias) && $credito->plazo_dias)
+                <span>{{ $credito->plazo_dias }} días</span>
+            @elseif(isset($credito->numero_cuotas) && $credito->numero_cuotas)
+                <span>{{ $credito->numero_cuotas }} cuota{{ ($credito->numero_cuotas ?? 0) == 1 ? '' : 's' }}</span>
             @else
-                <span>{{ $credito->plazo_dias ?? 'N/A' }} días</span>
+                <span>N/A</span>
             @endif
         </div>
         @if(isset($credito->numero_cuotas) && $credito->numero_cuotas)
