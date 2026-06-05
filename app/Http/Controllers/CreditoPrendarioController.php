@@ -2799,6 +2799,12 @@ class CreditoPrendarioController extends Controller
     /**
      * Generar recibo preliminar desde datos del wizard (antes de crear el crédito)
      */
+    private function normalizarCodigoParaBarcode(?string $codigo): string
+    {
+        $normalizado = strtoupper(trim((string) $codigo));
+        return preg_replace('/\s+/', '', $normalizado) ?: '';
+    }
+
     public function generarReciboPreliminar(Request $request)
     {
         try {
@@ -2840,11 +2846,16 @@ class CreditoPrendarioController extends Controller
             $sucursalId = $request->sucursal['id'] ?? '1';
             $sucursal = \App\Models\Sucursal::find($sucursalId);
 
-            // Generar código de barras del número de crédito
+            // Generar código de barras usando el mismo valor canónico del crédito
             $numeroCredito = $request->credito['numero_credito'];
+            $barcodeValue = $this->normalizarCodigoParaBarcode($numeroCredito);
+            if ($barcodeValue === '') {
+                $barcodeValue = $numeroCredito;
+            }
+
             $generator = new BarcodeGeneratorPNG();
             $barcodeData = $generator->getBarcode(
-                $numeroCredito,
+                $barcodeValue,
                 $generator::TYPE_CODE_128,
                 2,
                 60
@@ -2868,6 +2879,7 @@ class CreditoPrendarioController extends Controller
                 'sucursal' => $sucursal,
                 'prendas' => [(object) $prendaData],
                 'barcodeImage' => $barcodeImage,
+                'barcodeValue' => $barcodeValue,
                 'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
             ];
 
@@ -3333,10 +3345,15 @@ class CreditoPrendarioController extends Controller
                 'prendas.categoriaProducto'
             ])->findOrFail($id);
 
-            // Generar código de barras
+            // Generar código de barras usando el mismo valor canónico del crédito
+            $barcodeValue = $this->normalizarCodigoParaBarcode((string) ($credito->numero_credito ?? ''));
+            if ($barcodeValue === '') {
+                $barcodeValue = (string) ($credito->numero_credito ?? $credito->id);
+            }
+
             $generator = new BarcodeGeneratorPNG();
             $barcodeData = $generator->getBarcode(
-                $credito->numero_credito,
+                $barcodeValue,
                 $generator::TYPE_CODE_128,
                 2,
                 60
@@ -3349,6 +3366,7 @@ class CreditoPrendarioController extends Controller
                 'sucursal' => $credito->sucursal,
                 'prendas' => $credito->prendas,
                 'barcodeImage' => $barcodeImage,
+                'barcodeValue' => $barcodeValue,
                 'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
             ];
 

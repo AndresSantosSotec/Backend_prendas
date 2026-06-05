@@ -256,7 +256,7 @@
         @if(isset($barcodeImage))
             <img src="data:image/png;base64,{{ $barcodeImage }}" alt="Código de Barras" class="barcode-image">
         @endif
-        <div class="barcode-number">{{ $credito->numero_credito }}</div>
+        <div class="barcode-number">{{ $barcodeValue ?? ($credito->numero_credito ?? 'N/A') }}</div>
     </div>
 
     <div class="footer">
