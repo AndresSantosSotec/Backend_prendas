@@ -11,6 +11,30 @@ use Illuminate\Support\Facades\DB;
 class PlanInteresCategoriaController extends Controller
 {
     /**
+     * Normaliza el tipo de período recibido desde UI.
+     */
+    private function normalizarTipoPeriodo(?string $tipoPeriodo): ?string
+    {
+        if (!$tipoPeriodo) {
+            return $tipoPeriodo;
+        }
+
+        return strtolower(trim($tipoPeriodo));
+    }
+
+    /**
+     * Mantiene consistencia periodo/unidad para evitar combinaciones inválidas.
+     */
+    private function unidadPorPeriodo(string $tipoPeriodo): string
+    {
+        return match ($tipoPeriodo) {
+            'semanal' => 'semanas',
+            'quincenal' => 'quincenas',
+            default => 'meses',
+        };
+    }
+
+    /**
      * Listar todos los planes de interés
      */
     public function index(Request $request)
@@ -143,7 +167,13 @@ class PlanInteresCategoriaController extends Controller
      */
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
+        $payload = $request->all();
+        if (isset($payload['tipo_periodo'])) {
+            $payload['tipo_periodo'] = $this->normalizarTipoPeriodo($payload['tipo_periodo']);
+            $payload['plazo_unidad'] = $this->unidadPorPeriodo($payload['tipo_periodo']);
+        }
+
+        $validator = Validator::make($payload, [
             'categoria_producto_id' => 'nullable|exists:categoria_productos,id',
             'categoria_ids' => 'nullable|array',
             'categoria_ids.*' => 'integer|exists:categoria_productos,id',
@@ -184,15 +214,15 @@ class PlanInteresCategoriaController extends Controller
             DB::beginTransaction();
 
             // Verificar código único si se proporciona
-            if ($request->codigo) {
-                $existe = PlanInteresCategoria::where(function ($q) use ($request) {
-                        if ($request->categoria_producto_id) {
-                            $q->where('categoria_producto_id', $request->categoria_producto_id);
+            if (!empty($payload['codigo'])) {
+                $existe = PlanInteresCategoria::where(function ($q) use ($payload) {
+                        if (!empty($payload['categoria_producto_id'])) {
+                            $q->where('categoria_producto_id', $payload['categoria_producto_id']);
                         } else {
                             $q->whereNull('categoria_producto_id');
                         }
                     })
-                    ->where('codigo', $request->codigo)
+                    ->where('codigo', $payload['codigo'])
                     ->exists();
 
                 if ($existe) {
@@ -204,7 +234,7 @@ class PlanInteresCategoriaController extends Controller
             }
 
             $plan = PlanInteresCategoria::create(
-                collect($request->all())
+                collect($payload)
                     ->except(['_sucursal_scope', '_token', '_method', 'categoria_ids'])
                     ->toArray()
             );
@@ -226,6 +256,23 @@ class PlanInteresCategoriaController extends Controller
                 'data' => $plan->load('categoria', 'categorias')
             ], 201);
 
+        } catch (\Illuminate\Database\QueryException $e) {
+            DB::rollBack();
+
+            if ((string) $e->getCode() === '23000') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ya existe un plan con la misma combinación de categoría y código. Cambia el nombre o código del plan.',
+                    'error' => $e->getMessage()
+                ], 422);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al crear el plan de interés',
+                'error' => $e->getMessage()
+            ], 500);
+
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -242,7 +289,13 @@ class PlanInteresCategoriaController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $validator = Validator::make($request->all(), [
+        $payload = $request->all();
+        if (isset($payload['tipo_periodo'])) {
+            $payload['tipo_periodo'] = $this->normalizarTipoPeriodo($payload['tipo_periodo']);
+            $payload['plazo_unidad'] = $this->unidadPorPeriodo($payload['tipo_periodo']);
+        }
+
+        $validator = Validator::make($payload, [
             'categoria_producto_id' => 'nullable|exists:categoria_productos,id',
             'categoria_ids' => 'nullable|array',
             'categoria_ids.*' => 'integer|exists:categoria_productos,id',
@@ -285,16 +338,16 @@ class PlanInteresCategoriaController extends Controller
             DB::beginTransaction();
 
             // Verificar código único si se cambia
-            if ($request->has('codigo') && $request->codigo !== $plan->codigo) {
-                $existe = PlanInteresCategoria::where(function ($q) use ($plan, $request) {
-                        $catId = $request->has('categoria_producto_id') ? $request->categoria_producto_id : $plan->categoria_producto_id;
+            if (array_key_exists('codigo', $payload) && $payload['codigo'] !== $plan->codigo) {
+                $existe = PlanInteresCategoria::where(function ($q) use ($plan, $payload) {
+                        $catId = array_key_exists('categoria_producto_id', $payload) ? $payload['categoria_producto_id'] : $plan->categoria_producto_id;
                         if ($catId) {
                             $q->where('categoria_producto_id', $catId);
                         } else {
                             $q->whereNull('categoria_producto_id');
                         }
                     })
-                    ->where('codigo', $request->codigo)
+                    ->where('codigo', $payload['codigo'])
                     ->where('id', '!=', $id)
                     ->exists();
 
@@ -307,7 +360,7 @@ class PlanInteresCategoriaController extends Controller
             }
 
             $plan->update(
-                collect($request->all())
+                collect($payload)
                     ->except(['_sucursal_scope', '_token', '_method', 'categoria_ids'])
                     ->toArray()
             );

@@ -30,8 +30,14 @@
         }
 
         @page {
-            margin: 0;
             size: letter;
+            margin: 2.5cm 1.5cm 1cm 3.5cm;
+        }
+        @page :right {
+            margin: 2.5cm 1.5cm 1cm 3.5cm;
+        }
+        @page :left {
+            margin: 2.5cm 3.5cm 1cm 1.5cm;
         }
         * { box-sizing: border-box; }
         body {
@@ -39,10 +45,7 @@
             font-size: 12px;
             color: #000;
             line-height: 1.0;
-            margin-top: 2.5cm;
-            margin-bottom: 1cm;
-            margin-left: 3.5cm;
-            margin-right: 1.5cm;
+            margin: 0;
             text-align: justify;
         }
         /* Mantener fidelidad del documento: texto general en 10 puntos */
