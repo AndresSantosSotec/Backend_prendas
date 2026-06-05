@@ -213,6 +213,23 @@ class PlanInteresCategoriaController extends Controller
         try {
             DB::beginTransaction();
 
+            // Si existe un plan eliminado con la misma combinación categoría+codigo,
+            // reutilizarlo para evitar choque del índice único en BD.
+            $planEliminadoDuplicado = null;
+            if (!empty($payload['codigo'])) {
+                $planEliminadoDuplicado = PlanInteresCategoria::onlyTrashed()
+                    ->where(function ($q) use ($payload) {
+                        if (!empty($payload['categoria_producto_id'])) {
+                            $q->where('categoria_producto_id', $payload['categoria_producto_id']);
+                        } else {
+                            $q->whereNull('categoria_producto_id');
+                        }
+                    })
+                    ->where('codigo', $payload['codigo'])
+                    ->latest('id')
+                    ->first();
+            }
+
             // Verificar código único si se proporciona
             if (!empty($payload['codigo'])) {
                 $existe = PlanInteresCategoria::where(function ($q) use ($payload) {
@@ -222,6 +239,7 @@ class PlanInteresCategoriaController extends Controller
                             $q->whereNull('categoria_producto_id');
                         }
                     })
+                    ->whereNull('deleted_at')
                     ->where('codigo', $payload['codigo'])
                     ->exists();
 
@@ -233,11 +251,21 @@ class PlanInteresCategoriaController extends Controller
                 }
             }
 
-            $plan = PlanInteresCategoria::create(
-                collect($payload)
-                    ->except(['_sucursal_scope', '_token', '_method', 'categoria_ids'])
-                    ->toArray()
-            );
+            if ($planEliminadoDuplicado) {
+                $planEliminadoDuplicado->restore();
+                $planEliminadoDuplicado->update(
+                    collect($payload)
+                        ->except(['_sucursal_scope', '_token', '_method', 'categoria_ids'])
+                        ->toArray()
+                );
+                $plan = $planEliminadoDuplicado;
+            } else {
+                $plan = PlanInteresCategoria::create(
+                    collect($payload)
+                        ->except(['_sucursal_scope', '_token', '_method', 'categoria_ids'])
+                        ->toArray()
+                );
+            }
 
             // Sincronizar categorías en la tabla pivote
             if ($request->has('categoria_ids')) {
@@ -347,6 +375,7 @@ class PlanInteresCategoriaController extends Controller
                             $q->whereNull('categoria_producto_id');
                         }
                     })
+                    ->whereNull('deleted_at')
                     ->where('codigo', $payload['codigo'])
                     ->where('id', '!=', $id)
                     ->exists();
@@ -357,6 +386,23 @@ class PlanInteresCategoriaController extends Controller
                         'message' => 'Ya existe un plan con ese código'
                     ], 422);
                 }
+            }
+
+            // Si al cambiar código existe un registro eliminado con esa combinación,
+            // eliminarlo físicamente para no chocar con el índice único al guardar.
+            if (!empty($payload['codigo'])) {
+                PlanInteresCategoria::onlyTrashed()
+                    ->where(function ($q) use ($plan, $payload) {
+                        $catId = array_key_exists('categoria_producto_id', $payload) ? $payload['categoria_producto_id'] : $plan->categoria_producto_id;
+                        if ($catId) {
+                            $q->where('categoria_producto_id', $catId);
+                        } else {
+                            $q->whereNull('categoria_producto_id');
+                        }
+                    })
+                    ->where('codigo', $payload['codigo'])
+                    ->where('id', '!=', $id)
+                    ->forceDelete();
             }
 
             $plan->update(
