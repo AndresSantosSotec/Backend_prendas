@@ -278,6 +278,18 @@ class CreditoPrendario extends Model
      */
     public function recalcularSaldosDesdeKardex(): void
     {
+        if ($this->estado === 'anulado') {
+            $this->update([
+                'capital_pagado' => 0,
+                'capital_pendiente' => 0,
+                'interes_pagado' => 0,
+                'mora_pagada' => 0,
+                'interes_generado' => 0,
+                'mora_generada' => 0,
+            ]);
+            return;
+        }
+
         // Obtener todos los movimientos activos (no anulados ni reversados)
         // El modelo usa 'estado' = 'activo' para movimientos válidos
         $movimientosActivos = $this->movimientos()
@@ -327,6 +339,20 @@ class CreditoPrendario extends Model
      */
     public function getSaldoDesdeKardex(): array
     {
+        if ($this->estado === 'anulado') {
+            return [
+                'capital_pagado' => 0.0,
+                'capital_pendiente' => 0.0,
+                'interes_pagado' => 0.0,
+                'interes_generado' => 0.0,
+                'interes_pendiente' => 0.0,
+                'mora_pagada' => 0.0,
+                'mora_generada' => 0.0,
+                'mora_pendiente' => 0.0,
+                'saldo_total' => 0.0,
+            ];
+        }
+
         $movimientosActivos = $this->movimientos()
             ->where('estado', 'activo')
             ->get();

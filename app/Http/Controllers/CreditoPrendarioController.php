@@ -3696,6 +3696,50 @@ class CreditoPrendarioController extends Controller
                             $credito->fecha_vencimiento = now();
                         }
                         break;
+
+                    case EstadoCredito::ANULADO->value:
+                        $credito->fecha_cancelacion = now();
+
+                        // Cargar relaciones si no están cargadas
+                        $credito->loadMissing(['movimientos', 'planPagos', 'prendas']);
+
+                        // Anular todos los movimientos activos
+                        foreach ($credito->movimientos as $movimiento) {
+                            if ($movimiento->estado === 'activo') {
+                                $movimiento->update([
+                                    'estado' => 'anulado',
+                                    'reversado_por' => Auth::id(),
+                                    'fecha_reversion' => now(),
+                                    'motivo_reversion' => 'Anulación del crédito: ' . ($request->observaciones ?? 'Sin motivo especificado'),
+                                ]);
+                            }
+                        }
+
+                        // Cancelar cuotas pendientes
+                        foreach ($credito->planPagos as $cuota) {
+                            if (in_array($cuota->estado, ['pendiente', 'pagada_parcial', 'vencida', 'en_mora'])) {
+                                $cuota->update([
+                                    'estado' => 'cancelada',
+                                    'observaciones' => 'Crédito anulado',
+                                ]);
+                            }
+                        }
+
+                        // Devolver prendas no finalizadas
+                        foreach ($credito->prendas as $prenda) {
+                            if (!in_array($prenda->estado, ['recuperada', 'vendida', 'perdida', 'devuelta'])) {
+                                $prenda->update([
+                                    'estado' => EstadoPrenda::DEVUELTA->value,
+                                    'fecha_recuperacion' => now(),
+                                    'observaciones' => 'Crédito anulado',
+                                ]);
+                            }
+                        }
+
+                        // Forzar recalculado de saldos a cero
+                        $credito->estado = EstadoCredito::ANULADO->value;
+                        $credito->recalcularSaldosDesdeKardex();
+                        break;
                 }
 
                 // Si cambia a VENDIDO o REMATADO, actualizar prendas a "vendida"

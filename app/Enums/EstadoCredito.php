@@ -17,6 +17,10 @@ enum EstadoCredito: string
     case EN_INVENTARIO = 'en_inventario';
     case ANULADO = 'anulado';
     case RENOVADO = 'renovado';
+    case PAGADO = 'pagado';
+    case INCOBRABLE = 'incobrable';
+    case RECUPERADO = 'recuperado';
+    case CANCELADO = 'cancelado';
 
     /**
      * Obtener todos los valores como array
@@ -68,6 +72,7 @@ enum EstadoCredito: string
                 self::RESCATADO->value,
                 self::RENOVADO->value,
                 self::REMATADO->value,
+                self::ANULADO->value,
             ],
             self::VENCIDO->value => [
                 self::RESCATADO->value,
@@ -75,6 +80,7 @@ enum EstadoCredito: string
                 self::REMATADO->value,
                 self::VENDIDO->value,
                 self::EN_INVENTARIO->value,
+                self::ANULADO->value,
             ],
             self::REMATADO->value => [
                 self::VENDIDO->value,
@@ -83,6 +89,10 @@ enum EstadoCredito: string
             self::EN_INVENTARIO->value => [
                 self::VENDIDO->value,
             ],
+            self::PAGADO->value => [],
+            self::INCOBRABLE->value => [],
+            self::RECUPERADO->value => [],
+            self::CANCELADO->value => [],
         ];
 
         return $transiciones[$estado] ?? [];
@@ -116,6 +126,10 @@ enum EstadoCredito: string
             self::EN_INVENTARIO => 'En Inventario',
             self::ANULADO => 'Anulado',
             self::RENOVADO => 'Renovado',
+            self::PAGADO => 'Pagado',
+            self::INCOBRABLE => 'Incobrable',
+            self::RECUPERADO => 'Recuperado',
+            self::CANCELADO => 'Cancelado',
         };
     }
 
@@ -138,6 +152,10 @@ enum EstadoCredito: string
             self::EN_INVENTARIO => 'indigo',
             self::ANULADO => 'gray',
             self::RENOVADO => 'blue',
+            self::PAGADO => 'green',
+            self::INCOBRABLE => 'gray',
+            self::RECUPERADO => 'green',
+            self::CANCELADO => 'gray',
         };
     }
 }
