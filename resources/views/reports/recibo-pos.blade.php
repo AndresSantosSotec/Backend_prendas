@@ -344,10 +344,10 @@
             <span class="label">Cuotas:</span> {{ $venta->ventaCredito->numero_cuotas }}
         </div>
         <div class="row">
-            <span class="label">Cuota Mensual:</span> {{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($venta->ventaCredito->monto_cuota, 2) }}
+            <span class="label">Cuota:</span> {{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($venta->ventaCredito->monto_cuota, 2) }}
         </div>
         <div class="row">
-            <span class="label">Tasa:</span> {{ number_format($venta->ventaCredito->tasa_interes, 2) }}% mensual
+            <span class="label">Tasa:</span> {{ number_format($venta->ventaCredito->tasa_interes, 2) }}%
         </div>
         @if($venta->ventaCredito->dias_gracia > 0)
         <div class="row">

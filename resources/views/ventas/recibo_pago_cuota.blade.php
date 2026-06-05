@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Recibo de Pago - Cuota #{{ $cuota->numero_cuota }}</title>
+    <title>Recibo de Pago</title>
     <style>
         @page { margin: 0.8cm; }
         body {
@@ -117,7 +117,7 @@
         @elseif(isset($esLiquidacion) && $esLiquidacion)
             Liquidación Total
         @else
-            Pago Cuota #{{ $cuota->numero_cuota }}
+            Pago
         @endif
     </span>
 </div>

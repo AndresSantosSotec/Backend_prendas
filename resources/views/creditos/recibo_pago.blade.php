@@ -153,7 +153,7 @@
 <div style="text-align:center">
     <span class="tipo-badge">
         @switch($movimiento->tipo_movimiento)
-            @case('pago')        Pago de Cuota @break
+            @case('pago')        Pago @break
             @case('renovacion')  Renovación @break
             @case('adelanto')    Pago Adelantado @break
             @case('parcial')     Abono Parcial @break
