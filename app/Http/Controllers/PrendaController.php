@@ -24,7 +24,7 @@ class PrendaController extends Controller
      */
     public function reporte(Request $request) {
         try {
-            $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal']);
+            $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal', 'sucursal']);
 
             // Búsqueda
             if ($request->has('busqueda') && !empty($request->busqueda)) {

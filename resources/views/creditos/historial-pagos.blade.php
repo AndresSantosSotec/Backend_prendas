@@ -361,7 +361,7 @@
                         </div>
                         <div class="info-item">
                             <span class="label">Tasa de Interés:</span>
-                            <span class="value">{{ $credito->tasa_interes }}% mensual</span>
+                            <span class="value">{{ $credito->tasa_interes }}%</span>
                         </div>
                         <div class="info-item">
                             <span class="label">Estado:</span>

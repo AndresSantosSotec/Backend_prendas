@@ -325,7 +325,7 @@
     <div class="disclaimer">
         <strong>Importante:</strong>
         <ul style="margin: 5px 0 0 20px; padding: 0;">
-            <li><strong>Tasa de Interés:</strong> {{ number_format($credito->tasa_interes ?? 0, 2) }}% mensual aplicada {{ $credito->tipo_interes ?? 'mensualmente' }}. Los intereses se calculan sobre el monto total del crédito.</li>
+            <li><strong>Tasa de Interés:</strong> {{ number_format($credito->tasa_interes ?? 0, 2) }}% aplicada {{ $credito->tipo_interes ?? 'mensualmente' }}. Los intereses se calculan sobre el monto total del crédito.</li>
             @if(isset($totalGastos) && $totalGastos > 0)
             <li><strong>Otros Cargos:</strong> Incluye gastos administrativos (Q {{ number_format($totalGastos, 2, '.', ',') }} total) distribuidos proporcionalmente en las cuotas.</li>
             @else

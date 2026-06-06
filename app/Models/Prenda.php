@@ -102,6 +102,11 @@ class Prenda extends Model
         return $this->belongsTo(Cliente::class, 'comprador_id');
     }
 
+    public function sucursal()
+    {
+        return $this->belongsTo(Sucursal::class, 'sucursal_id');
+    }
+
     public function tasaciones()
     {
         return $this->hasMany(Tasacion::class, 'prenda_id');

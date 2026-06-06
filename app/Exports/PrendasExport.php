@@ -6,7 +6,6 @@ use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithStyles;
-use Maatwebsite\Excel\Concerns\WithColumnWidths;
 use Maatwebsite\Excel\Concerns\WithTitle;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
@@ -27,17 +26,11 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
         $this->filtros = $filtros;
     }
 
-    /**
-     * @return \Illuminate\Support\Collection
-     */
     public function collection()
     {
         return $this->prendas;
     }
 
-    /**
-     * @return array
-     */
     public function headings(): array
     {
         return [
@@ -47,11 +40,14 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
             'Descripción',
             'Marca',
             'Modelo',
+            'Serie',
+            'Color',
+            'Condición',
             'Estado',
             'Valor Tasación',
             'Valor Préstamo',
-            'Valor Venta',
-            'Ubicación Física',
+            'Precio Venta',
+            'Sucursal',
             'Cliente',
             'Crédito',
             'Fecha Ingreso',
@@ -59,22 +55,8 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
         ];
     }
 
-    /**
-     * @param mixed $prenda
-     * @return array
-     */
     public function map($prenda): array
     {
-        $estadosFormateados = [
-            'empenado' => 'Empeñado',
-            'empeñado' => 'Empeñado',
-            'vencido' => 'Vencido',
-            'en_venta' => 'En Venta',
-            'vendido' => 'Vendido',
-            'recuperado' => 'Recuperado',
-            'cancelado' => 'Cancelado',
-        ];
-
         return [
             $prenda->id,
             $prenda->codigo_prenda ?? 'N/A',
@@ -82,28 +64,26 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
             $prenda->descripcion ?? '',
             $prenda->marca ?? '',
             $prenda->modelo ?? '',
-            $estadosFormateados[$prenda->estado] ?? ucfirst($prenda->estado ?? ''),
+            $prenda->serie ?? '',
+            $prenda->color ?? '',
+            ucfirst(str_replace('_', ' ', $prenda->condicion ?? '')),
+            $this->formatEstado($prenda->estado),
             $this->formatMoney($prenda->valor_tasacion),
             $this->formatMoney($prenda->valor_prestamo),
-            $this->formatMoney($prenda->valor_venta),
-            $prenda->ubicacion_fisica ?? 'N/A',
+            $this->formatMoney($prenda->precio_venta),
+            $this->getSucursalNombre($prenda),
             $this->getClienteNombre($prenda),
-            $prenda->creditoPrendario?->codigo_credito ?? 'N/A',
+            $prenda->creditoPrendario?->numero_credito ?? 'N/A',
             $this->formatDate($prenda->fecha_ingreso),
             $this->formatDate($prenda->creditoPrendario?->fecha_vencimiento),
         ];
     }
 
-    /**
-     * @param Worksheet $sheet
-     * @return array
-     */
     public function styles(Worksheet $sheet)
     {
         $lastRow = $this->prendas->count() + 1;
-        $lastColumn = 'O';
+        $lastColumn = 'R';
 
-        // Estilo para encabezados
         $sheet->getStyle('A1:' . $lastColumn . '1')->applyFromArray([
             'font' => [
                 'bold' => true,
@@ -112,7 +92,7 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
             ],
             'fill' => [
                 'fillType' => Fill::FILL_SOLID,
-                'startColor' => ['rgb' => '2563EB'], // Azul
+                'startColor' => ['rgb' => '2563EB'],
             ],
             'alignment' => [
                 'horizontal' => Alignment::HORIZONTAL_CENTER,
@@ -126,10 +106,8 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
             ],
         ]);
 
-        // Altura de fila de encabezado
         $sheet->getRowDimension(1)->setRowHeight(25);
 
-        // Estilo para datos
         if ($lastRow > 1) {
             $sheet->getStyle('A2:' . $lastColumn . $lastRow)->applyFromArray([
                 'borders' => [
@@ -143,7 +121,6 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
                 ],
             ]);
 
-            // Alternar colores de fila (zebra striping)
             for ($row = 2; $row <= $lastRow; $row++) {
                 if ($row % 2 == 0) {
                     $sheet->getStyle('A' . $row . ':' . $lastColumn . $row)->applyFromArray([
@@ -155,30 +132,26 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
                 }
             }
 
-            // Formato de moneda para columnas de valores
-            $sheet->getStyle('H2:J' . $lastRow)->getNumberFormat()
+            $sheet->getStyle('K2:M' . $lastRow)->getNumberFormat()
                 ->setFormatCode('Q #,##0.00');
 
-            // Alineación derecha para valores monetarios
-            $sheet->getStyle('H2:J' . $lastRow)->getAlignment()
+            $sheet->getStyle('K2:M' . $lastRow)->getAlignment()
                 ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
 
-            // Centrar columnas específicas
             $sheet->getStyle('A2:A' . $lastRow)->getAlignment()
                 ->setHorizontal(Alignment::HORIZONTAL_CENTER);
             $sheet->getStyle('B2:B' . $lastRow)->getAlignment()
                 ->setHorizontal(Alignment::HORIZONTAL_CENTER);
-            $sheet->getStyle('G2:G' . $lastRow)->getAlignment()
+            $sheet->getStyle('J2:J' . $lastRow)->getAlignment()
                 ->setHorizontal(Alignment::HORIZONTAL_CENTER);
-            $sheet->getStyle('N2:O' . $lastRow)->getAlignment()
+            $sheet->getStyle('Q2:R' . $lastRow)->getAlignment()
                 ->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
-            // Colorear estados
             for ($row = 2; $row <= $lastRow; $row++) {
-                $estado = $sheet->getCell('G' . $row)->getValue();
+                $estado = $sheet->getCell('J' . $row)->getValue();
                 $color = $this->getEstadoColor($estado);
                 if ($color) {
-                    $sheet->getStyle('G' . $row)->applyFromArray([
+                    $sheet->getStyle('J' . $row)->applyFromArray([
                         'fill' => [
                             'fillType' => Fill::FILL_SOLID,
                             'startColor' => ['rgb' => $color['bg']],
@@ -192,23 +165,16 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
             }
         }
 
-        // Freeze panes (congelar primera fila)
         $sheet->freezePane('A2');
 
         return [];
     }
 
-    /**
-     * @return string
-     */
     public function title(): string
     {
         return 'Reporte de Prendas';
     }
 
-    /**
-     * Formatear fecha
-     */
     private function formatDate($date): string
     {
         if (!$date) return 'N/A';
@@ -219,17 +185,34 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
         }
     }
 
-    /**
-     * Formatear dinero
-     */
     private function formatMoney($amount): float
     {
         return (float) ($amount ?? 0);
     }
 
-    /**
-     * Obtener nombre del cliente
-     */
+    private function formatEstado(?string $estado): string
+    {
+        $estadosFormateados = [
+            'en_custodia' => 'En Custodia',
+            'vencida' => 'Vencida',
+            'en_evaluacion' => 'En Evaluación',
+            'en_venta' => 'En Venta',
+            'vendida' => 'Vendida',
+            'recuperada' => 'Recuperada',
+            'extraviada' => 'Extraviada',
+            'danada' => 'Dañada',
+            'perdida' => 'Perdida',
+            'empenado' => 'Empeñado',
+            'empeñado' => 'Empeñado',
+            'vencido' => 'Vencido',
+            'vendido' => 'Vendido',
+            'recuperado' => 'Recuperado',
+            'cancelado' => 'Cancelado',
+        ];
+
+        return $estadosFormateados[$estado] ?? ucfirst(str_replace('_', ' ', $estado ?? ''));
+    }
+
     private function getClienteNombre($prenda): string
     {
         $cliente = $prenda->creditoPrendario?->cliente;
@@ -237,18 +220,33 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
         return trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? ''));
     }
 
-    /**
-     * Obtener color según estado
-     */
+    private function getSucursalNombre($prenda): string
+    {
+        if ($prenda->creditoPrendario?->sucursal) {
+            return $prenda->creditoPrendario->sucursal->nombre;
+        }
+
+        if ($prenda->sucursal) {
+            return $prenda->sucursal->nombre;
+        }
+
+        return 'N/A';
+    }
+
     private function getEstadoColor(string $estado): ?array
     {
         $colores = [
+            'En Custodia' => ['bg' => 'DBEAFE', 'text' => '1E40AF'],
             'Empeñado' => ['bg' => 'DBEAFE', 'text' => '1E40AF'],
+            'Vencida' => ['bg' => 'FEE2E2', 'text' => '991B1B'],
             'Vencido' => ['bg' => 'FEE2E2', 'text' => '991B1B'],
             'En Venta' => ['bg' => 'FEF3C7', 'text' => '92400E'],
+            'Vendida' => ['bg' => 'D1FAE5', 'text' => '065F46'],
             'Vendido' => ['bg' => 'D1FAE5', 'text' => '065F46'],
+            'Recuperada' => ['bg' => 'E0E7FF', 'text' => '3730A3'],
             'Recuperado' => ['bg' => 'E0E7FF', 'text' => '3730A3'],
             'Cancelado' => ['bg' => 'F3F4F6', 'text' => '4B5563'],
+            'En Evaluación' => ['bg' => 'FCE7F3', 'text' => '9D174D'],
         ];
 
         return $colores[$estado] ?? null;
