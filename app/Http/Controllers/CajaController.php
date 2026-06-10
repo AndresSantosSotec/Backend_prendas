@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\CajaAperturaCierre;
 use App\Models\MovimientoCaja;
+use App\Models\BovedaMovimiento;
 use App\Http\Requests\CloseCashRegisterRequest;
 use App\Http\Resources\CashRegisterClosureResource;
 use App\Models\Boveda;
+use App\Models\ConfiguracionSistema;
 use App\Services\CashRegisterClosureService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -82,18 +84,20 @@ class CajaController extends Controller
             $esDeOtroDia = !Carbon::parse($cajaAbierta->fecha_apertura)->isToday();
 
             return response()->json([
-                'estado' => 'abierta',
-                'caja' => $cajaAbierta,
-                'requiere_cierre' => $esDeOtroDia,
-                'mensaje' => $esDeOtroDia
+                'estado'                         => 'abierta',
+                'caja'                           => $cajaAbierta,
+                'requiere_cierre'                => $esDeOtroDia,
+                'cash_vault_integration_enabled' => ConfiguracionSistema::integracionCajaBovedaActiva(),
+                'mensaje'                        => $esDeOtroDia
                     ? 'Tienes una caja pendiente de cierre del ' . Carbon::parse($cajaAbierta->fecha_apertura)->format('d/m/Y')
-                    : null
+                    : null,
             ]);
         }
 
         return response()->json([
-            'estado' => 'cerrada',
-            'mensaje' => 'No hay caja abierta. Puedes aperturar una nueva caja.'
+            'estado'                         => 'cerrada',
+            'cash_vault_integration_enabled' => ConfiguracionSistema::integracionCajaBovedaActiva(),
+            'mensaje'                        => 'No hay caja abierta. Puedes aperturar una nueva caja.',
         ]);
     }
 
@@ -176,24 +180,37 @@ class CajaController extends Controller
     /**
      * Abrir caja
      * NO se puede abrir si hay una caja abierta pendiente (aunque sea de otro día)
+     * En modo integrado: se requiere bóveda origen y se descuenta el saldo inicial de ella.
      */
     public function abrir(Request $request)
     {
-        $request->validate([
-            'saldo_inicial' => 'required|numeric|min:0',
-            'fecha_apertura' => 'required|date'
-        ]);
+        $integracionActiva = ConfiguracionSistema::integracionCajaBovedaActiva();
+
+        // Reglas de validación dinámicas según modo
+        $rules = [
+            'saldo_inicial'  => 'required|numeric|min:0',
+            'fecha_apertura' => 'required|date',
+        ];
+
+        // Si la integración está activa, boveda_origen_id es obligatoria
+        if ($integracionActiva) {
+            $rules['boveda_origen_id'] = 'required|integer|exists:bovedas,id';
+        }
+
+        $request->validate($rules);
 
         $user = Auth::user();
 
         // LOG: contexto de la solicitud para facilitar debugging
         Log::info('Intento de apertura de caja', [
-            'user_id'       => $user->id,
-            'user_email'    => $user->email,
-            'user_rol'      => $user->rol,
-            'fecha_solicitada' => $request->fecha_apertura,
-            'saldo_inicial' => $request->saldo_inicial,
-            'permisos_caja' => $user->permissions()->where('modulo', 'caja')->pluck('accion')->toArray(),
+            'user_id'            => $user->id,
+            'user_email'         => $user->email,
+            'user_rol'           => $user->rol,
+            'fecha_solicitada'   => $request->fecha_apertura,
+            'saldo_inicial'      => $request->saldo_inicial,
+            'boveda_origen_id'   => $request->boveda_origen_id,
+            'integracion_activa' => $integracionActiva,
+            'permisos_caja'      => $user->permissions()->where('modulo', 'caja')->pluck('accion')->toArray(),
         ]);
 
         if (!$user->hasPermission('caja', 'abrir')) {
@@ -224,39 +241,97 @@ class CajaController extends Controller
                 $cajaPendiente->load(['sucursal', 'user']);
 
                 return response()->json([
-                    'message' => 'Ya tienes una caja abierta para hoy. Continuando con la caja existente.',
-                    'caja' => $cajaPendiente,
-                    'ya_existia' => true
+                    'message'    => 'Ya tienes una caja abierta para hoy. Continuando con la caja existente.',
+                    'caja'       => $cajaPendiente,
+                    'ya_existia' => true,
                 ]);
             }
 
             // Si es de otro día, NO permitir apertura hasta cerrar
             Log::warning('Apertura de caja rechazada: caja pendiente de cierre de otro día', [
-                'user_id'          => $user->id,
-                'user_rol'         => $user->rol,
+                'user_id'           => $user->id,
+                'user_rol'          => $user->rol,
                 'caja_pendiente_id' => $cajaPendiente->id,
-                'fecha_pendiente'  => $cajaPendiente->fecha_apertura,
+                'fecha_pendiente'   => $cajaPendiente->fecha_apertura,
             ]);
             return response()->json([
-                'error' => 'No puedes abrir una nueva caja. Tienes una caja pendiente de cierre del ' .
+                'error'          => 'No puedes abrir una nueva caja. Tienes una caja pendiente de cierre del ' .
                     Carbon::parse($cajaPendiente->fecha_apertura)->format('d/m/Y') .
                     '. Debes cerrarla primero.',
                 'caja_pendiente' => true,
-                'caja' => $cajaPendiente
+                'caja'           => $cajaPendiente,
             ], 400);
         }
 
-        // Nota: se permite abrir nueva caja aunque ya se haya cerrado una el mismo día.
-        // Un cajero puede necesitar reabrir su caja en el mismo turno.
+        // ── MODO INTEGRADO: validar y debitar bóveda ──────────────────────────
+        if ($integracionActiva) {
+            $boveda = Boveda::activas()->findOrFail($request->boveda_origen_id);
 
-        // Crear nueva apertura
+            if (!$boveda->puedeRetirarMonto($request->saldo_inicial)) {
+                return response()->json([
+                    'error' => 'La bóveda seleccionada no tiene fondos suficientes. ' .
+                        'Saldo disponible: ' . $boveda->saldo_actual,
+                ], 422);
+            }
+
+            try {
+                return DB::transaction(function () use ($user, $fecha, $request, $boveda) {
+                    // 1. Crear apertura de caja
+                    $caja = CajaAperturaCierre::create([
+                        'user_id'          => $user->id,
+                        'sucursal_id'      => $user->sucursal_id ?? 1,
+                        'fecha_apertura'   => $fecha,
+                        'hora_apertura'    => Carbon::now()->toTimeString(),
+                        'saldo_inicial'    => $request->saldo_inicial,
+                        'estado'           => 'abierta',
+                        'boveda_origen_id' => $boveda->id,
+                    ]);
+
+                    // 2. Crear movimiento de salida en bóveda
+                    $movBoveda = BovedaMovimiento::create([
+                        'boveda_id'             => $boveda->id,
+                        'usuario_id'            => $user->id,
+                        'sucursal_id'           => $boveda->sucursal_id,
+                        'tipo_movimiento'       => 'salida',
+                        'monto'                 => $request->saldo_inicial,
+                        'concepto'              => 'Apertura de caja #' . $caja->id . ' — saldo inicial',
+                        'referencia'            => 'apertura_caja:' . $caja->id,
+                        'estado'                => 'aprobado',
+                        'aprobado_por'          => $user->id,
+                        'fecha_aprobacion'      => now(),
+                    ]);
+
+                    // 3. Registrar ID del movimiento de bóveda en la caja
+                    $caja->boveda_movimiento_apertura_id = $movBoveda->id;
+                    $caja->save();
+
+                    // 4. Actualizar saldo de bóveda
+                    $boveda->actualizarSaldo();
+
+                    $caja->load(['sucursal', 'user', 'bovedaOrigen']);
+                    $caja->total_esperado_sistema = $caja->saldo_inicial;
+
+                    return response()->json([
+                        'message'          => 'Caja aperturada correctamente. Saldo debitado de bóveda.',
+                        'caja'             => $caja,
+                        'boveda_movimiento' => $movBoveda,
+                    ]);
+                });
+            } catch (\Exception $e) {
+                Log::error('Error en apertura de caja integrada: ' . $e->getMessage());
+                return response()->json(['error' => 'Error al aperturar la caja: ' . $e->getMessage()], 500);
+            }
+        }
+
+        // ── MODO DESCONECTADO: apertura normal ────────────────────────────────
+        // Nota: se permite abrir nueva caja aunque ya se haya cerrado una el mismo día.
         $caja = new CajaAperturaCierre();
-        $caja->user_id = $user->id;
-        $caja->sucursal_id = $user->sucursal_id ?? 1;
+        $caja->user_id      = $user->id;
+        $caja->sucursal_id  = $user->sucursal_id ?? 1;
         $caja->fecha_apertura = $fecha;
-        $caja->hora_apertura = Carbon::now()->toTimeString();
-        $caja->saldo_inicial = $request->saldo_inicial;
-        $caja->estado = 'abierta';
+        $caja->hora_apertura  = Carbon::now()->toTimeString();
+        $caja->saldo_inicial  = $request->saldo_inicial;
+        $caja->estado         = 'abierta';
         $caja->save();
 
         $caja->load(['sucursal', 'user']);
@@ -378,17 +453,34 @@ class CajaController extends Controller
 
     /**
      * Registrar movimiento manual (Incremento/Decremento)
+     *
+     * En modo integrado:
+     *  - Incremento: crea un movimiento en bóveda tipo egreso con estado 'pendiente_aprobacion'.
+     *  - Decremento: crea un movimiento en bóveda tipo ingreso con estado 'pendiente_aprobacion'.
+     *  El movimiento en caja queda en estado 'pendiente_boveda' hasta que un administrador de bóveda lo aprueba.
+     *
+     * En modo desconectado (actual):
+     *  - Comportamiento idéntico al original: movimiento de caja en estado 'aplicado'.
      */
     public function registrarMovimiento(Request $request)
     {
         try {
-            $request->validate([
-                'caja_id' => 'required|exists:caja_apertura_cierres,id',
-                'tipo' => 'required|in:incremento,decremento',
-                'monto' => 'required|numeric|min:0.01',
+            $integracionActiva = ConfiguracionSistema::integracionCajaBovedaActiva();
+
+            $rules = [
+                'caja_id'  => 'required|exists:caja_apertura_cierres,id',
+                'tipo'     => 'required|in:incremento,decremento',
+                'monto'    => 'required|numeric|min:0.01',
                 'concepto' => 'required|string',
-                'detalles' => 'nullable|json'
-            ]);
+                'detalles' => 'nullable|json',
+            ];
+
+            // Si la integración está activa, boveda_id es obligatoria
+            if ($integracionActiva) {
+                $rules['boveda_id'] = 'required|integer|exists:bovedas,id';
+            }
+
+            $request->validate($rules);
 
             // Verificar que la caja esté abierta
             $caja = CajaAperturaCierre::find($request->caja_id);
@@ -410,35 +502,134 @@ class CajaController extends Controller
                 if (!$user->hasPermission('caja', 'gestionar_cajas')) {
                     return response()->json(['error' => 'No tienes permiso para registrar movimientos en esta caja.'], 403);
                 }
-                // Admin/superadmin: se permite registrar directamente en la caja indicada
             }
 
+            // ── MODO INTEGRADO ─────────────────────────────────────────────────────
+            if ($integracionActiva) {
+                $boveda = Boveda::activas()->findOrFail($request->boveda_id);
+
+                return DB::transaction(function () use ($user, $request, $caja, $boveda) {
+                    if ($request->tipo === 'incremento') {
+                        // Incremento: bóveda → caja (requiere aprobación del encargado de bóveda)
+                        // 1. Crear movimiento de caja en estado pendiente
+                        $movCaja = MovimientoCaja::create([
+                            'caja_id'      => $caja->id,
+                            'tipo'         => 'incremento',
+                            'monto'        => $request->monto,
+                            'concepto'     => $request->concepto,
+                            'detalles_movimiento' => $request->detalles,
+                            'user_id'      => $user->id,
+                            'estado'       => 'pendiente',
+                            'boveda_id'    => $boveda->id,
+                            'estado_boveda' => 'pendiente_aprobacion',
+                        ]);
+
+                        // 2. Crear movimiento de bóveda en estado pendiente (salida)
+                        $movBoveda = BovedaMovimiento::create([
+                            'boveda_id'       => $boveda->id,
+                            'usuario_id'      => $user->id,
+                            'sucursal_id'     => $boveda->sucursal_id,
+                            'tipo_movimiento' => 'salida',
+                            'monto'           => $request->monto,
+                            'concepto'        => 'Incremento de caja #' . $caja->id . ' — ' . $request->concepto,
+                            'referencia'      => 'incremento_caja:' . $movCaja->id,
+                            'estado'          => 'pendiente',
+                        ]);
+
+                        // 3. Enlazar movimiento de bóveda al movimiento de caja
+                        $movCaja->boveda_movimiento_id = $movBoveda->id;
+                        $movCaja->save();
+
+                        $movCaja->load('user', 'boveda');
+
+                        return response()->json([
+                            'message'             => 'Solicitud de incremento enviada. Pendiente de aprobación del encargado de bóveda.',
+                            'movimiento'          => $movCaja,
+                            'boveda_movimiento'   => $movBoveda,
+                            'requiere_aprobacion' => true,
+                        ], 201);
+
+                    } else {
+                        // Decremento: caja → bóveda (se aplica inmediatamente)
+                        // Verificar que la bóveda puede recibir el monto
+                        if (!$boveda->puedeRecibirMonto($request->monto)) {
+                            return response()->json([
+                                'error' => 'La bóveda destino no puede recibir ese monto (supera saldo máximo permitido).',
+                            ], 422);
+                        }
+
+                        // 1. Crear movimiento de caja aplicado
+                        $movCaja = MovimientoCaja::create([
+                            'caja_id'      => $caja->id,
+                            'tipo'         => 'decremento',
+                            'monto'        => $request->monto,
+                            'concepto'     => $request->concepto,
+                            'detalles_movimiento' => $request->detalles,
+                            'user_id'      => $user->id,
+                            'estado'       => 'aplicado',
+                            'boveda_id'    => $boveda->id,
+                            'estado_boveda' => 'aprobado',
+                            'fecha_aprobacion_boveda' => now(),
+                            'aprobado_por_id' => $user->id,
+                        ]);
+
+                        // 2. Crear movimiento de bóveda aprobado (entrada desde caja)
+                        $movBoveda = BovedaMovimiento::create([
+                            'boveda_id'       => $boveda->id,
+                            'usuario_id'      => $user->id,
+                            'sucursal_id'     => $boveda->sucursal_id,
+                            'tipo_movimiento' => 'entrada',
+                            'monto'           => $request->monto,
+                            'concepto'        => 'Decremento de caja #' . $caja->id . ' — ' . $request->concepto,
+                            'referencia'      => 'decremento_caja:' . $movCaja->id,
+                            'estado'          => 'aprobado',
+                            'aprobado_por'    => $user->id,
+                            'fecha_aprobacion' => now(),
+                        ]);
+
+                        // 3. Enlazar y actualizar saldo de bóveda
+                        $movCaja->boveda_movimiento_id = $movBoveda->id;
+                        $movCaja->save();
+                        $boveda->actualizarSaldo();
+
+                        $movCaja->load('user', 'boveda');
+
+                        return response()->json([
+                            'message'           => 'Decremento registrado. Fondos transferidos a bóveda.',
+                            'movimiento'        => $movCaja,
+                            'boveda_movimiento' => $movBoveda,
+                        ]);
+                    }
+                });
+            }
+
+            // ── MODO DESCONECTADO: movimiento simple ───────────────────────────────
             $movimiento = new MovimientoCaja();
-            $movimiento->caja_id = $request->caja_id;
-            $movimiento->tipo = $request->tipo;
-            $movimiento->monto = $request->monto;
-            $movimiento->concepto = $request->concepto;
+            $movimiento->caja_id             = $request->caja_id;
+            $movimiento->tipo                = $request->tipo;
+            $movimiento->monto               = $request->monto;
+            $movimiento->concepto            = $request->concepto;
             $movimiento->detalles_movimiento = $request->detalles;
-            $movimiento->user_id = Auth::id();
-            $movimiento->estado = 'aplicado';
+            $movimiento->user_id             = Auth::id();
+            $movimiento->estado              = 'aplicado';
             $movimiento->save();
 
-            // Cargar relaciones para la respuesta
             $movimiento->load('user');
 
             return response()->json([
-                'message' => 'Movimiento registrado correctamente',
-                'movimiento' => $movimiento
+                'message'    => 'Movimiento registrado correctamente',
+                'movimiento' => $movimiento,
             ]);
+
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
-                'error' => 'Error de validación',
-                'errors' => $e->errors()
+                'error'  => 'Error de validación',
+                'errors' => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
             Log::error('Error registrando movimiento de caja: ' . $e->getMessage());
             return response()->json([
-                'error' => 'Error interno al registrar el movimiento'
+                'error' => 'Error interno al registrar el movimiento',
             ], 500);
         }
     }

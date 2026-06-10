@@ -40,11 +40,23 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Actualizar códigos de cliente para prendas existentes
-     */
     private function actualizarCodigosExistentes(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement("
+                UPDATE prendas
+                SET codigo_cliente_propietario = (
+                    SELECT c.codigo_cliente
+                    FROM creditos_prendarios cp
+                    INNER JOIN clientes c ON cp.cliente_id = c.id
+                    WHERE cp.id = prendas.credito_prendario_id
+                    LIMIT 1
+                )
+                WHERE codigo_cliente_propietario IS NULL
+            ");
+            return;
+        }
+
         // Actualizar prendas que tienen crédito
         DB::statement("
             UPDATE prendas p

@@ -27,6 +27,7 @@ use App\Http\Controllers\ContabilidadController;
 use App\Http\Controllers\ParametrizacionCuentasController;
 use App\Http\Controllers\NomenclaturaController;
 use App\Http\Controllers\DiarioContableController;
+use App\Http\Controllers\ConfiguracionSistemaController;
 use Illuminate\Support\Facades\DB;
 
 /*
@@ -126,6 +127,15 @@ Route::prefix('v1')->group(function () {
             Route::get('/', [\App\Http\Controllers\SystemErrorController::class, 'index']);
             Route::get('/{id}', [\App\Http\Controllers\SystemErrorController::class, 'show']);
             Route::post('/clear', [\App\Http\Controllers\SystemErrorController::class, 'clear']);
+        });
+
+        // ⚙️ Configuraciones del Sistema (parámetros globales desde BD)
+        Route::prefix('configuraciones-sistema')->group(function () {
+            Route::get('/', [ConfiguracionSistemaController::class, 'index']);
+            Route::get('/cash-vault-integration', [ConfiguracionSistemaController::class, 'cashVaultIntegration']);
+            Route::post('/cash-vault-integration/toggle', [ConfiguracionSistemaController::class, 'toggleCashVaultIntegration']);
+            Route::get('/{clave}', [ConfiguracionSistemaController::class, 'show']);
+            Route::put('/', [ConfiguracionSistemaController::class, 'update']);
         });
 
         // Sucursales (sin scope - el superadmin gestiona todas las sucursales)
@@ -230,6 +240,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/bovedas-movimientos/pendientes', [BovedaController::class, 'movimientosPendientes']);
             Route::post('/bovedas-movimientos/{id}/aprobar', [BovedaController::class, 'aprobarMovimiento']);
             Route::post('/bovedas-movimientos/{id}/rechazar', [BovedaController::class, 'rechazarMovimiento']);
+            Route::put('/bovedas-movimientos/{id}', [BovedaController::class, 'actualizarMovimiento']);
 
             // Recibos - rutas sin parámetro ID primero
             Route::get('/recibos', [ReciboController::class, 'index']);
@@ -416,6 +427,11 @@ Route::prefix('v1')->group(function () {
             Route::get('/cajas/{id}/movimientos', [CajaController::class, 'getMovimientos']);
             Route::post('/cajas/movimientos', [CajaController::class, 'registrarMovimiento']);
 
+            // Integración Caja-Bóveda: aprobación de movimientos pendientes (modo integrado)
+            Route::get('/boveda/movimientos-caja-pendientes', [BovedaController::class, 'movimientosCajaPendientes']);
+            Route::post('/boveda/movimientos-caja-pendientes/{id}/aprobar', [BovedaController::class, 'aprobarMovimientoCaja']);
+            Route::post('/boveda/movimientos-caja-pendientes/{id}/rechazar', [BovedaController::class, 'rechazarMovimientoCaja']);
+
             // Otros Gastos (tipos + movimientos diarios que afectan caja)
             Route::get('/otros-gastos/tipos', [OtrosGastosController::class, 'indexTipos']);
             Route::post('/otros-gastos/tipos', [OtrosGastosController::class, 'storeTipo']);
@@ -450,6 +466,14 @@ Route::prefix('v1')->group(function () {
             Route::put('/recibos/{id}', [ReciboController::class, 'update']);
             Route::patch('/recibos/{id}', [ReciboController::class, 'update']);
             Route::delete('/recibos/{id}', [ReciboController::class, 'destroy']);
+
+            // ========== CONFIGURACIONES DEL SISTEMA ==========
+            Route::get('/configuraciones-sistema', [ConfiguracionSistemaController::class, 'index']);
+            Route::get('/configuraciones-sistema/cash-vault-integration', [ConfiguracionSistemaController::class, 'cashVaultIntegration']);
+            Route::post('/configuraciones-sistema/cash-vault-integration/toggle', [ConfiguracionSistemaController::class, 'toggleCashVaultIntegration']);
+            Route::get('/configuraciones-sistema/{clave}', [ConfiguracionSistemaController::class, 'show']);
+            Route::put('/configuraciones-sistema', [ConfiguracionSistemaController::class, 'update']);
+
         }); // FIN DEL GRUPO DE RUTAS CON SCOPE DE SUCURSAL
     });
 

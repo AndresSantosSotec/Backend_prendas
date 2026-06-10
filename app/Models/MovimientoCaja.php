@@ -24,10 +24,18 @@ class MovimientoCaja extends Model
         'estado',
         'user_id',
         'autorizado_por',
+        // Campos de integración Caja-Bóveda
+        'boveda_id',
+        'boveda_movimiento_id',
+        'estado_boveda',
+        'fecha_aprobacion_boveda',
+        'aprobado_por_id',
+        'observaciones_boveda',
     ];
 
     protected $casts = [
-        'detalles_movimiento' => 'array',
+        'detalles_movimiento'    => 'array',
+        'fecha_aprobacion_boveda' => 'datetime',
     ];
 
     public function caja()
@@ -43,5 +51,30 @@ class MovimientoCaja extends Model
     public function autorizador()
     {
         return $this->belongsTo(User::class, 'autorizado_por');
+    }
+
+
+    public function bovedaMovimiento()
+    {
+        return $this->belongsTo(BovedaMovimiento::class, 'boveda_movimiento_id');
+    }
+
+    /** Bóveda relacionada con este movimiento (modo integrado). */
+    public function boveda()
+    {
+        return $this->belongsTo(Boveda::class, 'boveda_id');
+    }
+
+    public function aprobadoPor()
+    {
+        return $this->belongsTo(User::class, 'aprobado_por_id');
+    }
+
+    /**
+     * Scope: movimientos pendientes de aprobación en bóveda.
+     */
+    public function scopePendientesBoveda($query)
+    {
+        return $query->where('estado_boveda', 'pendiente_aprobacion');
     }
 }

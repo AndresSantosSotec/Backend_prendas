@@ -185,7 +185,7 @@
             @endphp
             @foreach($movimientos as $mov)
             @php
-                $esEntrada = in_array($mov->tipo_movimiento, ['entrada', 'transferencia_entrada']);
+                $esEntrada = in_array($mov->tipo_movimiento, ['entrada', 'transferencia_entrada', 'ingreso_cierre_diario']);
                 if($esEntrada) {
                     $totalEntradas += $mov->monto;
                 } else {
@@ -196,7 +196,7 @@
                 <td>{{ $mov->created_at->format('d/m/Y H:i') }}</td>
                 <td>
                     <span class="badge {{ $esEntrada ? 'badge-entrada' : 'badge-salida' }}">
-                        {{ $esEntrada ? 'Entrada' : 'Salida' }}
+                        {{ $mov->tipo_movimiento_label }}
                     </span>
                 </td>
                 <td>{{ $mov->concepto }}</td>

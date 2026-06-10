@@ -76,16 +76,9 @@ class BovedaMovimientosExport implements FromCollection, WithHeadings, WithMappi
      */
     public function map($movimiento): array
     {
-        $tipoMovimiento = [
-            'entrada' => 'Entrada',
-            'salida' => 'Salida',
-            'transferencia_entrada' => 'Transferencia (Entrada)',
-            'transferencia_salida' => 'Transferencia (Salida)',
-        ];
-
         return [
             $movimiento->created_at->format('d/m/Y H:i'),
-            $tipoMovimiento[$movimiento->tipo_movimiento] ?? $movimiento->tipo_movimiento,
+            $movimiento->tipo_movimiento_label,
             $movimiento->concepto,
             'Q' . number_format($movimiento->monto, 2),
             $movimiento->bovedaDestino->nombre ?? 'N/A',
