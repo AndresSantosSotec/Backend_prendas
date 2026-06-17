@@ -5,28 +5,9 @@
 
     RewriteEngine On
 
-    # CORS Headers - Permitir peticiones desde Avanza
-    Header always set Access-Control-Allow-Origin "*"
-    Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-    Header always set Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-XSRF-TOKEN, X-Client-ID"
-    Header always set Access-Control-Allow-Credentials "true"
-    Header always set Access-Control-Max-Age "3600"
-
-    # Handle preflight OPTIONS requests
-    RewriteCond %{REQUEST_METHOD} OPTIONS
-    RewriteRule ^(.*)$ $1 [R=204,L]
-
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
-
-    # Handle User-Agent Header (para Cloudflare)
-    RewriteCond %{HTTP:User-Agent} .
-    RewriteRule .* - [E=HTTP_USER_AGENT:%{HTTP:User-Agent}]
-
-    # Handle X-Client-ID Header (identificador personalizado desde frontend)
-    RewriteCond %{HTTP:X-Client-ID} .
-    RewriteRule .* - [E=HTTP_X_CLIENT_ID:%{HTTP:X-Client-ID}]
 
     # Handle X-XSRF-Token Header
     RewriteCond %{HTTP:x-xsrf-token} .
@@ -42,3 +23,10 @@
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
 </IfModule>
+
+# php -- BEGIN cPanel-generated handler, do not edit
+# Set the “ea-php83” package as the default “PHP” programming language.
+<IfModule mime_module>
+  AddHandler application/x-httpd-ea-php83 .php .php8 .phtml
+</IfModule>
+# php -- END cPanel-generated handler, do not edit

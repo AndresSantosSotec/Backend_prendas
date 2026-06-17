@@ -124,12 +124,10 @@
     <table class="signatures-table">
         <tr>
             <td>
-                <div class="signature-prefix">f.</div>
                 <div class="signature-line"></div>
                 <div class="signature-name">LA COMPRADORA</div>
             </td>
             <td>
-                <div class="signature-prefix">f.</div>
                 <div class="signature-line"></div>
                 <div class="signature-name">EL VENDEDOR</div>
                 <div class="huella-box">(Huella dactilar del vendedor)</div>
