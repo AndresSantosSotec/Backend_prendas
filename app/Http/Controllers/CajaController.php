@@ -150,7 +150,7 @@ class CajaController extends Controller
         $caja = CajaAperturaCierre::with(['sucursal', 'user'])->findOrFail($id);
 
         // Solo el dueño o admin/superadmin pueden ver
-        if ($caja->user_id !== $user->id && !$user->hasPermission('caja', 'gestionar_cajas')) {
+        if ((int)$caja->user_id !== (int)$user->id && !$user->hasPermission('caja', 'gestionar_cajas')) {
             return response()->json(['error' => 'No tienes permiso para ver esta caja.'], 403);
         }
 
@@ -173,7 +173,7 @@ class CajaController extends Controller
             'success' => true,
             'caja' => $caja,
             'movimientos' => $movimientos,
-            'es_propia' => $caja->user_id === $user->id,
+            'es_propia' => (int)$caja->user_id === (int)$user->id,
         ]);
     }
 
@@ -359,7 +359,7 @@ class CajaController extends Controller
             return response()->json(['error' => 'No tienes permiso para cerrar caja.'], 403);
         }
 
-        if ($caja->user_id !== $user->id && !$user->hasPermission('caja', 'gestionar_cajas')) {
+        if ((int)$caja->user_id !== (int)$user->id && !$user->hasPermission('caja', 'gestionar_cajas')) {
             return response()->json(['error' => 'No tienes permiso para cerrar esta caja.'], 403);
         }
 
@@ -426,7 +426,7 @@ class CajaController extends Controller
             return response()->json(['error' => 'No tienes permiso para cerrar caja.'], 403);
         }
 
-        if ($caja->user_id !== $user->id && !$user->hasPermission('caja', 'gestionar_cajas')) {
+        if ((int)$caja->user_id !== (int)$user->id && !$user->hasPermission('caja', 'gestionar_cajas')) {
             return response()->json(['error' => 'No tienes permiso para cerrar esta caja.'], 403);
         }
 
@@ -498,7 +498,7 @@ class CajaController extends Controller
                 return response()->json(['error' => 'No tienes permiso para registrar movimientos en caja.'], 403);
             }
 
-            if ($caja->user_id !== $user->id) {
+            if ((int)$caja->user_id !== (int)$user->id) {
                 if (!$user->hasPermission('caja', 'gestionar_cajas')) {
                     return response()->json(['error' => 'No tienes permiso para registrar movimientos en esta caja.'], 403);
                 }
@@ -644,7 +644,7 @@ class CajaController extends Controller
         $caja = CajaAperturaCierre::findOrFail($id);
 
         // Solo el dueño o admin/superadmin pueden ver los movimientos
-        if ($caja->user_id !== $user->id && !$user->hasPermission('caja', 'gestionar_cajas')) {
+        if ((int)$caja->user_id !== (int)$user->id && !$user->hasPermission('caja', 'gestionar_cajas')) {
             return response()->json(['error' => 'No tienes permiso para ver estos movimientos.'], 403);
         }
 

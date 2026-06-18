@@ -38,6 +38,8 @@ class CajaAperturaCierre extends Model
     ];
 
     protected $casts = [
+        'user_id'         => 'integer',
+        'sucursal_id'     => 'integer',
         'detalles_arqueo' => 'array',
         'fecha_cierre'    => 'datetime',
         'saldo_inicial'   => 'decimal:2',
