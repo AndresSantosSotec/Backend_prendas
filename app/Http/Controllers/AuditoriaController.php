@@ -32,6 +32,7 @@ class AuditoriaController extends Controller
             'fecha_desde' => 'date',
             'fecha_hasta' => 'date|after_or_equal:fecha_desde',
             'search' => 'string|max:255',
+            'estado' => 'string|in:exito,error',
         ]);
 
         if ($validator->fails()) {
@@ -60,6 +61,14 @@ class AuditoriaController extends Controller
 
         if ($request->filled('sucursal_id')) {
             $query->where('sucursal_id', $request->sucursal_id);
+        }
+
+        if ($request->filled('estado')) {
+            if ($request->estado === 'exito') {
+                $query->whereBetween('codigo_respuesta', [200, 299]);
+            } elseif ($request->estado === 'error') {
+                $query->where('codigo_respuesta', '>=', 400);
+            }
         }
 
         if ($request->filled('fecha_desde') && $request->filled('fecha_hasta')) {
