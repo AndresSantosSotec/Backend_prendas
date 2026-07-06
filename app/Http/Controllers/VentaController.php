@@ -623,6 +623,14 @@ class VentaController extends Controller
         ]);
 
         try {
+            // Verificar caja abierta si el pago es en efectivo
+            if ($request->input('metodo') === 'efectivo' && !\App\Services\CajaService::tieneCajaAbierta()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Debe tener una caja abierta para registrar abonos en efectivo. Vaya a Caja → Aperturar Caja.'
+                ], 422);
+            }
+
             $venta = Venta::with(['detalles.prenda', 'pagos'])->findOrFail($id);
 
             $resultado = $this->ventaCreditoService->registrarAbono($venta, $request->all());
@@ -635,7 +643,7 @@ class VentaController extends Controller
                     'usuario_id' => Auth::id(),
                     'venta_id' => $venta->id,
                     'numero_documento' => $venta->codigo_venta,
-                    'glosa' => 'Abono apartado/crédito - ' . $venta->codigo_venta,
+                    'glosa' => 'Abono venta crédito - ' . $venta->codigo_venta,
                     'fecha_documento' => now(),
                     'monto_abono' => $monto,
                 ]);

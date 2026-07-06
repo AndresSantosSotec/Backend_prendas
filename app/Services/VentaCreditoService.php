@@ -5,7 +5,9 @@ namespace App\Services;
 use App\Models\Venta;
 use App\Models\VentaPago;
 use App\Models\MetodoPago;
+use App\Services\CajaService;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -65,8 +67,13 @@ class VentaCreditoService
             ]);
 
             // 5. Actualizar totales de la venta
+            // Para crédito: el total a pagar incluye intereses (total_credito); para los demás, es total_final
+            $totalBase = ($venta->tipo_venta === 'credito' && $venta->total_credito > 0)
+                ? (float) $venta->total_credito
+                : (float) $venta->total_final;
+
             $nuevoTotalPagado = $venta->total_pagado + $monto;
-            $nuevoSaldoPendiente = $venta->total_final - $nuevoTotalPagado;
+            $nuevoSaldoPendiente = $totalBase - $nuevoTotalPagado;
 
             $venta->total_pagado = $nuevoTotalPagado;
             $venta->saldo_pendiente = max(0, $nuevoSaldoPendiente);
@@ -92,6 +99,27 @@ class VentaCreditoService
             }
 
             $venta->save();
+
+            // 9. Registrar en caja si el método de pago es efectivo
+            if ($metodoCodigo === 'efectivo' && $monto > 0) {
+                try {
+                    CajaService::registrarIngreso(
+                        $monto,
+                        "Abono venta crédito #{$venta->codigo_venta} - {$venta->cliente_nombre}",
+                        [
+                            'tipo_operacion' => 'abono_venta_credito',
+                            'venta_id'       => $venta->id,
+                            'codigo_venta'   => $venta->codigo_venta,
+                            'tipo_venta'     => $venta->tipo_venta,
+                            'pago_id'        => $pago->id,
+                            'fecha'          => now()->toDateTimeString(),
+                        ]
+                    );
+                } catch (\Exception $cajaError) {
+                    // No abortar la transacción si falla el registro de caja, solo advertir
+                    Log::warning("No se pudo registrar abono en caja para venta {$venta->codigo_venta}: " . $cajaError->getMessage());
+                }
+            }
 
             Log::info("Abono registrado a venta {$venta->codigo_venta}", [
                 'pago_id' => $pago->id,
@@ -171,11 +199,14 @@ class VentaCreditoService
     }
 
     /**
-     * Saldo pendiente real: total_final - total_pagado (por si la columna saldo_pendiente está desactualizada)
+     * Saldo pendiente real.
+     * Para crédito: usa total_credito (capital + intereses + gastos).
+     * Para otros: usa total_final.
      */
     private function saldoPendienteReal(Venta $venta): float
     {
-        $total = (float) ($venta->total_final ?? 0);
+        $esCredito = $venta->tipo_venta === 'credito' && (float)($venta->total_credito ?? 0) > 0;
+        $total  = $esCredito ? (float) $venta->total_credito : (float) ($venta->total_final ?? 0);
         $pagado = (float) ($venta->total_pagado ?? 0);
         return max(0, $total - $pagado);
     }
@@ -185,8 +216,8 @@ class VentaCreditoService
      */
     private function validarVentaParaPago(Venta $venta): void
     {
-        if (!in_array($venta->tipo_venta, ['apartado', 'plan_pagos'])) {
-            throw new \Exception("Solo se pueden registrar abonos a ventas de tipo apartado o plan de pagos");
+        if (!in_array($venta->tipo_venta, ['credito', 'apartado', 'plan_pagos'])) {
+            throw new \Exception("Solo se pueden registrar abonos a ventas de tipo crédito, apartado o plan de pagos");
         }
 
         if ($venta->estado === 'pagada') {

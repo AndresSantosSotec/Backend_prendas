@@ -233,9 +233,9 @@ class VentaMultiPrendaService
             $this->actualizarEstadoPrendas($venta, $estado, $prendas);
 
             // 9. Integración con otros módulos (si están activos)
-            if ($estado === 'pagada') {
-                $this->integrarConModulos($venta);
-            }
+            // Para ventas al contado pagadas: registrar total en caja
+            // Para crédito/apartado: registrar SOLO el enganche/anticipo en caja
+            $this->integrarConModulos($venta, $tipoVenta);
 
             // 10. Log de auditoría
             Log::info("Venta creada: {$venta->codigo_venta}", [
@@ -251,17 +251,20 @@ class VentaMultiPrendaService
 
     /**
      * Integrar venta con módulos de Caja y Contabilidad
+     *
+     * Para ventas al contado: registra el total efectivo recibido.
+     * Para crédito/apartado: registra SOLO el enganche/anticipo en efectivo (pago recibido hoy).
      */
-    private function integrarConModulos(Venta $venta): void
+    private function integrarConModulos(Venta $venta, string $tipoVenta = 'contado'): void
     {
-        // INTEGRACIÓN CON CAJA — falla correctamente si no hay caja (la venta ya pasó el check previo)
+        // INTEGRACIÓN CON CAJA — registrar siempre que haya pagos en efectivo
         if (class_exists('\App\Models\MovimientoCaja')) {
-            $this->registrarEnCaja($venta);
+            $this->registrarEnCaja($venta, $tipoVenta);
         }
 
-        // INTEGRACIÓN CON CONTABILIDAD — falla silenciosamente para no abortar la venta
+        // INTEGRACIÓN CON CONTABILIDAD — solo para ventas pagadas al contado (falla silenciosamente)
         try {
-            if (config('contabilidad.auto_asientos_por_operacion.venta_prenda', false)) {
+            if ($tipoVenta === 'contado' && config('contabilidad.auto_asientos_por_operacion.venta_prenda', false)) {
                 $this->generarAsientoContable($venta);
             }
         } catch (\Exception $e) {
@@ -270,9 +273,12 @@ class VentaMultiPrendaService
     }
 
     /**
-     * Registrar movimiento en caja (solo pagos en efectivo)
+     * Registrar movimiento en caja (solo pagos en efectivo).
+     *
+     * Para ventas al contado: registra el total en efectivo recibido.
+     * Para crédito/apartado: registra SOLO el enganche/anticipo (lo que realmente ingresó hoy a caja).
      */
-    private function registrarEnCaja(Venta $venta): void
+    private function registrarEnCaja(Venta $venta, string $tipoVenta = 'contado'): void
     {
         // Sumar pagos en efectivo usando el join con metodos_pago
         $pagosEfectivo = $venta->pagos()
@@ -280,29 +286,40 @@ class VentaMultiPrendaService
             ->where('metodos_pago.codigo', 'efectivo')
             ->sum('venta_pagos.monto');
 
-        if ($pagosEfectivo > 0) {
-            $caja = CajaService::getCajaAbierta();
-
-            if (!$caja) {
-                throw new \Exception('No hay caja abierta para registrar el ingreso de la venta.');
-            }
-
-            \App\Models\MovimientoCaja::create([
-                'caja_id'             => $caja->id,
-                'tipo'                => 'ingreso_pago',
-                'concepto'            => "Venta {$venta->codigo_venta} - {$venta->detalles->count()} prendas",
-                'monto'               => $pagosEfectivo,
-                'detalles_movimiento' => [
-                    'tipo_operacion' => 'venta_prenda',
-                    'venta_id'       => $venta->id,
-                    'codigo_venta'   => $venta->codigo_venta,
-                ],
-                'estado'  => 'aplicado',
-                'user_id' => Auth::id(),
-            ]);
-
-            Log::info("Movimiento de caja registrado para venta {$venta->codigo_venta}: Q{$pagosEfectivo}");
+        if ($pagosEfectivo <= 0) {
+            return; // No hay efectivo que registrar
         }
+
+        $caja = CajaService::getCajaAbierta();
+
+        if (!$caja) {
+            throw new \Exception('No hay caja abierta para registrar el ingreso de la venta.');
+        }
+
+        // Etiqueta del concepto según tipo de venta
+        $conceptoTipo = match($tipoVenta) {
+            'credito'  => 'Enganche crédito',
+            'apartado' => 'Anticipo apartado',
+            default    => 'Venta contado',
+        };
+
+        \App\Models\MovimientoCaja::create([
+            'caja_id'             => $caja->id,
+            'tipo'                => 'ingreso_pago',
+            'concepto'            => "{$conceptoTipo} - Venta {$venta->codigo_venta} ({$venta->detalles->count()} prenda(s))",
+            'monto'               => $pagosEfectivo,
+            'detalles_movimiento' => [
+                'tipo_operacion' => 'venta_prenda',
+                'subtipo'        => $tipoVenta,
+                'venta_id'       => $venta->id,
+                'codigo_venta'   => $venta->codigo_venta,
+                'es_enganche'    => in_array($tipoVenta, ['credito', 'apartado']),
+            ],
+            'estado'  => 'aplicado',
+            'user_id' => Auth::id(),
+        ]);
+
+        Log::info("Movimiento de caja registrado para venta {$venta->codigo_venta} ({$tipoVenta}): Q{$pagosEfectivo}");
     }
 
     /**
