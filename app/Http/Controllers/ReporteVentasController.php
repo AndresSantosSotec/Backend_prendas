@@ -13,7 +13,7 @@ class ReporteVentasController extends Controller
 
     private function buildQuery(Request $request)
     {
-        $query = Venta::with(['cliente', 'vendedor', 'sucursal', 'detalles'])
+        $query = Venta::with(['cliente', 'vendedor', 'sucursal', 'detalles.prenda', 'detalles.compra', 'prenda'])
             ->withoutTrashed();
 
         $fechaDesde = $request->fecha_desde ?? $request->fecha_inicio;
@@ -90,6 +90,7 @@ class ReporteVentasController extends Controller
                         'precio_compra'   => (float)$precioCompra,
                         'precio_venta'    => (float)$precioVenta,
                         'utilidad'        => (float)$diferencia,
+                        'porcentaje_diferencia' => (float)$porcentajeDiferencia,
                         'margen'          => (float)$porcentajeDiferencia,
                         'metodo_pago'     => $venta->metodo_pago,
                         'fecha_venta'     => $venta->created_at?->format('d/m/Y H:i'),
@@ -120,6 +121,7 @@ class ReporteVentasController extends Controller
                     'precio_compra'   => (float)$precioCompra,
                     'precio_venta'    => (float)$precioVenta,
                     'utilidad'        => (float)$diferencia,
+                    'porcentaje_diferencia' => (float)$porcentajeDiferencia,
                     'margen'          => (float)$porcentajeDiferencia,
                     'metodo_pago'     => $venta->metodo_pago,
                     'fecha_venta'     => $venta->created_at?->format('d/m/Y H:i'),
@@ -239,7 +241,7 @@ class ReporteVentasController extends Controller
 
             // Cabeceras
             fputcsv($handle, [
-                'Código Venta', 'Fecha', 'Cliente', 'Artículo (Descripción)', 'Precio Compra (Costo)', 'Precio Venta', 'Utilidad', '% Margen', 'Estado'
+                'Código Venta', 'Fecha', 'Cliente', 'Artículo (Descripción)', 'Precio Compra (Costo)', 'Precio Venta', 'Utilidad', '% Diferencia', 'Estado'
             ]);
 
             foreach ($items as $item) {

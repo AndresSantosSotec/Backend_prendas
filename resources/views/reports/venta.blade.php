@@ -54,7 +54,8 @@
                     <p><span class="label">VENDEDOR:</span> {{ $venta->vendedor->name ?? 'Admin' }}</p>
                     <p><span class="label">ESTADO:</span> <span class="badge {{ $venta->estado === 'pagada' ? 'badge-success' : 'badge-pending' }}">{{ strtoupper($venta->estado) }}</span></p>
                     @if($venta->certificada)
-                        <p><span class="label">AUTORIZACI\u00d3N:</span> {{ $venta->no_autorizacion }}</p>
+                        <p><span class="label">DTE SERIE:</span> {{ $venta->serie_factura }}</p>
+                        <p><span class="label">DTE NÚMERO:</span> {{ $venta->numero_factura }}</p>
                     @endif
                 </td>
             </tr>
@@ -102,7 +103,7 @@
     </div>
 
     @if($venta->pagos->count() > 0)
-    <div style="margin-top: 30px;">
+    <div style="margin-top: 20px;">
         <h3>Detalle de Pagos</h3>
         <table class="table" style="width: 50%;">
             <thead>
@@ -123,7 +124,27 @@
     </div>
     @endif
 
-    <div class="footer">
+    @if($venta->certificada)
+    <div style="margin-top: 30px; border-top: 1px dashed #000; padding-top: 10px; font-size: 10px;">
+        <p style="text-align: center; font-weight: bold; margin: 0 0 10px 0; font-size: 11px;">DOCUMENTO TRIBUTARIO ELECTRÓNICO (DTE)</p>
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+                <td style="width: 60%; vertical-align: top;">
+                    <p><span class="label">AUTORIZACIÓN (UUID):</span><br>{{ $venta->uuid_fel }}</p>
+                    <p><span class="label">SERIE:</span> {{ $venta->serie_factura }} &nbsp;&nbsp;&nbsp;&nbsp; <span class="label">NÚMERO:</span> {{ $venta->numero_factura }}</p>
+                    <p><span class="label">FECHA CERTIFICACIÓN:</span> {{ $venta->fecha_certificacion ? \Carbon\Carbon::parse($venta->fecha_certificacion)->format('d-m-Y H:i:s') : '' }}</p>
+                </td>
+                <td style="width: 40%; vertical-align: top; text-align: right;">
+                    <p><span class="label">CERTIFICADOR:</span> TEKRA, SOCIEDAD ANÓNIMA</p>
+                    <p><span class="label">NIT CERTIFICADOR:</span> 10734683-4</p>
+                    <p style="font-size: 8px; color: #555; margin-top: 5px;">Sujeto a Retención Definitiva ISR</p>
+                </td>
+            </tr>
+        </table>
+    </div>
+    @endif
+
+    <div class="footer" style="margin-top: 30px;">
         <p>Gracias por su compra. Este es un comprobante de venta oficial.</p>
         <p>Generado el {{ date('d/m/Y H:i:s') }}</p>
     </div>

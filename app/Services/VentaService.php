@@ -286,12 +286,14 @@ class VentaService
             }
 
             // Devolver prenda a estado en_venta
-            $venta->prenda->update([
-                'estado' => 'en_venta',
-                'comprador_id' => null,
-                'observaciones' => ($venta->prenda->observaciones ?? '') . "\n" .
-                    "Venta cancelada el " . now()->format('d/m/Y H:i') . " - " . $motivo
-            ]);
+            if ($venta->prenda) {
+                $venta->prenda->update([
+                    'estado' => 'en_venta',
+                    'comprador_id' => null,
+                    'observaciones' => ($venta->prenda->observaciones ?? '') . "\n" .
+                        "Venta cancelada el " . now()->format('d/m/Y H:i') . " - " . $motivo
+                ]);
+            }
 
             // Marcar venta como cancelada
             $venta->update([

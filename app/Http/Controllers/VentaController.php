@@ -328,7 +328,7 @@ class VentaController extends Controller
      * Cancelar venta.
      * Para apartados: opcionalmente devolver el abono (enganche) al cliente registrando un egreso en caja.
      */
-    public function cancelar(Request $request, string $id)
+    public function cancelar(Request $request, string $id, \App\Services\FelService $felService)
     {
         $request->validate([
             'motivo' => 'required|string|max:500',
@@ -338,6 +338,11 @@ class VentaController extends Controller
         try {
             $venta = Venta::findOrFail($id);
             $devolverAbono = (bool) $request->input('devolver_abono', false);
+
+            // Si la factura ya fue certificada ante SAT, anularla primero
+            if ($venta->certificada) {
+                $felService->anularFactura($venta, $request->motivo);
+            }
 
             // Usar servicio apropiado según tipo de venta
             if ($venta->detalles()->count() > 0) {
@@ -350,7 +355,7 @@ class VentaController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Venta cancelada exitosamente',
+                'message' => $venta->certificada ? 'Factura anulada en SAT y venta cancelada exitosamente' : 'Venta cancelada exitosamente',
                 'data' => $resultado
             ]);
         } catch (\Exception $e) {
@@ -395,7 +400,7 @@ class VentaController extends Controller
     /**
      * Certificar factura (FEL Guatemala)
      */
-    public function certificar(string $id)
+    public function certificar(string $id, \App\Services\FelService $felService)
     {
         try {
             $venta = Venta::findOrFail($id);
@@ -404,16 +409,24 @@ class VentaController extends Controller
                 throw new \Exception('Esta venta ya ha sido certificada');
             }
 
-            // Simulación de certificación FEL
+            // Certificación real via FelService
+            $res = $felService->certificarFactura($venta);
+
             $venta->certificada = true;
-            $venta->no_autorizacion = strtoupper(bin2hex(random_bytes(16)));
-            $venta->fecha_certificacion = now();
-            $venta->generarNumeroDocumento();
+            $venta->facturada = true;
+            $venta->uuid_fel = $res['uuid'];
+            $venta->numero_autorizacion = $res['uuid'];
+            $venta->no_autorizacion = $res['uuid'];
+            $venta->serie_factura = $res['serie'];
+            $venta->serie_documento = $res['serie'];
+            $venta->numero_factura = $res['numero'];
+            $venta->numero_documento = $res['numero'];
+            $venta->fecha_certificacion = $res['fecha_certificacion'];
             $venta->save();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Factura certificada exitosamente',
+                'message' => 'Factura certificada (FEL) exitosamente',
                 'data' => $venta
             ]);
         } catch (\Exception $e) {

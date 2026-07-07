@@ -126,7 +126,7 @@
                 <th class="text-right">P. Compra (Costo)</th>
                 <th class="text-right">P. Venta</th>
                 <th class="text-right">Utilidad</th>
-                <th class="text-right">% Margen</th>
+                <th class="text-right">% Diferencia</th>
                 <th class="text-center">Estado</th>
             </tr>
         </thead>
@@ -171,7 +171,7 @@
                 <td style="padding: 4px; border: 1px solid #ccc; text-align: right; color: {{ $totales['utilidad'] >= 0 ? '#155724' : '#721c24' }}">Q{{ number_format($totales['utilidad'], 2) }}</td>
             </tr>
             <tr style="font-weight: bold; background: #f5f5f5;">
-                <td style="padding: 4px; border: 1px solid #ccc; text-align: left;">MARGEN GENERAL:</td>
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: left;">% DIFERENCIA GENERAL:</td>
                 <td style="padding: 4px; border: 1px solid #ccc; text-align: right; color: {{ $totales['margen'] >= 0 ? '#155724' : '#721c24' }}">{{ number_format($totales['margen'], 2) }}%</td>
             </tr>
         </table>

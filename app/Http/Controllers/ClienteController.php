@@ -929,5 +929,37 @@ class ClienteController extends Controller
                 : [],
         ];
     }
+
+    /**
+     * Consultar NIT en SAT mediante TEKRA
+     */
+    public function consultaNit(string $nit, \App\Services\FelService $felService): JsonResponse
+    {
+        try {
+            $resultado = $felService->consultarNit($nit);
+            return response()->json($resultado);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Consultar CUI en SAT mediante TEKRA
+     */
+    public function consultaCui(string $cui, \App\Services\FelService $felService): JsonResponse
+    {
+        try {
+            $resultado = $felService->consultarCui($cui);
+            return response()->json($resultado);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 400);
+        }
+    }
 }
 

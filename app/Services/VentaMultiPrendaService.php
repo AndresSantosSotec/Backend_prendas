@@ -596,10 +596,12 @@ class VentaMultiPrendaService
 
             // Devolver prendas a estado en_venta
             foreach ($venta->detalles as $detalle) {
-                $detalle->prenda->update([
-                    'estado' => 'en_venta',
-                    'fecha_venta' => null,
-                ]);
+                if ($detalle->prenda) {
+                    $detalle->prenda->update([
+                        'estado' => 'en_venta',
+                        'fecha_venta' => null,
+                    ]);
+                }
             }
 
             // Cancelar el crédito de venta asociado si existe

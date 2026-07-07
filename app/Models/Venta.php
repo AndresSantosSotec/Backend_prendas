@@ -54,6 +54,11 @@ class Venta extends Model
         'certificada',
         'no_autorizacion',
         'fecha_certificacion',
+        'facturada',
+        'numero_factura',
+        'serie_factura',
+        'uuid_fel',
+        'numero_autorizacion',
         'notas',
         // Campos plan de pagos y apartados
         'plazo_dias',

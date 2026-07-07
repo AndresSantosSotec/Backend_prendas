@@ -21,6 +21,7 @@ use App\Http\Controllers\CompraController;
 use App\Http\Controllers\OtrosGastosController;
 use App\Http\Controllers\ClienteBorradorController;
 use App\Http\Controllers\Api\ReporteComprasController;
+use App\Http\Controllers\ReporteCreditosController;
 use App\Http\Controllers\ReporteVentasController;
 use App\Http\Controllers\AuditoriaController;
 use App\Http\Controllers\ContabilidadController;
@@ -169,6 +170,8 @@ Route::prefix('v1')->group(function () {
 
             // Clientes
             Route::get('/clientes/activos', [ClienteController::class, 'activos']);
+            Route::get('/clientes/consulta-nit/{nit}', [ClienteController::class, 'consultaNit']);
+            Route::get('/clientes/consulta-cui/{cui}', [ClienteController::class, 'consultaCui']);
             Route::get('/clientes/reporte', [ClienteController::class, 'reporte']);
             Route::post('/clientes/toggle-masivo', [ClienteController::class, 'toggleMasivo']);
             Route::get('/clientes/borradores', [ClienteBorradorController::class, 'index']);
@@ -405,6 +408,11 @@ Route::prefix('v1')->group(function () {
             Route::get('/reportes/ventas/vista-previa', [ReporteVentasController::class, 'vistaPrevia']);
             Route::get('/reportes/ventas/pdf', [ReporteVentasController::class, 'generarPDF']);
             Route::get('/reportes/ventas/excel', [ReporteVentasController::class, 'generarExcel']);
+
+            // Reportes de Créditos
+            Route::get('/reportes/creditos/vigentes/vista-previa', [ReporteCreditosController::class, 'vistaPrevia']);
+            Route::get('/reportes/creditos/vigentes/pdf', [ReporteCreditosController::class, 'generarPDF']);
+            Route::get('/reportes/creditos/vigentes/excel', [ReporteCreditosController::class, 'generarExcel']);
 
             // Cotizaciones
             Route::get('/cotizaciones', [\App\Http\Controllers\CotizacionController::class, 'index']);

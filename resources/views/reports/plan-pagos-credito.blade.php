@@ -175,8 +175,17 @@
         </thead>
         <tbody>
             <tr>
-                <td>Monto venta</td>
-                <td class="amount">{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($credito->monto_venta, 2) }}</td>
+                <td>
+                    <strong>Monto venta</strong>
+                    @if($venta->detalles && $venta->detalles->count() > 0)
+                    <div style="font-size: 8.5px; color: #555; margin-top: 4px; padding-left: 8px; line-height: 1.3;">
+                        @foreach($venta->detalles as $detalle)
+                            • {{ $detalle->descripcion }} (Cant: {{ (int)$detalle->cantidad }}) @if($detalle->codigo) [{{ $detalle->codigo }}] @endif<br>
+                        @endforeach
+                    </div>
+                    @endif
+                </td>
+                <td class="amount" style="vertical-align: top;">{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($credito->monto_venta, 2) }}</td>
             </tr>
             <tr>
                 <td>Enganche pagado</td>
