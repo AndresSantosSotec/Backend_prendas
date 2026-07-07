@@ -217,7 +217,11 @@ class VentaMultiPrendaService
 
             // Recalcular saldo pendiente después de configuración
             $venta->refresh();
-            $saldoPendiente = ($venta->total_credito ?: $venta->total_final) - $venta->total_pagado;
+            if ($venta->tipo_venta === 'credito') {
+                $saldoPendiente = $venta->total_credito;
+            } else {
+                $saldoPendiente = $venta->total_final - $venta->total_pagado;
+            }
 
             // 7. Determinar estado final
             $estado = $this->determinarEstadoVenta($venta, $totalPagado, $tipoVenta);
@@ -596,6 +600,15 @@ class VentaMultiPrendaService
                     'estado' => 'en_venta',
                     'fecha_venta' => null,
                 ]);
+            }
+
+            // Cancelar el crédito de venta asociado si existe
+            if ($venta->ventaCredito) {
+                $venta->ventaCredito->update([
+                    'estado' => 'cancelado',
+                    'observaciones' => ($venta->ventaCredito->observaciones ?? '') . "\nCrédito cancelado por anulación de venta el " . now()->format('d/m/Y H:i') . "."
+                ]);
+                $venta->ventaCredito->planPagos()->update(['estado' => 'cancelada']);
             }
 
             // Marcar venta como cancelada

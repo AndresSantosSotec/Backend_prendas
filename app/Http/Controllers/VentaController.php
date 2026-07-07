@@ -302,6 +302,7 @@ class VentaController extends Controller
         try {
             $venta = Venta::with([
                 'detalles.prenda.categoriaProducto',
+                'detalles.compra',
                 'pagos',
                 'creditoPrendario',
                 'vendedor',
@@ -494,7 +495,7 @@ class VentaController extends Controller
         try {
             $filtros = $request->all();
 
-            $query = Venta::with(['cliente', 'vendedor', 'sucursal']);
+            $query = Venta::with(['cliente', 'vendedor', 'sucursal', 'detalles.prenda', 'detalles.compra', 'prenda']);
 
             if (!empty($filtros['estado']) && $filtros['estado'] !== 'todas') {
                 $query->where('estado', $filtros['estado']);
@@ -505,7 +506,11 @@ class VentaController extends Controller
                 $query->where(function($q) use ($busqueda) {
                     $q->where('codigo_venta', 'like', "%{$busqueda}%")
                       ->orWhere('cliente_nombre', 'like', "%{$busqueda}%")
-                      ->orWhere('cliente_nit', 'like', "%{$busqueda}%");
+                      ->orWhere('cliente_nit', 'like', "%{$busqueda}%")
+                      ->orWhereHas('detalles', function($d) use ($busqueda) {
+                          $d->where('descripcion', 'like', "%{$busqueda}%")
+                            ->orWhere('codigo', 'like', "%{$busqueda}%");
+                      });
                 });
             }
 
@@ -519,13 +524,79 @@ class VentaController extends Controller
 
             $ventas = $query->orderBy('fecha_venta', 'desc')->get();
 
+            // Compilar listado aplanado de artículos vendidos
+            $items = [];
+            $totalCosto = 0;
+            $totalVenta = 0;
+            foreach ($ventas as $venta) {
+                $detalles = $venta->detalles;
+                if ($detalles && $detalles->count() > 0) {
+                    foreach ($detalles as $detalle) {
+                        $precioCompra = 0;
+                        if ($detalle->prenda_id) {
+                            $precioCompra = $detalle->prenda?->valor_prestamo ?? 0;
+                        } elseif ($detalle->producto_id) {
+                            $precioCompra = $detalle->compra?->monto_pagado ?? 0;
+                        }
+
+                        $precioVenta = $detalle->total;
+                        $diferencia = $precioVenta - $precioCompra;
+                        $porcentajeDiferencia = $precioCompra > 0 ? round(($diferencia / $precioCompra) * 100, 2) : 0;
+
+                        $totalCosto += $precioCompra;
+                        $totalVenta += $precioVenta;
+
+                        $items[] = (object)[
+                            'codigo_venta' => $venta->codigo_venta,
+                            'fecha_venta' => $venta->fecha_venta,
+                            'cliente_nombre' => $venta->cliente_nombre,
+                            'cliente_nit' => $venta->cliente_nit ?? 'C/F',
+                            'descripcion' => $detalle->descripcion,
+                            'precio_compra' => $precioCompra,
+                            'precio_venta' => $precioVenta,
+                            'utilidad' => $diferencia,
+                            'margen' => $porcentajeDiferencia,
+                            'estado' => $venta->estado,
+                        ];
+                    }
+                } else {
+                    $precioCompra = 0;
+                    $descripcion = 'Venta de Prenda';
+                    if ($venta->prenda_id) {
+                        $precioCompra = $venta->prenda?->valor_prestamo ?? 0;
+                        $descripcion = $venta->prenda?->descripcion ?? $descripcion;
+                    }
+
+                    $precioVenta = $venta->precio_final;
+                    $diferencia = $precioVenta - $precioCompra;
+                    $porcentajeDiferencia = $precioCompra > 0 ? round(($diferencia / $precioCompra) * 100, 2) : 0;
+
+                    $totalCosto += $precioCompra;
+                    $totalVenta += $precioVenta;
+
+                    $items[] = (object)[
+                        'codigo_venta' => $venta->codigo_venta,
+                        'fecha_venta' => $venta->fecha_venta,
+                        'cliente_nombre' => $venta->cliente_nombre,
+                        'cliente_nit' => $venta->cliente_nit ?? 'C/F',
+                        'descripcion' => $descripcion,
+                        'precio_compra' => $precioCompra,
+                        'precio_venta' => $precioVenta,
+                        'utilidad' => $diferencia,
+                        'margen' => $porcentajeDiferencia,
+                        'estado' => $venta->estado,
+                    ];
+                }
+            }
+
             $totales = [
-                'subtotal' => $ventas->sum('subtotal'),
-                'descuentos' => $ventas->sum('total_descuentos'),
-                'total' => $ventas->sum('total_final'),
+                'costo' => $totalCosto,
+                'venta' => $totalVenta,
+                'utilidad' => $totalVenta - $totalCosto,
+                'margen' => $totalCosto > 0 ? round((($totalVenta - $totalCosto) / $totalCosto) * 100, 2) : 0,
             ];
 
-            $pdf = Pdf::loadView('reports.ventas-listado', compact('ventas', 'filtros', 'totales'));
+            $pdf = Pdf::loadView('reports.ventas-listado', compact('items', 'filtros', 'totales'));
             $pdf->setPaper('letter', 'landscape');
 
             return $pdf->download('Listado_Ventas_' . date('Ymd_His') . '.pdf');

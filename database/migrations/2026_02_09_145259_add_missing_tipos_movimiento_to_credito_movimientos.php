@@ -12,21 +12,23 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Modificar ENUM para agregar tipos faltantes: renovacion, pago_interes
-        DB::statement("ALTER TABLE credito_movimientos MODIFY COLUMN tipo_movimiento ENUM(
-            'desembolso',
-            'pago',
-            'pago_parcial',
-            'pago_total',
-            'pago_adelantado',
-            'pago_interes',
-            'renovacion',
-            'cargo_mora',
-            'cargo_administracion',
-            'ajuste',
-            'reversion',
-            'condonacion'
-        ) NOT NULL COMMENT 'Tipo de movimiento'");
+        if (DB::getDriverName() !== 'sqlite') {
+            // Modificar ENUM para agregar tipos faltantes: renovacion, pago_interes
+            DB::statement("ALTER TABLE credito_movimientos MODIFY COLUMN tipo_movimiento ENUM(
+                'desembolso',
+                'pago',
+                'pago_parcial',
+                'pago_total',
+                'pago_adelantado',
+                'pago_interes',
+                'renovacion',
+                'cargo_mora',
+                'cargo_administracion',
+                'ajuste',
+                'reversion',
+                'condonacion'
+            ) NOT NULL COMMENT 'Tipo de movimiento'");
+        }
     }
 
     /**
@@ -34,18 +36,20 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Revertir al ENUM original
-        DB::statement("ALTER TABLE credito_movimientos MODIFY COLUMN tipo_movimiento ENUM(
-            'desembolso',
-            'pago',
-            'pago_parcial',
-            'pago_total',
-            'pago_adelantado',
-            'cargo_mora',
-            'cargo_administracion',
-            'ajuste',
-            'reversion',
-            'condonacion'
-        ) NOT NULL COMMENT 'Tipo de movimiento'");
+        if (DB::getDriverName() !== 'sqlite') {
+            // Revertir al ENUM original
+            DB::statement("ALTER TABLE credito_movimientos MODIFY COLUMN tipo_movimiento ENUM(
+                'desembolso',
+                'pago',
+                'pago_parcial',
+                'pago_total',
+                'pago_adelantado',
+                'cargo_mora',
+                'cargo_administracion',
+                'ajuste',
+                'reversion',
+                'condonacion'
+            ) NOT NULL COMMENT 'Tipo de movimiento'");
+        }
     }
 };

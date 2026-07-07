@@ -59,6 +59,76 @@ class ReporteVentasController extends Controller
         ];
     }
 
+    private function compilarArticulosVendidos($ventas): array
+    {
+        $items = [];
+        foreach ($ventas as $venta) {
+            $detalles = $venta->detalles;
+            if ($detalles && $detalles->count() > 0) {
+                foreach ($detalles as $detalle) {
+                    $precioCompra = 0;
+                    if ($detalle->prenda_id) {
+                        $precioCompra = $detalle->prenda?->valor_prestamo ?? 0;
+                    } elseif ($detalle->producto_id) {
+                        $precioCompra = $detalle->compra?->monto_pagado ?? 0;
+                    }
+
+                    $precioVenta = $detalle->total;
+                    $diferencia = $precioVenta - $precioCompra;
+                    $porcentajeDiferencia = $precioCompra > 0 ? round(($diferencia / $precioCompra) * 100, 2) : 0;
+
+                    $items[] = [
+                        'codigo_venta'    => $venta->codigo_venta,
+                        'tipo_venta'      => $venta->tipo_venta,
+                        'estado'          => $venta->estado,
+                        'cliente'         => $venta->cliente
+                            ? trim(($venta->cliente->nombres ?? '') . ' ' . ($venta->cliente->apellidos ?? ''))
+                            : ($venta->cliente_nombre ?? 'Consumidor final'),
+                        'vendedor'        => $venta->vendedor ? $venta->vendedor->name : '-',
+                        'sucursal'        => $venta->sucursal ? $venta->sucursal->nombre : '-',
+                        'descripcion'     => $detalle->descripcion,
+                        'precio_compra'   => (float)$precioCompra,
+                        'precio_venta'    => (float)$precioVenta,
+                        'utilidad'        => (float)$diferencia,
+                        'margen'          => (float)$porcentajeDiferencia,
+                        'metodo_pago'     => $venta->metodo_pago,
+                        'fecha_venta'     => $venta->created_at?->format('d/m/Y H:i'),
+                    ];
+                }
+            } else {
+                $precioCompra = 0;
+                $descripcion = 'Venta de Prenda';
+                if ($venta->prenda_id) {
+                    $precioCompra = $venta->prenda?->valor_prestamo ?? 0;
+                    $descripcion = $venta->prenda?->descripcion ?? $descripcion;
+                }
+
+                $precioVenta = $venta->precio_final;
+                $diferencia = $precioVenta - $precioCompra;
+                $porcentajeDiferencia = $precioCompra > 0 ? round(($diferencia / $precioCompra) * 100, 2) : 0;
+
+                $items[] = [
+                    'codigo_venta'    => $venta->codigo_venta,
+                    'tipo_venta'      => $venta->tipo_venta,
+                    'estado'          => $venta->estado,
+                    'cliente'         => $venta->cliente
+                        ? trim(($venta->cliente->nombres ?? '') . ' ' . ($venta->cliente->apellidos ?? ''))
+                        : ($venta->cliente_nombre ?? 'Consumidor final'),
+                    'vendedor'        => $venta->vendedor ? $venta->vendedor->name : '-',
+                    'sucursal'        => $venta->sucursal ? $venta->sucursal->nombre : '-',
+                    'descripcion'     => $descripcion,
+                    'precio_compra'   => (float)$precioCompra,
+                    'precio_venta'    => (float)$precioVenta,
+                    'utilidad'        => (float)$diferencia,
+                    'margen'          => (float)$porcentajeDiferencia,
+                    'metodo_pago'     => $venta->metodo_pago,
+                    'fecha_venta'     => $venta->created_at?->format('d/m/Y H:i'),
+                ];
+            }
+        }
+        return $items;
+    }
+
     // ─── Vista previa (JSON) ──────────────────────────────────────────────────
 
     public function vistaPrevia(Request $request)
@@ -74,32 +144,14 @@ class ReporteVentasController extends Controller
         ]);
 
         $ventas = $this->buildQuery($request)->get();
-
-        $ventasFormateadas = $ventas->map(function ($v) {
-            return [
-                'codigo_venta'    => $v->codigo_venta,
-                'tipo_venta'      => $v->tipo_venta,
-                'estado'          => $v->estado,
-                'cliente'         => $v->cliente
-                    ? trim(($v->cliente->nombres ?? '') . ' ' . ($v->cliente->apellidos ?? ''))
-                    : ($v->cliente_nombre ?? 'Consumidor final'),
-                'vendedor'        => $v->vendedor ? $v->vendedor->name : '-',
-                'sucursal'        => $v->sucursal ? $v->sucursal->nombre : '-',
-                'total_final'     => (float) $v->total_final,
-                'total_descuentos'=> (float) $v->total_descuentos,
-                'total_pagado'    => (float) $v->total_pagado,
-                'saldo_pendiente' => (float) ($v->saldo_pendiente ?? 0),
-                'metodo_pago'     => $v->metodo_pago,
-                'fecha_venta'     => $v->created_at?->format('Y-m-d H:i'),
-            ];
-        });
+        $items = $this->compilarArticulosVendidos($ventas);
 
         return response()->json([
             'success' => true,
             'data' => [
-                'ventas'          => $ventasFormateadas,
+                'ventas'          => $items,
                 'estadisticas'    => $this->calcularEstadisticas($ventas),
-                'total_registros' => $ventas->count(),
+                'total_registros' => count($items),
             ],
         ]);
     }
@@ -119,30 +171,30 @@ class ReporteVentasController extends Controller
         ]);
 
         $ventas = $this->buildQuery($request)->get();
+        $items = $this->compilarArticulosVendidos($ventas);
         $estadisticas = $this->calcularEstadisticas($ventas);
 
         $fechaDesde = $request->fecha_desde ?? $request->fecha_inicio ?? 'N/A';
         $fechaHasta = $request->fecha_hasta ?? $request->fecha_fin ?? 'N/A';
 
-        $ventasFormateadas = $ventas->map(function ($v) {
-            return [
-                'codigo_venta'    => $v->codigo_venta,
-                'tipo_venta'      => $v->tipo_venta,
-                'estado'          => $v->estado,
-                'cliente'         => $v->cliente
-                    ? trim(($v->cliente->nombres ?? '') . ' ' . ($v->cliente->apellidos ?? ''))
-                    : ($v->cliente_nombre ?? 'Consumidor final'),
-                'vendedor'        => $v->vendedor ? $v->vendedor->name : '-',
-                'total_final'     => (float) $v->total_final,
-                'total_descuentos'=> (float) $v->total_descuentos,
-                'metodo_pago'     => $v->metodo_pago,
-                'fecha_venta'     => $v->created_at?->format('d/m/Y H:i'),
-            ];
-        });
+        $totalCosto = 0;
+        $totalVenta = 0;
+        foreach ($items as $item) {
+            $totalCosto += $item['precio_compra'];
+            $totalVenta += $item['precio_venta'];
+        }
+
+        $totales = [
+            'costo' => $totalCosto,
+            'venta' => $totalVenta,
+            'utilidad' => $totalVenta - $totalCosto,
+            'margen' => $totalCosto > 0 ? round((($totalVenta - $totalCosto) / $totalCosto) * 100, 2) : 0,
+        ];
 
         $html = view('reportes.ventas', [
-            'ventas'       => $ventasFormateadas,
+            'ventas'       => $items,
             'estadisticas' => $estadisticas,
+            'totales'      => $totales,
             'fecha_desde'  => $fechaDesde,
             'fecha_hasta'  => $fechaHasta,
             'generado_por' => Auth::user()->name ?? 'Sistema',
@@ -169,6 +221,7 @@ class ReporteVentasController extends Controller
         ]);
 
         $ventas = $this->buildQuery($request)->get();
+        $items = $this->compilarArticulosVendidos($ventas);
 
         $fechaDesde = $request->fecha_desde ?? $request->fecha_inicio ?? 'completo';
         $fechaHasta = $request->fecha_hasta ?? $request->fecha_fin ?? now()->format('Y-m-d');
@@ -178,7 +231,7 @@ class ReporteVentasController extends Controller
             'Content-Disposition' => "attachment; filename=\"reporte-ventas-{$fechaDesde}-{$fechaHasta}.csv\"",
         ];
 
-        $callback = function () use ($ventas) {
+        $callback = function () use ($items) {
             $handle = fopen('php://output', 'w');
 
             // BOM para Excel
@@ -186,27 +239,20 @@ class ReporteVentasController extends Controller
 
             // Cabeceras
             fputcsv($handle, [
-                'Código Venta', 'Tipo Venta', 'Estado', 'Cliente', 'Vendedor',
-                'Sucursal', 'Total Final', 'Descuentos', 'Total Pagado',
-                'Saldo Pendiente', 'Método Pago', 'Fecha Venta',
+                'Código Venta', 'Fecha', 'Cliente', 'Artículo (Descripción)', 'Precio Compra (Costo)', 'Precio Venta', 'Utilidad', '% Margen', 'Estado'
             ]);
 
-            foreach ($ventas as $v) {
+            foreach ($items as $item) {
                 fputcsv($handle, [
-                    $v->codigo_venta,
-                    $v->tipo_venta,
-                    $v->estado,
-                    $v->cliente
-                        ? trim(($v->cliente->nombres ?? '') . ' ' . ($v->cliente->apellidos ?? ''))
-                        : ($v->cliente_nombre ?? 'Consumidor final'),
-                    $v->vendedor ? $v->vendedor->name : '-',
-                    $v->sucursal ? $v->sucursal->nombre : '-',
-                    number_format((float) $v->total_final, 2),
-                    number_format((float) $v->total_descuentos, 2),
-                    number_format((float) $v->total_pagado, 2),
-                    number_format((float) ($v->saldo_pendiente ?? 0), 2),
-                    $v->metodo_pago,
-                    $v->created_at?->format('d/m/Y H:i'),
+                    $item['codigo_venta'],
+                    $item['fecha_venta'],
+                    $item['cliente'],
+                    $item['descripcion'],
+                    number_format($item['precio_compra'], 2, '.', ''),
+                    number_format($item['precio_venta'], 2, '.', ''),
+                    number_format($item['utilidad'], 2, '.', ''),
+                    number_format($item['margen'], 2, '.', '') . '%',
+                    ucfirst($item['estado']),
                 ]);
             }
 

@@ -300,6 +300,15 @@ class VentaService
                 'motivo_cancelacion' => $motivo
             ]);
 
+            // Cancelar el crédito de venta asociado si existe
+            if ($venta->ventaCredito) {
+                $venta->ventaCredito->update([
+                    'estado' => 'cancelado',
+                    'observaciones' => ($venta->ventaCredito->observaciones ?? '') . "\nCrédito cancelado por anulación de venta el " . now()->format('d/m/Y H:i') . "."
+                ]);
+                $venta->ventaCredito->planPagos()->update(['estado' => 'cancelada']);
+            }
+
             // Revertir aplicación al crédito si existe
             if ($venta->creditoPrendario) {
                 // Aquí podrías implementar la reversión del pago si es necesario

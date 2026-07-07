@@ -12,22 +12,24 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Modificar el ENUM para agregar 'estado_actualizado' y 'reactivado'
-        DB::statement("ALTER TABLE `auditoria_creditos` MODIFY COLUMN `accion` ENUM(
-            'creado',
-            'modificado',
-            'aprobado',
-            'rechazado',
-            'desembolsado',
-            'pagado',
-            'renovado',
-            'rescate',
-            'anulado',
-            'movimiento_anulado',
-            'estado_cambiado',
-            'estado_actualizado',
-            'reactivado'
-        ) NOT NULL COMMENT 'Tipo de acción realizada'");
+        if (DB::getDriverName() !== 'sqlite') {
+            // Modificar el ENUM para agregar 'estado_actualizado' y 'reactivado'
+            DB::statement("ALTER TABLE `auditoria_creditos` MODIFY COLUMN `accion` ENUM(
+                'creado',
+                'modificado',
+                'aprobado',
+                'rechazado',
+                'desembolsado',
+                'pagado',
+                'renovado',
+                'rescate',
+                'anulado',
+                'movimiento_anulado',
+                'estado_cambiado',
+                'estado_actualizado',
+                'reactivado'
+            ) NOT NULL COMMENT 'Tipo de acción realizada'");
+        }
     }
 
     /**
@@ -35,19 +37,21 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Volver al ENUM original
-        DB::statement("ALTER TABLE `auditoria_creditos` MODIFY COLUMN `accion` ENUM(
-            'creado',
-            'modificado',
-            'aprobado',
-            'rechazado',
-            'desembolsado',
-            'pagado',
-            'renovado',
-            'rescate',
-            'anulado',
-            'movimiento_anulado',
-            'estado_cambiado'
-        ) NOT NULL COMMENT 'Tipo de acción realizada'");
+        if (DB::getDriverName() !== 'sqlite') {
+            // Volver al ENUM original
+            DB::statement("ALTER TABLE `auditoria_creditos` MODIFY COLUMN `accion` ENUM(
+                'creado',
+                'modificado',
+                'aprobado',
+                'rechazado',
+                'desembolsado',
+                'pagado',
+                'renovado',
+                'rescate',
+                'anulado',
+                'movimiento_anulado',
+                'estado_cambiado'
+            ) NOT NULL COMMENT 'Tipo de acción realizada'");
+        }
     }
 };

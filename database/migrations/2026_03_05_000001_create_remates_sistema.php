@@ -64,10 +64,14 @@ return new class extends Migration
         });
 
         // 2. Agregar 'rematado' al enum de creditos_prendarios.estado
-        DB::statement("ALTER TABLE creditos_prendarios MODIFY COLUMN estado ENUM('solicitado','en_analisis','aprobado','vigente','pagado','vencido','en_mora','incobrable','recuperado','vendido','rechazado','cancelado','rematado') DEFAULT 'solicitado'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE creditos_prendarios MODIFY COLUMN estado ENUM('solicitado','en_analisis','aprobado','vigente','pagado','vencido','en_mora','incobrable','recuperado','vendido','rechazado','cancelado','rematado') DEFAULT 'solicitado'");
+        }
 
         // 3. Agregar 'remate' al enum de credito_movimientos.tipo_movimiento
-        DB::statement("ALTER TABLE credito_movimientos MODIFY COLUMN tipo_movimiento ENUM('desembolso','pago','pago_parcial','pago_total','pago_adelantado','pago_interes','renovacion','cargo_mora','cargo_administracion','ajuste','reversion','condonacion','remate') NOT NULL");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE credito_movimientos MODIFY COLUMN tipo_movimiento ENUM('desembolso','pago','pago_parcial','pago_total','pago_adelantado','pago_interes','renovacion','cargo_mora','cargo_administracion','ajuste','reversion','condonacion','remate') NOT NULL");
+        }
 
         // 4. Agregar campos de remate a prendas
         if (!Schema::hasColumn('prendas', 'precio_remate')) {
@@ -88,10 +92,14 @@ return new class extends Migration
         });
 
         // Revertir enum de credito_movimientos
-        DB::statement("ALTER TABLE credito_movimientos MODIFY COLUMN tipo_movimiento ENUM('desembolso','pago','pago_parcial','pago_total','pago_adelantado','pago_interes','renovacion','cargo_mora','cargo_administracion','ajuste','reversion','condonacion') NOT NULL");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE credito_movimientos MODIFY COLUMN tipo_movimiento ENUM('desembolso','pago','pago_parcial','pago_total','pago_adelantado','pago_interes','renovacion','cargo_mora','cargo_administracion','ajuste','reversion','condonacion') NOT NULL");
+        }
 
         // Revertir enum de creditos_prendarios
-        DB::statement("ALTER TABLE creditos_prendarios MODIFY COLUMN estado ENUM('solicitado','en_analisis','aprobado','vigente','pagado','vencido','en_mora','incobrable','recuperado','vendido','rechazado','cancelado') DEFAULT 'solicitado'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE creditos_prendarios MODIFY COLUMN estado ENUM('solicitado','en_analisis','aprobado','vigente','pagado','vencido','en_mora','incobrable','recuperado','vendido','rechazado','cancelado') DEFAULT 'solicitado'");
+        }
 
         Schema::dropIfExists('remates');
     }
