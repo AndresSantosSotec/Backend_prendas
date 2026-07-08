@@ -143,7 +143,13 @@
             </div>
             <div class="info-item">
                 <span class="info-label">Vencimiento</span>
-                <span class="info-value">{{ \Carbon\Carbon::parse($credito->fecha_vencimiento)->format('d/m/Y') }}</span>
+                <span class="info-value">
+                    @if(isset($planPagos) && $planPagos->count() > 0)
+                        {{ \Carbon\Carbon::parse($planPagos->last()->fecha_vencimiento)->format('d/m/Y') }}
+                    @else
+                        {{ \Carbon\Carbon::parse($credito->fecha_vencimiento)->format('d/m/Y') }}
+                    @endif
+                </span>
             </div>
             <div class="info-item">
                 <span class="info-label">Estado</span>

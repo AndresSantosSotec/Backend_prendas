@@ -715,6 +715,21 @@ class VentaMultiPrendaService
         $totalCredito = $saldoFinanciar + $interesTotal + $totalGastos;
         $cuotaMensual = $numeroCuotas > 0 ? $totalCredito / $numeroCuotas : $totalCredito;
 
+        // Calcular fechas dinámicas según frecuencia
+        $fechaPrimerPago = match($frecuenciaPago) {
+            'semanal' => now()->addWeek(),
+            'quincenal' => now()->addWeeks(2),
+            'mensual' => now()->addMonth(),
+            default => now()->addMonth(),
+        };
+
+        $fechaVencimientoFinal = match($frecuenciaPago) {
+            'semanal' => now()->addWeeks($numeroCuotas),
+            'quincenal' => now()->addWeeks($numeroCuotas * 2),
+            'mensual' => now()->addMonths($numeroCuotas),
+            default => now()->addMonths($numeroCuotas),
+        };
+
         // Actualizar la venta con datos del crédito
         $venta->update([
             'enganche' => $enganche,
@@ -728,8 +743,8 @@ class VentaMultiPrendaService
             'cuotas_pagadas' => 0,
             'total_pagado' => $enganchePagado,
             'saldo_pendiente' => $totalCredito,
-            'fecha_proximo_pago' => now()->addMonth(),
-            'fecha_vencimiento' => now()->addMonths($numeroCuotas),
+            'fecha_proximo_pago' => $fechaPrimerPago,
+            'fecha_vencimiento' => $fechaVencimientoFinal,
         ]);
 
         // ========== CREAR VENTA_CREDITO ==========
@@ -743,8 +758,8 @@ class VentaMultiPrendaService
             'estado' => 'vigente',
             'fecha_credito' => now(),
             'fecha_aprobacion' => now(),
-            'fecha_primer_pago' => now()->addMonth(),
-            'fecha_vencimiento' => now()->addMonths($numeroCuotas),
+            'fecha_primer_pago' => $fechaPrimerPago,
+            'fecha_vencimiento' => $fechaVencimientoFinal,
             'monto_venta' => $venta->total_final,
             'enganche' => $enganche,
             'saldo_financiar' => $saldoFinanciar,
