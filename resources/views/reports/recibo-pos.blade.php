@@ -182,6 +182,12 @@
     </style>
 </head>
 <body>
+    @php
+        $esContado = $esContado ?? ($venta->tipo_venta === 'contado');
+        $totalPagadoRecibo = $totalPagadoRecibo ?? ($esContado ? (float) $venta->total_final : (float) ($venta->total_pagado ?? 0));
+        $saldoPendienteRecibo = $saldoPendienteRecibo ?? ($esContado ? 0.0 : max(0, (float) ($venta->saldo_pendiente ?? 0)));
+    @endphp
+
     <!-- HEADER -->
         <div class="header" style="border:none; padding-bottom: 10px; border-bottom: 1px solid #ccc; margin-bottom: 15px;">
         <table width="100%">
@@ -311,20 +317,20 @@
 
         <div class="pago-row bold">
             <span>TOTAL PAGADO:</span>
-            <span>{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($venta->total_pagado, 2) }}</span>
+            <span>{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($totalPagadoRecibo, 2) }}</span>
         </div>
 
-        @if($venta->saldo_pendiente > 0)
+        @if($saldoPendienteRecibo > 0)
         <div class="pago-row bold" style="color: #d00;">
             <span>SALDO PENDIENTE:</span>
-            <span>{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($venta->saldo_pendiente, 2) }}</span>
+            <span>{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($saldoPendienteRecibo, 2) }}</span>
         </div>
         @endif
 
-        @if(($venta->total_pagado - $venta->total_final) > 0)
+        @if(($totalPagadoRecibo - $venta->total_final) > 0)
         <div class="pago-row">
             <span>CAMBIO:</span>
-            <span>{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($venta->total_pagado - $venta->total_final, 2) }}</span>
+            <span>{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($totalPagadoRecibo - $venta->total_final, 2) }}</span>
         </div>
         @endif
     </div>

@@ -907,8 +907,16 @@ class VentaController extends Controller
                 'apartado'
             ])->findOrFail($id);
 
+            $esContado = $venta->tipo_venta === 'contado';
+            $totalPagadoRecibo = $esContado
+                ? (float) $venta->total_final
+                : (float) ($venta->total_pagado ?? 0);
+            $saldoPendienteRecibo = $esContado
+                ? 0.0
+                : max(0, (float) ($venta->saldo_pendiente ?? 0));
+
             // Generar PDF formato POS (80mm)
-            $pdf = Pdf::loadView('reports.recibo-pos', compact('venta'));
+            $pdf = Pdf::loadView('reports.recibo-pos', compact('venta', 'esContado', 'totalPagadoRecibo', 'saldoPendienteRecibo'));
 
             // Configurar papel de 80mm con altura automática (adaptativa)
             $pdf->setPaper([0, 0, 226.77, 841.89], 'portrait'); // 80mm de ancho en puntos
