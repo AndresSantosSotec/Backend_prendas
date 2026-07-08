@@ -262,4 +262,84 @@ class PagoCreditoNormalTest extends TestCase
         $this->assertEquals(900, $credito->capital_pendiente);
         $this->assertEquals(100, $credito->capital_pagado);
     }
+
+    public function test_pago_liquidacion_completa_con_otros_cargos(): void
+    {
+        $credito = CreditoPrendario::create([
+            'numero_credito' => 'CP-2003',
+            'cliente_id' => $this->cliente->id,
+            'sucursal_id' => $this->sucursal->id,
+            'estado' => 'vigente',
+            'fecha_solicitud' => '2026-05-01',
+            'fecha_aprobacion' => '2026-05-01',
+            'fecha_desembolso' => '2026-05-05',
+            'fecha_vencimiento' => '2026-06-05',
+            'monto_solicitado' => 1000,
+            'monto_aprobado' => 1000,
+            'monto_desembolsado' => 1000,
+            'capital_pendiente' => 1000,
+            'capital_pagado' => 0,
+            'interes_generado' => 100,
+            'interes_pagado' => 0,
+            'mora_generada' => 0,
+            'mora_pagada' => 0,
+            'tasa_interes' => 10,
+            'tipo_interes' => 'mensual',
+            'plazo_dias' => 30,
+            'numero_cuotas' => 1,
+            'monto_cuota' => 1100,
+        ]);
+
+        $cuota1 = CreditoPlanPago::create([
+            'credito_prendario_id' => $credito->id,
+            'numero_cuota' => 1,
+            'fecha_vencimiento' => '2026-06-05',
+            'estado' => 'pendiente',
+            'capital_proyectado' => 1000,
+            'interes_proyectado' => 100,
+            'monto_cuota_proyectado' => 1100,
+            'capital_pagado' => 0,
+            'interes_pagado' => 0,
+            'monto_total_pagado' => 0,
+            'capital_pendiente' => 1000,
+            'interes_pendiente' => 100,
+            'mora_pendiente' => 0,
+            'otros_cargos_pendientes' => 50,
+            'monto_pendiente' => 1150,
+        ]);
+
+        CajaAperturaCierre::create([
+            'sucursal_id' => $this->sucursal->id,
+            'cajero_id' => $this->user->id,
+            'user_id' => $this->user->id,
+            'fecha_apertura' => now(),
+            'hora_apertura' => '08:00:00',
+            'saldo_inicial' => 5000,
+            'saldo_actual' => 5000,
+            'estado' => 'abierta',
+        ]);
+
+        $this->actingAs($this->user);
+
+        // Intentar liquidar el crédito (1150)
+        $response = $this->postJson("/api/v1/creditos-prendarios/{$credito->id}/pagos", [
+            'tipo' => 'LIQUIDACION',
+            'monto' => 1150,
+            'metodo_pago' => 'efectivo',
+            'idempotency_key' => 'fa2c9f11-8cb1-4475-b6d3-242f360ef3c8',
+        ]);
+
+        $response->assertStatus(200);
+
+        // Cuota 1 debe quedar como pagada
+        $cuota1->refresh();
+        $this->assertEquals('pagada', $cuota1->estado);
+        $this->assertEquals(0, $cuota1->capital_pendiente);
+        $this->assertEquals(0, $cuota1->otros_cargos_pendientes);
+
+        // El crédito debe quedar pagado
+        $credito->refresh();
+        $this->assertEquals('pagado', $credito->estado);
+        $this->assertEquals(0, $credito->capital_pendiente);
+    }
 }

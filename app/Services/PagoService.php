@@ -1324,9 +1324,10 @@ class PagoService
             throw new \Exception("Monto insuficiente para liquidar. Total requerido: Q" . number_format($totalDeuda, 2));
         }
 
-        $pagoCapital = $credito->capital_pendiente;
+        $pagoCapital = $calculo['capital_pendiente'];
         $pagoInteres = $calculo['interes_acumulado'];
         $pagoMora = $calculo['mora_acumulada'];
+        $pagoOtros = $calculo['otros_acumulados'] ?? 0;
 
         // Registrar Movimiento
         $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
@@ -1339,7 +1340,7 @@ class PagoService
             'capital' => $pagoCapital,
             'interes' => $pagoInteres,
             'mora' => $pagoMora,
-            'otros_cargos' => 0,
+            'otros_cargos' => $pagoOtros,
             'saldo_capital' => 0,
             'usuario_id' => Auth::id() ?? 1,
             'sucursal_id' => $credito->sucursal_id,
@@ -1432,6 +1433,7 @@ class PagoService
                 'capital_pendiente' => 0,
                 'interes_pendiente' => 0,
                 'mora_pendiente' => 0,
+                'otros_cargos_pendientes' => 0,
                 'saldo_capital_credito' => 0
             ]);
     }
