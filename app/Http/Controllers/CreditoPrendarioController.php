@@ -1077,6 +1077,8 @@ class CreditoPrendarioController extends Controller
      */
     private function formatCredito(CreditoPrendario $credito): array
     {
+        $capitalPendiente = $this->calcularCapitalPendienteReal($credito);
+
         return [
             'id' => (string) $credito->id,
             'numero_credito' => $credito->numero_credito,
@@ -1099,7 +1101,7 @@ class CreditoPrendarioController extends Controller
             'monto_solicitado' => (float) $credito->monto_solicitado,
             'monto_aprobado' => (float) $credito->monto_aprobado,
             'monto_desembolsado' => (float) $credito->monto_desembolsado,
-            'capital_pendiente' => (float) $credito->capital_pendiente,
+            'capital_pendiente' => $capitalPendiente,
             'capital_pagado' => (float) $credito->capital_pagado,
             'interes_generado' => (float) $credito->interes_generado,
             'interes_pagado' => (float) $credito->interes_pagado,
@@ -1214,6 +1216,8 @@ class CreditoPrendarioController extends Controller
      */
     private function formatCreditoList(CreditoPrendario $credito): array
     {
+        $capitalPendiente = $this->calcularCapitalPendienteReal($credito);
+
         return [
             'id' => (string) $credito->id,
             'numero_credito' => $credito->numero_credito,
@@ -1234,7 +1238,7 @@ class CreditoPrendarioController extends Controller
             'fecha_vencimiento' => $credito->fecha_vencimiento?->toISOString(),
             'monto_solicitado' => (float) $credito->monto_solicitado,
             'monto_aprobado' => (float) $credito->monto_aprobado,
-            'capital_pendiente' => (float) $credito->capital_pendiente,
+            'capital_pendiente' => $capitalPendiente,
             'intereses_pendientes' => (float) ($credito->interes_generado - $credito->interes_pagado),
             'mora_pendiente' => (float) ($credito->mora_generada - $credito->mora_pagada),
             'tasa_interes' => (float) $credito->tasa_interes,
@@ -1258,6 +1262,26 @@ class CreditoPrendarioController extends Controller
             'creadoEn' => $credito->created_at->toISOString(),
             'actualizadoEn' => $credito->updated_at->toISOString(),
         ];
+    }
+
+    /**
+     * Recalcula el capital pendiente a partir del plan de pagos si está disponible.
+     */
+    private function calcularCapitalPendienteReal(CreditoPrendario $credito): float
+    {
+        $capitalHeader = (float) ($credito->capital_pendiente ?? 0);
+
+        if (!$credito->relationLoaded('planPagos')) {
+            return $capitalHeader;
+        }
+
+        $capitalPlan = (float) $credito->planPagos
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
+            ->sum(function ($cuota) {
+                return (float) ($cuota->capital_pendiente ?? 0);
+            });
+
+        return $capitalPlan > 0 ? $capitalPlan : $capitalHeader;
     }
 
     /**
