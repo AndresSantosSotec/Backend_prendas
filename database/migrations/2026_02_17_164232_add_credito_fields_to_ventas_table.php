@@ -15,7 +15,9 @@ return new class extends Migration
     public function up(): void
     {
         // 1. Actualizar ENUM tipo_venta para incluir 'credito'
-        DB::statement("ALTER TABLE ventas MODIFY COLUMN tipo_venta ENUM('contado', 'credito', 'apartado', 'plan_pagos') DEFAULT 'contado'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE ventas MODIFY COLUMN tipo_venta ENUM('contado', 'credito', 'apartado', 'plan_pagos') DEFAULT 'contado'");
+        }
 
         Schema::table('ventas', function (Blueprint $table) {
             // Campos específicos para crédito
@@ -48,7 +50,9 @@ return new class extends Migration
     public function down(): void
     {
         // Revertir ENUM
-        DB::statement("ALTER TABLE ventas MODIFY COLUMN tipo_venta ENUM('contado', 'apartado', 'plan_pagos') DEFAULT 'contado'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE ventas MODIFY COLUMN tipo_venta ENUM('contado', 'apartado', 'plan_pagos') DEFAULT 'contado'");
+        }
 
         Schema::table('ventas', function (Blueprint $table) {
             $table->dropColumn(['interes_total', 'total_credito', 'anticipo_apartado', 'dias_apartado']);

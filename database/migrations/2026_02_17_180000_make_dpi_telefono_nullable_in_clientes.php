@@ -20,19 +20,28 @@ return new class extends Migration
             $table->string('telefono', 20)->nullable()->change();
         });
 
-        // Verificar si existe el índice único y eliminarlo
-        try {
-            DB::statement('ALTER TABLE clientes DROP INDEX clientes_dpi_unique');
-        } catch (\Exception $e) {
-            // El índice no existe, continuar
-        }
+        if (DB::getDriverName() !== 'sqlite') {
+            // Verificar si existe el índice único y eliminarlo
+            try {
+                DB::statement('ALTER TABLE clientes DROP INDEX clientes_dpi_unique');
+            } catch (\Exception $e) {
+                // El índice no existe, continuar
+            }
 
-        // Crear un índice normal si no existe
-        $indexes = DB::select("SHOW INDEX FROM clientes WHERE Key_name = 'clientes_dpi_index'");
-        if (empty($indexes)) {
-            Schema::table('clientes', function (Blueprint $table) {
-                $table->index('dpi');
-            });
+            // Crear un índice normal si no existe
+            $indexes = DB::select("SHOW INDEX FROM clientes WHERE Key_name = 'clientes_dpi_index'");
+            if (empty($indexes)) {
+                Schema::table('clientes', function (Blueprint $table) {
+                    $table->index('dpi');
+                });
+            }
+        } else {
+            // En SQLite, simplemente intentamos agregar el índice atrapando cualquier excepción
+            try {
+                Schema::table('clientes', function (Blueprint $table) {
+                    $table->index('dpi');
+                });
+            } catch (\Exception $e) {}
         }
     }
 

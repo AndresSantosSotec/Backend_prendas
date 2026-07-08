@@ -12,7 +12,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement("ALTER TABLE creditos_prendarios MODIFY COLUMN estado ENUM('solicitado','en_analisis','aprobado','vigente','pagado','vencido','en_mora','incobrable','recuperado','vendido','rechazado','cancelado','rematado','rescatado','en_inventario','anulado','renovado') NOT NULL DEFAULT 'solicitado'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE creditos_prendarios MODIFY COLUMN estado ENUM('solicitado','en_analisis','aprobado','vigente','pagado','vencido','en_mora','incobrable','recuperado','vendido','rechazado','cancelado','rematado','rescatado','en_inventario','anulado','renovado') NOT NULL DEFAULT 'solicitado'");
+        }
     }
 
     /**
@@ -20,6 +22,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        DB::statement("ALTER TABLE creditos_prendarios MODIFY COLUMN estado ENUM('solicitado','en_analisis','aprobado','vigente','pagado','vencido','en_mora','incobrable','recuperado','vendido','rechazado','cancelado','rematado') NOT NULL DEFAULT 'solicitado'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE creditos_prendarios MODIFY COLUMN estado ENUM('solicitado','en_analisis','aprobado','vigente','pagado','vencido','en_mora','incobrable','recuperado','vendido','rechazado','cancelado','rematado') NOT NULL DEFAULT 'solicitado'");
+        }
     }
 };

@@ -171,7 +171,7 @@ class RefrendoController extends Controller
 
             if (!$esReEmpeno) {
                 $cajaAbierta = CajaAperturaCierre::where('sucursal_id', $sucursalId)
-                    ->where('cajero_id', $usuario->id)
+                    ->where('user_id', $usuario->id)
                     ->where('estado', 'abierta')
                     ->first();
                 if (!$cajaAbierta) {
@@ -263,7 +263,7 @@ class RefrendoController extends Controller
 
                 if ($montoPagado > 0) {
                     $cajaAbierta = CajaAperturaCierre::where('sucursal_id', $sucursalId)
-                        ->where('cajero_id', $usuario->id)
+                        ->where('user_id', $usuario->id)
                         ->where('estado', 'abierta')
                         ->first();
                     if ($cajaAbierta) {
@@ -297,7 +297,7 @@ class RefrendoController extends Controller
                 }
 
                 $cajaAbierta = CajaAperturaCierre::where('sucursal_id', $sucursalId)
-                    ->where('cajero_id', $usuario->id)
+                    ->where('user_id', $usuario->id)
                     ->where('estado', 'abierta')
                     ->first();
 
@@ -317,6 +317,126 @@ class RefrendoController extends Controller
                 $credito->refrendos_realizados += 1;
                 $credito->fecha_ultimo_refrendo = now();
                 $credito->save();
+
+                // Actualizar plan de pagos si existe
+                $planPagos = \App\Models\CreditoPlanPago::where('credito_prendario_id', $credito->id)
+                    ->orderBy('numero_cuota', 'asc')
+                    ->get();
+
+                if ($planPagos->isNotEmpty()) {
+                    // 1. Obtener todas las cuotas pendientes
+                    $cuotasPendientes = $planPagos->filter(fn($c) => in_array($c->estado, ['pendiente', 'vencida', 'en_mora', 'pagada_parcial']));
+
+                    // La primera cuota pendiente se marca como renovada/refrendada
+                    $cuotaARenovar = $cuotasPendientes->first();
+                    if ($cuotaARenovar) {
+                        $cuotaARenovar->estado = 'renovada';
+                        $cuotaARenovar->capital_pendiente = 0;
+                        $cuotaARenovar->interes_pagado = (float) ($cuotaARenovar->interes_pagado ?? 0) + (float) $cuotaARenovar->interes_pendiente;
+                        $cuotaARenovar->interes_pendiente = 0;
+                        $cuotaARenovar->mora_pagada = (float) ($cuotaARenovar->mora_pagada ?? 0) + (float) $cuotaARenovar->mora_pendiente;
+                        $cuotaARenovar->mora_pendiente = 0;
+                        $cuotaARenovar->otros_cargos_pagados = (float) ($cuotaARenovar->otros_cargos_pagados ?? 0) + (float) $cuotaARenovar->otros_cargos_pendientes;
+                        $cuotaARenovar->otros_cargos_pendientes = 0;
+                        $cuotaARenovar->monto_pendiente = 0;
+                        $cuotaARenovar->fecha_pago = now();
+                        
+                        if ($cuotaARenovar->tipo_modificacion === 'original') {
+                            $cuotaARenovar->tipo_modificacion = 'refinanciamiento';
+                            $cuotaARenovar->motivo_modificacion = "Refrendo el " . now()->format('d/m/Y');
+                        } else {
+                            $cuotaARenovar->motivo_modificacion .= " | Refrendo el " . now()->format('d/m/Y');
+                        }
+                        $cuotaARenovar->save();
+                    }
+
+                    // Para las demás cuotas pendientes, limpiamos la mora y otros cargos (ya que se pagaron en el refrendo)
+                    foreach ($cuotasPendientes->skip(1) as $cuota) {
+                        $cuota->mora_pagada = (float) ($cuota->mora_pagada ?? 0) + (float) $cuota->mora_pendiente;
+                        $cuota->mora_pendiente = 0;
+                        $cuota->otros_cargos_pagados = (float) ($cuota->otros_cargos_pagados ?? 0) + (float) $cuota->otros_cargos_pendientes;
+                        $cuota->otros_cargos_pendientes = 0;
+                        $cuota->monto_pendiente = max(0, (float) $cuota->capital_pendiente + (float) $cuota->interes_pendiente);
+                        $cuota->save();
+                    }
+
+                    // 3. Crear nueva cuota al final
+                    $ultimaCuotaExistente = $planPagos->last();
+                    $numeroNuevaCuota = $ultimaCuotaExistente->numero_cuota + 1;
+
+                    // Días por período según el tipo de interés
+                    $diasPorPeriodo = match($credito->tipo_interes) {
+                        'diario' => 1,
+                        'semanal' => 7,
+                        'catorcenal' => 14,
+                        'quincenal' => 15,
+                        'cada_28_dias' => 28,
+                        'mensual' => 30,
+                        default => 30
+                    };
+
+                    $fechaVencimientoNuevaCuota = Carbon::parse($ultimaCuotaExistente->fecha_vencimiento)->addDays($diasPorPeriodo);
+
+                    // Contar cuotas que quedarán pendientes (excluyendo la que acabamos de renovar)
+                    $cuotasPendientesRestantesCount = \App\Models\CreditoPlanPago::where('credito_prendario_id', $credito->id)
+                        ->whereIn('estado', ['pendiente', 'pagada_parcial'])
+                        ->count();
+
+                    $totalCuotasFuturas = $cuotasPendientesRestantesCount + 1; // +1 de la nueva cuota
+                    $capitalPorCuota = $totalCuotasFuturas > 0
+                        ? round($credito->capital_pendiente / $totalCuotasFuturas, 2)
+                        : $credito->capital_pendiente;
+
+                    // Calcular interés proyectado para la nueva cuota
+                    $capitalForProyectado = $credito->capital_pendiente;
+                    $tasaDecimal = $credito->tasa_interes / 100;
+                    $plazo = $credito->plazo_dias;
+                    $interesProyectado = match ($credito->tipo_interes) {
+                        'diario' => $capitalForProyectado * $tasaDecimal * $plazo,
+                        'semanal' => $capitalForProyectado * $tasaDecimal * ceil($plazo / 7),
+                        'quincenal' => $capitalForProyectado * $tasaDecimal * ceil($plazo / 15),
+                        default => $capitalForProyectado * $tasaDecimal * ceil($plazo / 30), // mensual
+                    };
+
+                    // Crear la nueva cuota
+                    \App\Models\CreditoPlanPago::create([
+                        'credito_prendario_id' => $credito->id,
+                        'numero_cuota' => $numeroNuevaCuota,
+                        'fecha_vencimiento' => $fechaVencimientoNuevaCuota,
+                        'estado' => 'pendiente',
+                        'capital_proyectado' => $capitalPorCuota,
+                        'interes_proyectado' => $interesProyectado,
+                        'mora_proyectada' => 0,
+                        'otros_cargos_proyectados' => 0,
+                        'monto_cuota_proyectado' => $capitalPorCuota + $interesProyectado,
+                        'capital_pendiente' => $capitalPorCuota,
+                        'interes_pendiente' => $interesProyectado,
+                        'mora_pendiente' => 0,
+                        'otros_cargos_pendientes' => 0,
+                        'monto_pendiente' => $capitalPorCuota + $interesProyectado,
+                        'saldo_capital_credito' => $credito->capital_pendiente,
+                        'tipo_modificacion' => 'refinanciamiento',
+                        'motivo_modificacion' => "Refrendo - " . now()->format('d/m/Y')
+                    ]);
+
+                    // Actualizar el capital de las cuotas que quedaron pendientes
+                    if ($cuotasPendientesRestantesCount > 0) {
+                        $cuotasRestantes = \App\Models\CreditoPlanPago::where('credito_prendario_id', $credito->id)
+                            ->whereIn('estado', ['pendiente', 'pagada_parcial'])
+                            ->get();
+                        foreach ($cuotasRestantes as $cuotaRestante) {
+                            $cuotaRestante->capital_proyectado = $capitalPorCuota;
+                            $cuotaRestante->capital_pendiente = $capitalPorCuota;
+                            $cuotaRestante->monto_cuota_proyectado = $capitalPorCuota + (float) $cuotaRestante->interes_proyectado;
+                            $cuotaRestante->monto_pendiente = $capitalPorCuota + (float) $cuotaRestante->interes_pendiente;
+                            $cuotaRestante->save();
+                        }
+                    }
+
+                    // Actualizar número de cuotas del crédito
+                    $credito->numero_cuotas = (int)$credito->numero_cuotas + 1;
+                    $credito->save();
+                }
 
                 $refrendo = Refrendo::create([
                     'credito_id' => $credito->id,
@@ -513,6 +633,14 @@ class RefrendoController extends Controller
         // Refrendo normal
         $interesAdeudado = (float) $credito->interes_generado - (float) $credito->interes_pagado;
         $moraAdeudada = (float) $credito->mora_generada - (float) $credito->mora_pagada;
+        
+        $otrosAdeudados = 0;
+        if ($credito->planPagos()->exists()) {
+            $otrosAdeudados = (float) $credito->planPagos()
+                ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
+                ->sum('otros_cargos_pendientes');
+        }
+
         $capitalMinimo = 0;
         $requiereCapital = false;
         $promocionAplicada = null;
@@ -533,7 +661,7 @@ class RefrendoController extends Controller
             );
         }
 
-        $montoMinimo = $interesAdeudado + $moraAdeudada - $descuentoAplicado;
+        $montoMinimo = $interesAdeudado + $moraAdeudada + $otrosAdeudados - $descuentoAplicado;
         if ($tipoRefrendo === 'total' || $tipoRefrendo === 'con_capital') {
             $montoMinimo += $abonoCapital;
         }
@@ -542,6 +670,7 @@ class RefrendoController extends Controller
             'es_re_empeno' => false,
             'interes_adeudado' => $interesAdeudado,
             'mora_adeudada' => $moraAdeudada,
+            'otros_adeudados' => $otrosAdeudados,
             'interes_a_pagar' => $interesAdeudado,
             'mora_a_pagar' => $moraAdeudada,
             'capital_minimo_requerido' => $capitalMinimo,

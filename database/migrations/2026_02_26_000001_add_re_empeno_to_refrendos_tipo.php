@@ -12,14 +12,16 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement("ALTER TABLE refrendos MODIFY COLUMN tipo_refrendo ENUM('parcial', 'total', 'con_capital', 're_empeno') DEFAULT 'parcial' COMMENT 'parcial/total/con_capital = refrendo; re_empeno = reactivación de crédito pagado'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE refrendos MODIFY COLUMN tipo_refrendo ENUM('parcial', 'total', 'con_capital', 're_empeno') DEFAULT 'parcial' COMMENT 'parcial/total/con_capital = refrendo; re_empeno = reactivación de crédito pagado'");
+        }
     }
 
     public function down(): void
     {
         // No revertir si ya hay registros re_empeno
         $hayReEmpeno = DB::table('refrendos')->where('tipo_refrendo', 're_empeno')->exists();
-        if (!$hayReEmpeno) {
+        if (!$hayReEmpeno && DB::getDriverName() !== 'sqlite') {
             DB::statement("ALTER TABLE refrendos MODIFY COLUMN tipo_refrendo ENUM('parcial', 'total', 'con_capital') DEFAULT 'parcial'");
         }
     }

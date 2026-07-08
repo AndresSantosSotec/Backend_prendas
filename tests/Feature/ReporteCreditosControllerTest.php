@@ -42,6 +42,13 @@ class ReporteCreditosControllerTest extends TestCase
             'telefono' => '55550000',
             'direccion' => 'Ciudad',
             'estado' => 'activo',
+            'fecha_nacimiento' => '1990-01-01',
+            'genero' => 'masculino',
+            'nit' => 'CF',
+            'estado_civil' => 'soltero',
+            'profesion' => 'Estudiante',
+            'municipio' => 'Guatemala',
+            'tipo_cliente' => 'regular',
         ]);
 
         $credito = CreditoPrendario::create([

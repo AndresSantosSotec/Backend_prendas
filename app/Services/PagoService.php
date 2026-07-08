@@ -94,7 +94,7 @@ class PagoService
                 $interesPorPeriodo = max(0, $capitalPendiente * $tasaPorPeriodo);
             }
 
-            $minimoRenovacion = $moraTotal + $interesPorPeriodo;
+            $minimoRenovacion = $moraTotal + $interesPorPeriodo + $otrosTotal;
             $totalPagar = $capitalPendiente + $interesTotal + $moraTotal + $otrosTotal;
             $totalRecalculado = round($capitalPendiente + $interesTotal + $moraTotal + $otrosTotal, 2);
             $totalParaLiquidar = round($totalPagar, 2);
@@ -219,8 +219,8 @@ class PagoService
         $tasaPorPeriodo = $this->calcularTasaPorPeriodo($credito->tasa_interes, $credito->tipo_interes);
         $interesPorPeriodo = $credito->capital_pendiente * $tasaPorPeriodo;
 
-        // Renovación = solo pagar interés de nuevos períodos, NO deuda acumulada
-        $minimoRenovacion = $interesPorPeriodo;
+        // Renovación = pagar interés de nuevos períodos + mora + otros acumulados
+        $minimoRenovacion = $moraTotal + $interesPorPeriodo + $otrosTotal;
 
         // Primera cuota no pagada (para tipo CUOTA)
         $primeraCuota = CreditoPlanPago::where('credito_prendario_id', $credito->id)
@@ -566,7 +566,10 @@ class PagoService
 
         // Calcular monto necesario para N períodos
         $interesPorPeriodo = $calculo['interes_por_periodo'];
-        $minimoNecesario = $calculo['mora_acumulada'] + ($interesPorPeriodo * $periodosRenovar);
+        $moraAPagar = (float) $calculo['mora_acumulada'];
+        $otrosAPagar = (float) $calculo['otros_acumulados'];
+        $interesAPagar = $interesPorPeriodo * $periodosRenovar;
+        $minimoNecesario = $moraAPagar + $interesAPagar + $otrosAPagar;
 
         if ($monto < ($minimoNecesario - 0.10)) {
             throw new \Exception("Monto insuficiente. Necesario para {$periodosRenovar} período(s): Q" . number_format($minimoNecesario, 2));
@@ -581,9 +584,9 @@ class PagoService
             'fecha_registro' => now(),
             'monto_total' => $monto,
             'capital' => 0, // NO SE PAGA CAPITAL
-            'interes' => min($monto - $calculo['mora_acumulada'], $interesPorPeriodo * $periodosRenovar),
-            'mora' => $calculo['mora_acumulada'],
-            'otros_cargos' => 0,
+            'interes' => $monto - $moraAPagar - $otrosAPagar,
+            'mora' => $moraAPagar,
+            'otros_cargos' => $otrosAPagar,
             'saldo_capital' => $credito->capital_pendiente, // SALDO NO CAMBIA
             'usuario_id' => Auth::id() ?? 1,
             'sucursal_id' => $credito->sucursal_id,
@@ -595,9 +598,9 @@ class PagoService
 
         // 2. Actualizar contadores del crédito (pero NO el saldo de capital)
         $credito->interes_pagado = (float)$credito->interes_pagado + ($interesPorPeriodo * $periodosRenovar);
-        $credito->mora_pagada = (float)$credito->mora_pagada + (float)$calculo['mora_acumulada'];
+        $credito->mora_pagada = (float)$credito->mora_pagada + $moraAPagar;
         $credito->interes_generado = (float)$credito->interes_generado + ($interesPorPeriodo * $periodosRenovar);
-        $credito->mora_generada = (float)$credito->mora_generada + (float)$calculo['mora_acumulada'];
+        $credito->mora_generada = (float)$credito->mora_generada + $moraAPagar;
         $credito->fecha_ultimo_pago = now();
         $credito->dias_mora = 0;
 
@@ -614,27 +617,46 @@ class PagoService
             default => 30
         };
 
-        // 4. MARCAR cuotas pendientes como RENOVADAS
-        // Las primeras N cuotas pendientes se marcan como "renovadas" porque
-        // estás pagando el interés para extender su plazo
-        $cuotasAMarcarRenovadas = CreditoPlanPago::where('credito_prendario_id', $credito->id)
-            ->whereIn('estado', ['pendiente', 'pagada_parcial'])
+        // 4. MARCAR cuotas pendientes como RENOVADAS y limpiar mora/otros cargos de todas
+        $todasLasCuotasPendientes = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
             ->orderBy('numero_cuota', 'asc')
-            ->limit($periodosRenovar)
             ->get();
 
-        foreach ($cuotasAMarcarRenovadas as $cuota) {
-            $cuota->estado = 'renovada';
+        $renovadasCount = 0;
+        foreach ($todasLasCuotasPendientes as $cuota) {
+            $esRenovada = $renovadasCount < $periodosRenovar;
 
-            if ($cuota->tipo_modificacion === 'original') {
-                $cuota->tipo_modificacion = 'refinanciamiento';
-                $cuota->motivo_modificacion = "Renovada el " . now()->format('d/m/Y');
+            // Todos los pagos de mora y otros acumulados se aplican a todas las cuotas
+            $cuota->mora_pagada = (float) ($cuota->mora_pagada ?? 0) + (float) ($cuota->mora_pendiente ?? 0);
+            $cuota->mora_pendiente = 0;
+
+            $cuota->otros_cargos_pagados = (float) ($cuota->otros_cargos_pagados ?? 0) + (float) ($cuota->otros_cargos_pendientes ?? 0);
+            $cuota->otros_cargos_pendientes = 0;
+
+            if ($esRenovada) {
+                // Para las primeras N cuotas, se pagan sus intereses y se marcan como renovadas
+                $cuota->estado = 'renovada';
+                $cuota->capital_pendiente = 0;
+                $cuota->interes_pagado = (float) ($cuota->interes_pagado ?? 0) + (float) ($cuota->interes_pendiente ?? 0);
+                $cuota->interes_pendiente = 0;
+                $cuota->monto_pendiente = 0;
+                $cuota->fecha_pago = now();
+
+                if ($cuota->tipo_modificacion === 'original') {
+                    $cuota->tipo_modificacion = 'refinanciamiento';
+                    $cuota->motivo_modificacion = "Renovada el " . now()->format('d/m/Y');
+                } else {
+                    $cuota->motivo_modificacion .= " | Renovada el " . now()->format('d/m/Y');
+                }
+
+                $cuota->fecha_modificacion = now();
+                $cuota->modificado_por = Auth::id() ?? 1;
+                $renovadasCount++;
             } else {
-                $cuota->motivo_modificacion .= " | Renovada el " . now()->format('d/m/Y');
+                // Para las demás cuotas pendientes, recalculamos el monto pendiente
+                $cuota->monto_pendiente = max(0, (float) ($cuota->capital_pendiente ?? 0) + (float) ($cuota->interes_pendiente ?? 0));
             }
-
-            $cuota->fecha_modificacion = now();
-            $cuota->modificado_por = Auth::id() ?? 1;
             $cuota->save();
         }
 
@@ -688,6 +710,20 @@ class PagoService
                 'tipo_modificacion' => 'refinanciamiento',
                 'motivo_modificacion' => "Renovación #{$i} - {$periodosRenovar} período(s) - " . now()->format('d/m/Y')
             ]);
+        }
+
+        // Actualizar el capital de las cuotas que quedaron pendientes
+        if ($cuotasPendientesCount > 0) {
+            $cuotasRestantes = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+                ->whereIn('estado', ['pendiente', 'pagada_parcial'])
+                ->get();
+            foreach ($cuotasRestantes as $cuotaRestante) {
+                $cuotaRestante->capital_proyectado = $capitalPorCuota;
+                $cuotaRestante->capital_pendiente = $capitalPorCuota;
+                $cuotaRestante->monto_cuota_proyectado = $capitalPorCuota + (float) $cuotaRestante->interes_proyectado;
+                $cuotaRestante->monto_pendiente = $capitalPorCuota + (float) $cuotaRestante->interes_pendiente;
+                $cuotaRestante->save();
+            }
         }
 
         // 6. Actualizar fecha de vencimiento del crédito y número de cuotas
