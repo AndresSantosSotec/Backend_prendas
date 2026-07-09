@@ -34,6 +34,8 @@ class ReporteCreditosController extends Controller
             'fecha_corte' => 'nullable|date',
             'fecha_hasta' => 'nullable|date',
             'fecha_fin' => 'nullable|date',
+            'fecha_desde' => 'nullable|date',
+            'fecha_inicio' => 'nullable|date',
             'sucursal_id' => 'nullable|integer',
         ]);
     }
@@ -65,6 +67,11 @@ class ReporteCreditosController extends Controller
             ->whereNotNull('fecha_desembolso')
             ->whereDate('fecha_desembolso', '<=', $fechaCorte->toDateString())
             ->withoutTrashed();
+
+        $fechaDesde = $request->fecha_desde ?? $request->fecha_inicio;
+        if ($fechaDesde) {
+            $query->whereDate('fecha_desembolso', '>=', $fechaDesde);
+        }
 
         if ($request->sucursal_id) {
             $query->where('sucursal_id', $request->sucursal_id);
