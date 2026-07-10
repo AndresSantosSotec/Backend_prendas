@@ -161,7 +161,7 @@ class ReporteCreditosControllerTest extends TestCase
             ->assertJsonPath('data.creditos.0.numero_credito', 'CP-1001')
             ->assertJsonPath('data.creditos.0.capital_cobrado', 500)
             ->assertJsonPath('data.creditos.0.capital_pendiente', 500)
-            ->assertJsonPath('data.creditos.0.interes_generado', 60)
+            ->assertJsonPath('data.creditos.0.interes_generado', 120)
             ->assertJsonPath('data.creditos.0.interes_cobrado', 60)
             ->assertJsonPath('data.estadisticas.capital_pendiente', 500);
     }

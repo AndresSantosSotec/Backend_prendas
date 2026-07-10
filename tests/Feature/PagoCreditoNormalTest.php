@@ -342,4 +342,57 @@ class PagoCreditoNormalTest extends TestCase
         $this->assertEquals('pagado', $credito->estado);
         $this->assertEquals(0, $credito->capital_pendiente);
     }
+
+    public function test_anulacion_de_credito_elimina_prendas(): void
+    {
+        $credito = CreditoPrendario::create([
+            'numero_credito' => 'CP-3001',
+            'cliente_id' => $this->cliente->id,
+            'sucursal_id' => $this->sucursal->id,
+            'estado' => 'vigente',
+            'fecha_solicitud' => '2026-05-01',
+            'fecha_aprobacion' => '2026-05-01',
+            'fecha_desembolso' => '2026-05-05',
+            'fecha_vencimiento' => '2026-06-05',
+            'monto_solicitado' => 1000,
+            'monto_aprobado' => 1000,
+            'monto_desembolsado' => 1000,
+            'capital_pendiente' => 1000,
+        ]);
+
+        $categoria = \App\Models\CategoriaProducto::create([
+            'codigo' => 'CAT-001',
+            'nombre' => 'Joyas',
+            'descripcion' => 'Joyeria',
+            'activa' => true,
+        ]);
+
+        $prenda = \App\Models\Prenda::create([
+            'credito_prendario_id' => $credito->id,
+            'categoria_producto_id' => $categoria->id,
+            'codigo_prenda' => 'PRE-2026-000001',
+            'descripcion' => 'Anillo de oro 14k',
+            'estado' => 'en_custodia',
+            'sucursal_id' => $this->sucursal->id,
+            'fecha_ingreso' => now(),
+        ]);
+
+        $this->actingAs($this->user);
+
+        // Enviar PUT request para cambiar el estado a 'anulado'
+        $response = $this->putJson("/api/v1/creditos-prendarios/{$credito->id}", [
+            'estado' => 'anulado',
+            'observaciones' => 'Anulación por error en digitación',
+        ]);
+
+        $response->assertStatus(200);
+
+        // El crédito debe estar 'anulado'
+        $credito->refresh();
+        $this->assertEquals('anulado', $credito->estado);
+
+        // La prenda debe estar soft-deleted
+        $prenda->refresh();
+        $this->assertTrue($prenda->trashed());
+    }
 }

@@ -3749,7 +3749,7 @@ class CreditoPrendarioController extends Controller
                             }
                         }
 
-                        // Devolver prendas no finalizadas
+                        // Devolver y eliminar prendas
                         foreach ($credito->prendas as $prenda) {
                             if (!in_array($prenda->estado, ['recuperada', 'vendida', 'perdida', 'devuelta'])) {
                                 $prenda->update([
@@ -3758,6 +3758,7 @@ class CreditoPrendarioController extends Controller
                                     'observaciones' => 'Crédito anulado',
                                 ]);
                             }
+                            $prenda->delete();
                         }
 
                         // Forzar recalculado de saldos a cero

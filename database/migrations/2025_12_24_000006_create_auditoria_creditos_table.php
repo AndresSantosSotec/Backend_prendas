@@ -34,6 +34,8 @@ return new class extends Migration
                 'anulado',
                 'movimiento_anulado',
                 'estado_cambiado',
+                'estado_actualizado',
+                'reactivado',
             ])->comment('Tipo de acción realizada');
 
             // Detalles del cambio

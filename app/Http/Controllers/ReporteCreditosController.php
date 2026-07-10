@@ -123,14 +123,10 @@ class ReporteCreditosController extends Controller
     {
         if ($credito->planPagos->isNotEmpty()) {
             return (float) $credito->planPagos
-                ->filter(fn ($cuota) => $cuota->fecha_vencimiento && $cuota->fecha_vencimiento->lte($fechaCorte))
                 ->sum(fn ($cuota) => (float) ($cuota->interes_proyectado ?? 0));
         }
 
-        $calculo = $this->pagoService->calcularDeudaAlDia($credito, $fechaCorte->copy());
-        $interesPendiente = (float) ($calculo['interes_acumulado'] ?? 0);
-
-        return $interesCobrado + $interesPendiente;
+        return (float) ($credito->interes_generado ?? 0);
     }
 
     private function calcularEstadoCorte(CreditoPrendario $credito, Carbon $fechaCorte, float $capitalPendiente): string
