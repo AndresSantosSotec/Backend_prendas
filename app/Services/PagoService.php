@@ -180,19 +180,13 @@ class PagoService
             );
 
             if ($diasMora > 0) {
-                $tipoMora = $credito->tipo_mora ?? 'porcentaje';
-                $tasaMoraCredito = (float) ($credito->tasa_mora ?? 0);
+                $moraConfig = $this->resolverConfiguracionMora($credito);
+                $tipoMora = $moraConfig['tipo_mora'];
+                $tasaMoraCredito = $moraConfig['tasa_mora'];
+                $moraMontoFijo = $moraConfig['mora_monto_fijo'];
 
-                // Fallback: obtener tasa del plan de interés si el crédito no la tiene
-                if ($tasaMoraCredito <= 0 && $tipoMora === 'porcentaje' && $credito->plan_interes_id) {
-                    $plan = PlanInteresCategoria::find($credito->plan_interes_id);
-                    if ($plan && (float)($plan->tasa_moratorios ?? 0) > 0) {
-                        $tasaMoraCredito = (float) $plan->tasa_moratorios;
-                    }
-                }
-
-                if ($tipoMora === 'monto_fijo' && ($credito->mora_monto_fijo ?? 0) > 0) {
-                    $moraDevengada = (float) $credito->mora_monto_fijo * $diasMora;
+                if ($tipoMora === 'monto_fijo' && $moraMontoFijo > 0) {
+                    $moraDevengada = $moraMontoFijo * $diasMora;
                 } elseif ($tipoMora === 'porcentaje' && $tasaMoraCredito > 0) {
                     $tasaMoraDiaria = ($tasaMoraCredito / 100) / 30;
                     $moraDevengada = $credito->capital_pendiente * $tasaMoraDiaria * $diasMora;
@@ -319,6 +313,50 @@ class PagoService
             default:
                 return $tasaMensual / 100;
         }
+    }
+
+    /**
+     * Obtiene la configuracion de mora efectiva del credito, con fallback al plan.
+     */
+    private function resolverConfiguracionMora(CreditoPrendario $credito): array
+    {
+        $tipoMora = (string) ($credito->tipo_mora ?? '');
+        $tasaMora = (float) ($credito->tasa_mora ?? 0);
+        $moraMontoFijo = (float) ($credito->mora_monto_fijo ?? 0);
+        $plan = null;
+
+        if ($credito->plan_interes_id) {
+            $plan = PlanInteresCategoria::find($credito->plan_interes_id);
+        }
+
+        if ($tipoMora === '' && $plan) {
+            $tipoMora = (string) ($plan->tipo_mora ?? '');
+        }
+
+        if ($tipoMora === '') {
+            $tipoMora = 'porcentaje';
+        }
+
+        if ($tipoMora === 'monto_fijo') {
+            if ($moraMontoFijo <= 0 && $plan && (float) ($plan->mora_monto_fijo ?? 0) > 0) {
+                $moraMontoFijo = (float) $plan->mora_monto_fijo;
+            }
+        } else {
+            if ($tasaMora <= 0 && $plan && (float) ($plan->tasa_moratorios ?? 0) > 0) {
+                $tasaMora = (float) $plan->tasa_moratorios;
+            }
+
+            if ($tasaMora <= 0 && $plan && (string) ($plan->tipo_mora ?? '') === 'monto_fijo' && (float) ($plan->mora_monto_fijo ?? 0) > 0) {
+                $tipoMora = 'monto_fijo';
+                $moraMontoFijo = (float) $plan->mora_monto_fijo;
+            }
+        }
+
+        return [
+            'tipo_mora' => $tipoMora,
+            'tasa_mora' => $tasaMora,
+            'mora_monto_fijo' => $moraMontoFijo,
+        ];
     }
 
     /**
