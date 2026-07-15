@@ -223,4 +223,68 @@ class MoraProductoCrediticioTest extends TestCase
         $calculo = app(PagoService::class)->calcularDeudaAlDia($credito->fresh(), $fechaCalculo);
         $this->assertEquals(10.0, (float) $calculo['mora_acumulada']);
     }
+
+    public function test_dias_mora_se_mantienen_en_cero_mientras_hay_dias_de_gracia(): void
+    {
+        $sucursal = $this->crearSucursal();
+        $cliente = $this->crearCliente();
+
+        $credito = CreditoPrendario::create([
+            'numero_credito' => 'CP-MORA-003',
+            'cliente_id' => $cliente->id,
+            'sucursal_id' => $sucursal->id,
+            'estado' => 'vigente',
+            'fecha_solicitud' => '2026-07-01',
+            'fecha_aprobacion' => '2026-07-01',
+            'fecha_desembolso' => '2026-07-01',
+            'fecha_vencimiento' => '2026-07-13',
+            'monto_solicitado' => 1800,
+            'monto_aprobado' => 1800,
+            'monto_desembolsado' => 1800,
+            'capital_pendiente' => 1800,
+            'capital_pagado' => 0,
+            'interes_generado' => 0,
+            'interes_pagado' => 0,
+            'mora_generada' => 0,
+            'mora_pagada' => 0,
+            'tipo_mora' => 'monto_fijo',
+            'mora_monto_fijo' => 5,
+            'tasa_mora' => 0,
+            'tasa_interes' => 15,
+            'tipo_interes' => 'mensual',
+            'plazo_dias' => 30,
+            'dias_gracia' => 3,
+            'numero_cuotas' => 1,
+            'monto_cuota' => 2170,
+        ]);
+
+        CreditoPlanPago::create([
+            'credito_prendario_id' => $credito->id,
+            'numero_cuota' => 1,
+            'fecha_vencimiento' => '2026-07-13',
+            'estado' => 'vencida',
+            'capital_proyectado' => 1800,
+            'interes_proyectado' => 270,
+            'mora_proyectada' => 0,
+            'otros_cargos_proyectados' => 100,
+            'monto_cuota_proyectado' => 2170,
+            'capital_pagado' => 0,
+            'interes_pagado' => 0,
+            'mora_pagada' => 0,
+            'otros_cargos_pagados' => 0,
+            'monto_total_pagado' => 0,
+            'capital_pendiente' => 1800,
+            'interes_pendiente' => 270,
+            'mora_pendiente' => 0,
+            'otros_cargos_pendientes' => 100,
+            'monto_pendiente' => 2170,
+            'dias_mora' => 0,
+        ]);
+
+        $calculo = app(PagoService::class)->calcularDeudaAlDia($credito->fresh(), Carbon::parse('2026-07-15'));
+
+        $this->assertEquals(0.0, (float) $calculo['mora_acumulada']);
+        $this->assertEquals(0, (int) $calculo['dias_mora']);
+        $this->assertFalse((bool) $calculo['en_mora']);
+    }
 }

@@ -60,6 +60,9 @@ class PagoService
             $moraTotal = 0.0;
             $otrosTotal = 0.0;
             $diasMora = 0;
+            $diasGracia = (int) ($credito->dias_gracia ?? 0);
+            $paramMora = ParametrizacionMora::obtenerConfiguracion($credito->sucursal_id);
+            $moraService = app(MoraService::class);
 
             foreach ($cuotasPendientes as $cuota) {
                 $capitalPendienteCuota = (float) ($cuota->capital_pendiente ?? max(0, ((float) $cuota->capital_proyectado - (float) ($cuota->capital_pagado ?? 0))));
@@ -74,7 +77,12 @@ class PagoService
 
                 $diasMoraCuota = (int) ($cuota->dias_mora ?? 0);
                 if ($diasMoraCuota <= 0 && $cuota->fecha_vencimiento && $fechaCalculo->gt($cuota->fecha_vencimiento)) {
-                    $diasMoraCuota = (int) $cuota->fecha_vencimiento->diffInDays($fechaCalculo);
+                    $diasMoraCuota = $moraService->calcularDiasLaboralesMora(
+                        $cuota->fecha_vencimiento,
+                        $fechaCalculo,
+                        $diasGracia,
+                        $paramMora
+                    );
                 }
                 $diasMora = max($diasMora, $diasMoraCuota);
             }
