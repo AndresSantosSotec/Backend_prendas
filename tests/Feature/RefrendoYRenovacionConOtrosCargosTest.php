@@ -152,7 +152,8 @@ class RefrendoYRenovacionConOtrosCargosTest extends TestCase
             'estado' => 'vencida',
             'capital_proyectado' => 1000,
             'interes_proyectado' => 100,
-            'monto_cuota_proyectado' => 1100,
+            'otros_cargos_proyectados' => 50,
+            'monto_cuota_proyectado' => 1150,
             'capital_pagado' => 0,
             'interes_pagado' => 0,
             'monto_total_pagado' => 0,
@@ -182,7 +183,6 @@ class RefrendoYRenovacionConOtrosCargosTest extends TestCase
             'metodo_pago' => 'efectivo',
         ]);
 
-        $response->dd();
         $response->assertStatus(201);
 
         // Verificar cuota original marcada como renovada
@@ -203,6 +203,6 @@ class RefrendoYRenovacionConOtrosCargosTest extends TestCase
         $this->assertEquals(1000, $cuota2->capital_pendiente);
         $this->assertEquals(100, $cuota2->interes_pendiente);
         $this->assertEquals(0, $cuota2->mora_pendiente);
-        $this->assertEquals(0, $cuota2->otros_cargos_pendientes);
+        $this->assertEquals(50, $cuota2->otros_cargos_pendientes);
     }
 }

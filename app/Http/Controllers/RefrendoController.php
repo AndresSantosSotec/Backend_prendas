@@ -268,22 +268,18 @@ class RefrendoController extends Controller
                         ->first();
                     if ($cajaAbierta) {
                         $movimientoCaja = MovimientoCaja::create([
-                            'caja_apertura_cierre_id' => $cajaAbierta->id,
-                            'tipo_movimiento' => 'ingreso',
-                            'concepto' => 'refrendo',
-                            'descripcion' => "Re-empeño #{$refrendo->numero_refrendo} - Crédito {$credito->numero_credito} (cargo por reactivación)",
+                            'caja_id' => $cajaAbierta->id,
+                            'tipo' => 'incremento',
+                            'concepto' => "Re-empeño #{$refrendo->numero_refrendo} - Crédito {$credito->numero_credito} (cargo por reactivación)",
                             'monto' => $montoPagado,
-                            'saldo_anterior' => $cajaAbierta->saldo_actual,
-                            'saldo_nuevo' => $cajaAbierta->saldo_actual + $montoPagado,
-                            'metodo_pago' => $metodoPago,
-                            'referencia' => $credito->numero_credito,
-                            'credito_prendario_id' => $credito->id,
-                            'usuario_id' => $usuario->id,
-                            'sucursal_id' => $sucursalId,
+                            'user_id' => $usuario->id,
+                            'detalles_movimiento' => [
+                                'metodo_pago' => $metodoPago,
+                                'referencia' => $credito->numero_credito,
+                                'credito_prendario_id' => $credito->id,
+                                'sucursal_id' => $sucursalId,
+                            ],
                         ]);
-                        $cajaAbierta->saldo_actual += $montoPagado;
-                        $cajaAbierta->total_ingresos += $montoPagado;
-                        $cajaAbierta->save();
                         $refrendo->caja_movimiento_id = $movimientoCaja->id;
                         $refrendo->save();
                     }
@@ -364,6 +360,16 @@ class RefrendoController extends Controller
                     $ultimaCuotaExistente = $planPagos->last();
                     $numeroNuevaCuota = $ultimaCuotaExistente->numero_cuota + 1;
 
+                    // Obtener el valor original de otros cargos de la primera cuota para replicarlo
+                    $primerCuotaPlan = $planPagos->first();
+                    $gastoPorCuota = 0.0;
+                    if ($primerCuotaPlan) {
+                        $gastoPorCuota = (float) $primerCuotaPlan->otros_cargos_proyectados;
+                        if ($gastoPorCuota <= 0) {
+                            $gastoPorCuota = (float) $primerCuotaPlan->otros_cargos_pendientes;
+                        }
+                    }
+
                     // Días por período según el tipo de interés
                     $diasPorPeriodo = match($credito->tipo_interes) {
                         'diario' => 1,
@@ -407,13 +413,13 @@ class RefrendoController extends Controller
                         'capital_proyectado' => $capitalPorCuota,
                         'interes_proyectado' => $interesProyectado,
                         'mora_proyectada' => 0,
-                        'otros_cargos_proyectados' => 0,
-                        'monto_cuota_proyectado' => $capitalPorCuota + $interesProyectado,
+                        'otros_cargos_proyectados' => $gastoPorCuota,
+                        'monto_cuota_proyectado' => $capitalPorCuota + $interesProyectado + $gastoPorCuota,
                         'capital_pendiente' => $capitalPorCuota,
                         'interes_pendiente' => $interesProyectado,
                         'mora_pendiente' => 0,
-                        'otros_cargos_pendientes' => 0,
-                        'monto_pendiente' => $capitalPorCuota + $interesProyectado,
+                        'otros_cargos_pendientes' => $gastoPorCuota,
+                        'monto_pendiente' => $capitalPorCuota + $interesProyectado + $gastoPorCuota,
                         'saldo_capital_credito' => $credito->capital_pendiente,
                         'tipo_modificacion' => 'refinanciamiento',
                         'motivo_modificacion' => "Refrendo - " . now()->format('d/m/Y')
@@ -438,6 +444,19 @@ class RefrendoController extends Controller
                     $credito->save();
                 }
 
+                // Si es un refrendo normal, agregar la fecha de vencimiento a las observaciones para el recibo
+                if (isset($fechaVencimientoNueva)) {
+                    $fechaVenceFormateada = Carbon::parse($fechaVencimientoNueva)->format('d/m/Y');
+                    $observacionVence = "(Vence: {$fechaVenceFormateada})";
+                    if (empty($observaciones)) {
+                        $observaciones = "Renovación 1 período " . $observacionVence;
+                    } else {
+                        if (!str_contains($observaciones, 'Vence:')) {
+                            $observaciones = $observaciones . " " . $observacionVence;
+                        }
+                    }
+                }
+
                 $refrendo = Refrendo::create([
                     'credito_id' => $credito->id,
                     'tipo_refrendo' => $tipoRefrendo,
@@ -459,22 +478,18 @@ class RefrendoController extends Controller
                 ]);
 
                 $movimientoCaja = MovimientoCaja::create([
-                    'caja_apertura_cierre_id' => $cajaAbierta->id,
-                    'tipo_movimiento' => 'ingreso',
-                    'concepto' => 'refrendo',
-                    'descripcion' => "Refrendo #{$refrendo->numero_refrendo} del crédito {$credito->numero_credito}",
+                    'caja_id' => $cajaAbierta->id,
+                    'tipo' => 'incremento',
+                    'concepto' => "Refrendo #{$refrendo->numero_refrendo} del crédito {$credito->numero_credito}",
                     'monto' => $montoPagado,
-                    'saldo_anterior' => $cajaAbierta->saldo_actual,
-                    'saldo_nuevo' => $cajaAbierta->saldo_actual + $montoPagado,
-                    'metodo_pago' => $metodoPago,
-                    'referencia' => $credito->numero_credito,
-                    'credito_prendario_id' => $credito->id,
-                    'usuario_id' => $usuario->id,
-                    'sucursal_id' => $sucursalId,
+                    'user_id' => $usuario->id,
+                    'detalles_movimiento' => [
+                        'metodo_pago' => $metodoPago,
+                        'referencia' => $credito->numero_credito,
+                        'credito_prendario_id' => $credito->id,
+                        'sucursal_id' => $sucursalId,
+                    ],
                 ]);
-                $cajaAbierta->saldo_actual += $montoPagado;
-                $cajaAbierta->total_ingresos += $montoPagado;
-                $cajaAbierta->save();
                 $refrendo->caja_movimiento_id = $movimientoCaja->id;
                 $refrendo->save();
             }

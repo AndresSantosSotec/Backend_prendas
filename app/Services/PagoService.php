@@ -628,6 +628,29 @@ class PagoService
             throw new \Exception("Monto insuficiente. Necesario para {$periodosRenovar} período(s): Q" . number_format($minimoNecesario, 2));
         }
 
+        // Obtener la última cuota para calcular nueva fecha de vencimiento
+        $ultimaCuotaExistente = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+            ->orderBy('numero_cuota', 'desc')
+            ->first();
+
+        if (!$ultimaCuotaExistente) {
+            throw new \Exception("No se encontró ninguna cuota en el plan de pagos");
+        }
+
+        $diasPorPeriodo = match($credito->tipo_interes) {
+            'diario' => 1,
+            'semanal' => 7,
+            'catorcenal' => 14,
+            'quincenal' => 15,
+            'cada_28_dias' => 28,
+            'mensual' => 30,
+            default => 30
+        };
+
+        $fechaBaseNuevasCuotas = Carbon::parse($ultimaCuotaExistente->fecha_vencimiento);
+        $fechaVencimientoNueva = $fechaBaseNuevasCuotas->copy()->addDays($diasPorPeriodo * $periodosRenovar);
+        $fechaVenceFormateada = $fechaVencimientoNueva->format('d/m/Y');
+
         // 1. Registrar Movimiento
         $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
         $movimiento = CreditoMovimiento::create([
@@ -645,7 +668,7 @@ class PagoService
             'sucursal_id' => $credito->sucursal_id,
             'numero_movimiento' => Str::upper(Str::random(10)),
             'forma_pago' => $formaPago,
-            'observaciones' => "RENOVACIÓN {$periodosRenovar} período(s) - " . ($data['observaciones'] ?? ''),
+            'observaciones' => "RENOVACIÓN {$periodosRenovar} período(s) (Vence: {$fechaVenceFormateada}) - " . ($data['observaciones'] ?? ''),
             'estado' => 'activo'
         ]);
 
@@ -714,17 +737,20 @@ class PagoService
         }
 
         // 5. CREAR NUEVAS CUOTAS: Agregar N cuotas al final
-        // Obtener la última cuota (puede ser renovada anterior)
-        $ultimaCuotaExistente = CreditoPlanPago::where('credito_prendario_id', $credito->id)
-            ->orderBy('numero_cuota', 'desc')
-            ->first();
-
-        if (!$ultimaCuotaExistente) {
-            throw new \Exception("No se encontró ninguna cuota en el plan de pagos");
-        }
-
         $numeroBase = $ultimaCuotaExistente->numero_cuota;
         $interesProyectado = $this->calcularInteresProyectado($credito);
+
+        // Obtener el valor original de otros cargos de la primera cuota para replicarlo
+        $primerCuotaPlan = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+            ->orderBy('numero_cuota', 'asc')
+            ->first();
+        $gastoPorCuota = 0.0;
+        if ($primerCuotaPlan) {
+            $gastoPorCuota = (float) $primerCuotaPlan->otros_cargos_proyectados;
+            if ($gastoPorCuota <= 0) {
+                $gastoPorCuota = (float) $primerCuotaPlan->otros_cargos_pendientes;
+            }
+        }
 
         // Contar cuotas pendientes para redistribuir capital
         $cuotasPendientesCount = CreditoPlanPago::where('credito_prendario_id', $credito->id)
@@ -736,9 +762,6 @@ class PagoService
         $capitalPorCuota = $totalCuotasFuturas > 0
             ? round($credito->capital_pendiente / $totalCuotasFuturas, 2)
             : $credito->capital_pendiente;
-
-        // Calcular fecha base para las nuevas cuotas
-        $fechaBaseNuevasCuotas = Carbon::parse($ultimaCuotaExistente->fecha_vencimiento);
 
         for ($i = 1; $i <= $periodosRenovar; $i++) {
             $numeroNuevaCuota = $numeroBase + $i;
@@ -752,13 +775,13 @@ class PagoService
                 'capital_proyectado' => $capitalPorCuota,
                 'interes_proyectado' => $interesProyectado,
                 'mora_proyectada' => 0,
-                'otros_cargos_proyectados' => 0,
-                'monto_cuota_proyectado' => $capitalPorCuota + $interesProyectado,
+                'otros_cargos_proyectados' => $gastoPorCuota,
+                'monto_cuota_proyectado' => $capitalPorCuota + $interesProyectado + $gastoPorCuota,
                 'capital_pendiente' => $capitalPorCuota,
                 'interes_pendiente' => $interesProyectado,
                 'mora_pendiente' => 0,
-                'otros_cargos_pendientes' => 0,
-                'monto_pendiente' => $capitalPorCuota + $interesProyectado,
+                'otros_cargos_pendientes' => $gastoPorCuota,
+                'monto_pendiente' => $capitalPorCuota + $interesProyectado + $gastoPorCuota,
                 'saldo_capital_credito' => $credito->capital_pendiente,
                 'tipo_modificacion' => 'refinanciamiento',
                 'motivo_modificacion' => "Renovación #{$i} - {$periodosRenovar} período(s) - " . now()->format('d/m/Y')
