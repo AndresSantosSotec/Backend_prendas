@@ -122,18 +122,19 @@
     <table>
         <thead>
             <tr>
-                <th width="8%">Código</th>
-                <th width="8%">Categoría</th>
-                <th width="14%">Descripción</th>
-                <th width="6%">Marca</th>
-                <th width="6%">Modelo</th>
-                <th width="6%">Serie</th>
-                <th width="5%">Color</th>
+                <th width="7%">Código</th>
+                <th width="9%">Cód. Barras</th>
+                <th width="7%">Categoría</th>
+                <th width="13%">Descripción</th>
+                <th width="5%">Marca</th>
+                <th width="5%">Modelo</th>
+                <th width="5%">Serie</th>
+                <th width="4%">Color</th>
                 <th width="6%">Estado</th>
-                <th class="text-right" width="8%">Avalúo</th>
-                <th class="text-right" width="8%">Préstamo</th>
-                <th class="text-right" width="8%">Precio Venta</th>
-                <th width="9%">Sucursal</th>
+                <th class="text-right" width="7%">Avaúo</th>
+                <th class="text-right" width="7%">Préstamo</th>
+                <th class="text-right" width="7%">Precio Venta</th>
+                <th width="8%">Sucursal</th>
                 <th width="10%">Cliente</th>
             </tr>
         </thead>
@@ -147,11 +148,16 @@
                         ($prenda->creditoPrendario?->cliente?->nombres ?? '') . ' ' .
                         ($prenda->creditoPrendario?->cliente?->apellidos ?? '')
                     ) ?: 'N/A';
+                    $numCredito = $prenda->creditoPrendario?->numero_credito ?? null;
+                    $barcodeValue = $numCredito
+                        ? (preg_replace('/\s+/', '', strtoupper(trim($numCredito))) ?: $numCredito)
+                        : 'N/A';
                 @endphp
                 <tr>
                     <td>{{ $prenda->codigo_prenda }}</td>
+                    <td style="font-family: 'Courier New', monospace; font-size: 6px; letter-spacing: 1px;">{{ $barcodeValue }}</td>
                     <td>{{ $prenda->categoriaProducto?->nombre ?? 'N/A' }}</td>
-                    <td>{{ Str::limit($prenda->descripcion, 45) }}</td>
+                    <td>{{ Str::limit($prenda->descripcion, 40) }}</td>
                     <td>{{ $prenda->marca ?: '-' }}</td>
                     <td>{{ $prenda->modelo ?: '-' }}</td>
                     <td>{{ $prenda->serie ?: '-' }}</td>
@@ -166,8 +172,8 @@
                             -
                         @endif
                     </td>
-                    <td>{{ Str::limit($sucursalNombre, 22) }}</td>
-                    <td>{{ Str::limit($clienteNombre, 22) }}</td>
+                    <td>{{ Str::limit($sucursalNombre, 20) }}</td>
+                    <td>{{ Str::limit($clienteNombre, 20) }}</td>
                 </tr>
             @endforeach
         </tbody>

@@ -1218,6 +1218,12 @@ class CreditoPrendarioController extends Controller
     {
         $capitalPendiente = $this->calcularCapitalPendienteReal($credito);
 
+        // Calcular días de mora en tiempo real (sin necesitar cron job)
+        $diasMoraRealtime = $this->calcularDiasMoraRealtime($credito);
+
+        // Recalcular mora pendiente en tiempo real si hay días de mora
+        $moraPendiente = $this->calcularMoraPendienteRealtime($credito, $diasMoraRealtime);
+
         return [
             'id' => (string) $credito->id,
             'numero_credito' => $credito->numero_credito,
@@ -1240,10 +1246,10 @@ class CreditoPrendarioController extends Controller
             'monto_aprobado' => (float) $credito->monto_aprobado,
             'capital_pendiente' => $capitalPendiente,
             'intereses_pendientes' => (float) ($credito->interes_generado - $credito->interes_pagado),
-            'mora_pendiente' => (float) ($credito->mora_generada - $credito->mora_pagada),
+            'mora_pendiente' => $moraPendiente,
             'tasa_interes' => (float) $credito->tasa_interes,
             'plazo_dias' => $credito->plazo_dias,
-            'dias_mora' => $credito->dias_mora,
+            'dias_mora' => $diasMoraRealtime,
             // Incluir información básica de prendas para el listado
             'prendas' => $credito->prendas ? $credito->prendas->map(function ($prenda) {
                 return [
@@ -1262,6 +1268,68 @@ class CreditoPrendarioController extends Controller
             'creadoEn' => $credito->created_at->toISOString(),
             'actualizadoEn' => $credito->updated_at->toISOString(),
         ];
+    }
+
+    /**
+     * Calcula los días de mora en tiempo real usando la fecha de hoy vs. fecha de vencimiento.
+     * NO escribe a BD — solo devuelve el valor correcto para mostrarlo en el listado.
+     * Respeta los días de gracia configurados en el crédito.
+     */
+    private function calcularDiasMoraRealtime(CreditoPrendario $credito): int
+    {
+        // Solo aplica a créditos activos con fecha de vencimiento
+        $estadosSinMora = ['pagado', 'cancelado', 'liquidado', 'anulado', 'rechazado', 'incobrable'];
+        if (in_array($credito->estado, $estadosSinMora, true)) {
+            return 0;
+        }
+
+        if (!$credito->fecha_vencimiento) {
+            return (int) ($credito->dias_mora ?? 0);
+        }
+
+        $hoy = Carbon::now()->startOfDay();
+        $fechaVenc = Carbon::parse($credito->fecha_vencimiento)->startOfDay();
+
+        // Si aun no ha vencido, no hay mora
+        if ($hoy->lte($fechaVenc)) {
+            return 0;
+        }
+
+        $diasGracia = (int) ($credito->dias_gracia ?? 0);
+        $diasTranscurridos = (int) $hoy->diffInDays($fechaVenc);
+        $diasMora = max(0, $diasTranscurridos - $diasGracia);
+
+        return $diasMora;
+    }
+
+    /**
+     * Calcula el monto de mora pendiente en tiempo real usando los días reales de mora.
+     * Para tipo monto_fijo: dias * monto_fijo_por_dia.
+     * Para porcentaje: capital_pendiente * (tasa_mora/100/30) * dias.
+     */
+    private function calcularMoraPendienteRealtime(CreditoPrendario $credito, int $diasMora): float
+    {
+        if ($diasMora <= 0) {
+            return 0.0;
+        }
+
+        $tipoMora  = (string) ($credito->tipo_mora ?? 'porcentaje');
+        $tasaMora  = (float)  ($credito->tasa_mora ?? 0);
+        $moraFijo  = (float)  ($credito->mora_monto_fijo ?? 0);
+        $moraPagada = (float) ($credito->mora_pagada ?? 0);
+
+        if ($tipoMora === 'monto_fijo' && $moraFijo > 0) {
+            $moraTotal = round($moraFijo * $diasMora, 2);
+        } elseif ($tipoMora === 'porcentaje' && $tasaMora > 0) {
+            $tasaDiaria = ($tasaMora / 100) / 30;
+            $base = (float) ($credito->capital_pendiente ?? $credito->monto_aprobado ?? 0);
+            $moraTotal = round($base * $tasaDiaria * $diasMora, 2);
+        } else {
+            // Si no hay configuración en el crédito, usar el valor guardado en BD como fallback
+            return max(0.0, (float) ($credito->mora_generada - $moraPagada));
+        }
+
+        return max(0.0, $moraTotal - $moraPagada);
     }
 
     /**

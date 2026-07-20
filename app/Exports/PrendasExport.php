@@ -36,6 +36,7 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
         return [
             'ID',
             'Código Prenda',
+            'Código de Barras',
             'Categoría',
             'Descripción',
             'Marca',
@@ -60,6 +61,7 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
         return [
             $prenda->id,
             $prenda->codigo_prenda ?? 'N/A',
+            $this->normalizarCodigoBarras($prenda->creditoPrendario?->numero_credito),
             $prenda->categoriaProducto?->nombre ?? 'Sin categoría',
             $prenda->descripcion ?? '',
             $prenda->marca ?? '',
@@ -82,7 +84,7 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
     public function styles(Worksheet $sheet)
     {
         $lastRow = $this->prendas->count() + 1;
-        $lastColumn = 'R';
+        $lastColumn = 'T'; // Ahora son 20 columnas (A-T) por la col. Código de Barras
 
         $sheet->getStyle('A1:' . $lastColumn . '1')->applyFromArray([
             'font' => [
@@ -132,26 +134,30 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
                 }
             }
 
-            $sheet->getStyle('K2:M' . $lastRow)->getNumberFormat()
+            // Columnas de dinero: ahora L2:N (Valor Tasación, Valor Préstamo, Precio Venta)
+            $sheet->getStyle('L2:N' . $lastRow)->getNumberFormat()
                 ->setFormatCode('Q #,##0.00');
 
-            $sheet->getStyle('K2:M' . $lastRow)->getAlignment()
+            $sheet->getStyle('L2:N' . $lastRow)->getAlignment()
                 ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
 
             $sheet->getStyle('A2:A' . $lastRow)->getAlignment()
                 ->setHorizontal(Alignment::HORIZONTAL_CENTER);
-            $sheet->getStyle('B2:B' . $lastRow)->getAlignment()
+            $sheet->getStyle('B2:C' . $lastRow)->getAlignment()
                 ->setHorizontal(Alignment::HORIZONTAL_CENTER);
-            $sheet->getStyle('J2:J' . $lastRow)->getAlignment()
+            // Estado: columna K (antes J, desplazada +1 por col. Código de Barras)
+            $sheet->getStyle('K2:K' . $lastRow)->getAlignment()
                 ->setHorizontal(Alignment::HORIZONTAL_CENTER);
-            $sheet->getStyle('Q2:R' . $lastRow)->getAlignment()
+            // Fechas: columnas S2:T
+            $sheet->getStyle('S2:T' . $lastRow)->getAlignment()
                 ->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
             for ($row = 2; $row <= $lastRow; $row++) {
-                $estado = $sheet->getCell('J' . $row)->getValue();
+                // Estado ahora está en columna K (desplazada +1 por col. Código de Barras)
+                $estado = $sheet->getCell('K' . $row)->getValue();
                 $color = $this->getEstadoColor($estado);
                 if ($color) {
-                    $sheet->getStyle('J' . $row)->applyFromArray([
+                    $sheet->getStyle('K' . $row)->applyFromArray([
                         'fill' => [
                             'fillType' => Fill::FILL_SOLID,
                             'startColor' => ['rgb' => $color['bg']],
@@ -188,6 +194,17 @@ class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithSt
     private function formatMoney($amount): float
     {
         return (float) ($amount ?? 0);
+    }
+
+    /**
+     * Normaliza el número de crédito igual que el recibo PDF:
+     * mayúsculas, sin espacios → ese es el "Código de Barras".
+     */
+    private function normalizarCodigoBarras(?string $codigo): string
+    {
+        if (!$codigo) return 'N/A';
+        $normalizado = strtoupper(trim($codigo));
+        return preg_replace('/\s+/', '', $normalizado) ?: 'N/A';
     }
 
     private function formatEstado(?string $estado): string
