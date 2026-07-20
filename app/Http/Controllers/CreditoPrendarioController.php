@@ -61,11 +61,20 @@ class CreditoPrendarioController extends Controller
                 $busqueda = $request->busqueda;
                 $query->where(function ($q) use ($busqueda) {
                     $q->where('numero_credito', 'like', "%{$busqueda}%")
+                      ->orWhere('numero_contrato', 'like', "%{$busqueda}%")
+                      ->orWhere('numero_pagare', 'like', "%{$busqueda}%")
                       ->orWhereHas('cliente', function ($q) use ($busqueda) {
                           $q->where('nombres', 'like', "%{$busqueda}%")
                             ->orWhere('apellidos', 'like', "%{$busqueda}%")
                             ->orWhere('dpi', 'like', "%{$busqueda}%")
                             ->orWhere('codigo_cliente', 'like', "%{$busqueda}%");
+                      })
+                      ->orWhereHas('prendas', function ($q) use ($busqueda) {
+                          $q->where('codigo_prenda', 'like', "%{$busqueda}%")
+                            ->orWhere('descripcion', 'like', "%{$busqueda}%")
+                            ->orWhere('marca', 'like', "%{$busqueda}%")
+                            ->orWhere('modelo', 'like', "%{$busqueda}%")
+                            ->orWhere('serie', 'like', "%{$busqueda}%");
                       });
                 });
             }
@@ -88,6 +97,22 @@ class CreditoPrendarioController extends Controller
 
             if ($request->has('fecha_hasta') && $request->fecha_hasta !== '') {
                 $query->where('fecha_solicitud', '<=', $request->fecha_hasta);
+            }
+
+            if ($request->has('fecha_vencimiento_desde') && $request->fecha_vencimiento_desde !== '') {
+                $query->whereDate('fecha_vencimiento', '>=', $request->fecha_vencimiento_desde);
+            }
+
+            if ($request->has('fecha_vencimiento_hasta') && $request->fecha_vencimiento_hasta !== '') {
+                $query->whereDate('fecha_vencimiento', '<=', $request->fecha_vencimiento_hasta);
+            }
+
+            if ($request->has('sucursal_id') && $request->sucursal_id !== '' && $request->sucursal_id !== 'todos') {
+                $query->where('sucursal_id', $request->sucursal_id);
+            }
+
+            if ($request->has('cliente_id') && $request->cliente_id !== '') {
+                $query->where('cliente_id', $request->cliente_id);
             }
 
             // Ordenamiento: Por defecto del más reciente al más antiguo (id desc)

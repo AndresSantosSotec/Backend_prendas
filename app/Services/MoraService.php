@@ -220,38 +220,13 @@ class MoraService
         ?ParametrizacionMora $paramMora
     ): int {
         $fechaVenc = Carbon::parse($fechaVencimiento)->startOfDay();
-
-        // Si no hay parametrización, usar el cálculo calendario estándar
-        if (!$paramMora) {
-            $diasDesdeVencimiento = (int) abs($fechaCalculo->diffInDays($fechaVenc));
-            return max(0, $diasDesdeVencimiento - $diasGracia);
-        }
-
-        $diasLaborales = $paramMora->diasLaboralesArray();
         $diasCalendario = (int) abs($fechaCalculo->diffInDays($fechaVenc));
 
-        // Si «mora completa» está activa y ya pasaron los días calendario del umbral,
-        // se cuentan TODOS los días (incluyendo no laborales)
-        $usarTodosLosDias = $paramMora->aplicar_mora_completa
-            && $paramMora->dias_para_mora_completa > 0
-            && $diasCalendario >= $paramMora->dias_para_mora_completa;
+        // Calcular mora en base a días calendario reales (corrido)
+        $diasMora = max(0, $diasCalendario - $diasGracia);
 
-        if ($usarTodosLosDias || count($diasLaborales) === 7) {
-            // Contar todos los días calendario
-            $diasMora = max(0, $diasCalendario - $diasGracia);
-        } else {
-            // Contar solo días laborales desde vencimiento hasta fecha de cálculo
-            $diasLaboralesContados = 0;
-            $cursor = $fechaVenc->copy()->addDay();
-
-            while ($cursor->lte($fechaCalculo)) {
-                if (in_array($cursor->dayOfWeek, $diasLaborales)) {
-                    $diasLaboralesContados++;
-                }
-                $cursor->addDay();
-            }
-
-            $diasMora = max(0, $diasLaboralesContados - $diasGracia);
+        if (!$paramMora) {
+            return $diasMora;
         }
 
         // Aplicar tope de mora si está configurado
