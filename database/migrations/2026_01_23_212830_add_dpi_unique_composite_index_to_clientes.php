@@ -17,16 +17,22 @@ return new class extends Migration
     public function up(): void
     {
         // Verificar si ya existe un índice único en DPI
-        $indexExists = DB::select("
-            SELECT COUNT(*) as count
-            FROM INFORMATION_SCHEMA.STATISTICS
-            WHERE table_schema = DATABASE()
-            AND table_name = 'clientes'
-            AND index_name = 'clientes_dpi_unique'
-        ");
+        if (DB::getDriverName() === 'sqlite') {
+            $result = DB::select("SELECT COUNT(*) as count FROM sqlite_master WHERE type='index' AND tbl_name='clientes' AND name='clientes_dpi_unique'");
+            $hasIndex = $result[0]->count > 0;
+        } else {
+            $result = DB::select("
+                SELECT COUNT(*) as count
+                FROM INFORMATION_SCHEMA.STATISTICS
+                WHERE table_schema = DATABASE()
+                AND table_name = 'clientes'
+                AND index_name = 'clientes_dpi_unique'
+            ");
+            $hasIndex = $result[0]->count > 0;
+        }
 
         // Si existe el índice único simple, lo eliminamos para reemplazarlo con uno compuesto
-        if ($indexExists[0]->count > 0) {
+        if ($hasIndex) {
             Schema::table('clientes', function (Blueprint $table) {
                 $table->dropUnique('clientes_dpi_unique');
             });

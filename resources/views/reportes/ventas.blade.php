@@ -42,13 +42,23 @@
 </head>
 <body>
 
-    <div class="header">
-        <h1>REPORTE DE VENTAS</h1>
+        <div class="header" style="border:none; padding-bottom: 10px; border-bottom: 1px solid #ccc; margin-bottom: 15px;">
+        <table width="100%">
+            <tr>
+                <td width="25%" style="text-align: left; vertical-align: middle;">
+                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                </td>
+                <td width="50%" style="text-align: center; vertical-align: middle;">
+                    <h1>REPORTE DE VENTAS</h1>
         <div class="subtitle">
             Período: {{ $fecha_desde }} — {{ $fecha_hasta }}
             &nbsp;&nbsp;|&nbsp;&nbsp;
             Generado el {{ $generado_en }} por {{ $generado_por }}
-        </div>
+                </td>
+                <td width="25%"></td>
+            </tr>
+        </table>
+    </div>
     </div>
 
     <!-- Estadísticas principales -->
@@ -109,48 +119,67 @@
     <table class="data">
         <thead>
             <tr>
-                <th>Código</th>
-                <th>Tipo</th>
-                <th>Estado</th>
-                <th>Cliente</th>
-                <th>Vendedor</th>
-                <th class="text-right">Total</th>
-                <th class="text-right">Descuento</th>
-                <th class="text-right">Pagado</th>
-                <th class="text-right">Saldo</th>
-                <th>Método Pago</th>
+                <th>Código Venta</th>
                 <th>Fecha</th>
+                <th>Cliente</th>
+                <th>Artículo (Descripción)</th>
+                <th class="text-right">P. Compra (Costo)</th>
+                <th class="text-right">P. Venta</th>
+                <th class="text-right">Utilidad</th>
+                <th class="text-right">% Diferencia</th>
+                <th class="text-center">Estado</th>
             </tr>
         </thead>
         <tbody>
             @forelse($ventas as $venta)
             <tr>
                 <td>{{ $venta['codigo_venta'] }}</td>
-                <td class="tipo-{{ $venta['tipo_venta'] }}">{{ ucfirst($venta['tipo_venta']) }}</td>
-                <td>
-                    <span class="badge badge-{{ $venta['estado'] }}">{{ ucfirst($venta['estado']) }}</span>
-                </td>
-                <td>{{ $venta['cliente'] }}</td>
-                <td>{{ $venta['vendedor'] }}</td>
-                <td class="text-right">Q{{ number_format($venta['total_final'], 2) }}</td>
-                <td class="text-right">Q{{ number_format($venta['total_descuentos'], 2) }}</td>
-                <td class="text-right">Q{{ number_format($venta['total_pagado'] ?? 0, 2) }}</td>
-                <td class="text-right">Q{{ number_format($venta['saldo_pendiente'] ?? 0, 2) }}</td>
-                <td>{{ $venta['metodo_pago'] }}</td>
                 <td>{{ $venta['fecha_venta'] }}</td>
+                <td>{{ Str::limit($venta['cliente'], 18) }}</td>
+                <td>{{ Str::limit($venta['descripcion'], 32) }}</td>
+                <td class="text-right">Q{{ number_format($venta['precio_compra'], 2) }}</td>
+                <td class="text-right"><strong>Q{{ number_format($venta['precio_venta'], 2) }}</strong></td>
+                <td class="text-right" style="color: {{ $venta['utilidad'] >= 0 ? '#155724' : '#721c24' }}">Q{{ number_format($venta['utilidad'], 2) }}</td>
+                <td class="text-right" style="color: {{ $venta['margen'] >= 0 ? '#155724' : '#721c24' }}">{{ number_format($venta['margen'], 2) }}%</td>
+                <td class="text-center">
+                    <span class="badge badge-{{ $venta['estado'] }}">{{ strtoupper($venta['estado']) }}</span>
+                </td>
             </tr>
             @empty
             <tr>
-                <td colspan="11" style="text-align:center; padding:20px; color:#666;">
-                    No hay ventas para el período seleccionado
+                <td colspan="9" style="text-align:center; padding:20px; color:#666;">
+                    No hay artículos vendidos para el período seleccionado
                 </td>
             </tr>
             @endforelse
         </tbody>
     </table>
 
+    @if(isset($totales))
+    <div style="margin-top: 15px; text-align: right;">
+        <table style="display: inline-table; width: 250px; border-collapse: collapse; font-size: 9px; border: 1px solid #ccc;">
+            <tr>
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: left;">Total Costo (Compra):</td>
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: right;">Q{{ number_format($totales['costo'], 2) }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: left;">Total Venta:</td>
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: right;">Q{{ number_format($totales['venta'], 2) }}</td>
+            </tr>
+            <tr style="font-weight: bold; background: #f5f5f5;">
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: left;">UTILIDAD TOTAL:</td>
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: right; color: {{ $totales['utilidad'] >= 0 ? '#155724' : '#721c24' }}">Q{{ number_format($totales['utilidad'], 2) }}</td>
+            </tr>
+            <tr style="font-weight: bold; background: #f5f5f5;">
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: left;">% DIFERENCIA GENERAL:</td>
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: right; color: {{ $totales['margen'] >= 0 ? '#155724' : '#721c24' }}">{{ number_format($totales['margen'], 2) }}%</td>
+            </tr>
+        </table>
+    </div>
+    @endif
+
     <div class="footer">
-        DigiPrenda &mdash; Reporte generado automáticamente &mdash; {{ $generado_en }}
+        Avanza &mdash; Reporte generado automáticamente &mdash; {{ $generado_en }}
     </div>
 
 </body>

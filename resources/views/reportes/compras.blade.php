@@ -182,14 +182,24 @@
 </head>
 <body>
     <!-- Header -->
-    <div class="header">
-        <h1>REPORTE DE COMPRAS DIRECTAS</h1>
+        <div class="header" style="border:none; padding-bottom: 10px; border-bottom: 1px solid #ccc; margin-bottom: 15px;">
+        <table width="100%">
+            <tr>
+                <td width="25%" style="text-align: left; vertical-align: middle;">
+                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                </td>
+                <td width="50%" style="text-align: center; vertical-align: middle;">
+                    <h1>REPORTE DE COMPRAS DIRECTAS</h1>
         <div class="subtitle">
             Generado el {{ $fechaGeneracion }}
             @if($sucursal)
                 | Sucursal: {{ $sucursal->nombre }}
             @endif
-        </div>
+                </td>
+                <td width="25%"></td>
+            </tr>
+        </table>
+    </div>
     </div>
 
     <!-- Filtros Aplicados -->
@@ -310,7 +320,7 @@
     <!-- Footer -->
     <div class="footer">
         <p>
-            DigiPrenda - Reporte generado por: {{ $usuario->nombre ?? 'Sistema' }}
+            Avanza - Reporte generado por: {{ $usuario->nombre ?? 'Sistema' }}
         </p>
         <p>Página {PAGE_NUM} de {PAGE_COUNT}</p>
     </div>

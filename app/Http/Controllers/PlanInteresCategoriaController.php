@@ -11,12 +11,36 @@ use Illuminate\Support\Facades\DB;
 class PlanInteresCategoriaController extends Controller
 {
     /**
+     * Normaliza el tipo de período recibido desde UI.
+     */
+    private function normalizarTipoPeriodo(?string $tipoPeriodo): ?string
+    {
+        if (!$tipoPeriodo) {
+            return $tipoPeriodo;
+        }
+
+        return strtolower(trim($tipoPeriodo));
+    }
+
+    /**
+     * Mantiene consistencia periodo/unidad para evitar combinaciones inválidas.
+     */
+    private function unidadPorPeriodo(string $tipoPeriodo): string
+    {
+        return match ($tipoPeriodo) {
+            'semanal' => 'semanas',
+            'quincenal' => 'quincenas',
+            default => 'meses',
+        };
+    }
+
+    /**
      * Listar todos los planes de interés
      */
     public function index(Request $request)
     {
         try {
-            $query = PlanInteresCategoria::with('categoria');
+            $query = PlanInteresCategoria::with('categoria', 'categorias');
 
             // Filtros
             if ($request->has('categoria_id')) {
@@ -119,7 +143,7 @@ class PlanInteresCategoriaController extends Controller
     public function show($id)
     {
         try {
-            $plan = PlanInteresCategoria::with('categoria', 'creditos')->findOrFail($id);
+            $plan = PlanInteresCategoria::with('categoria', 'categorias', 'creditos')->findOrFail($id);
 
             return response()->json([
                 'success' => true,
@@ -143,11 +167,19 @@ class PlanInteresCategoriaController extends Controller
      */
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'categoria_producto_id' => 'required|exists:categoria_productos,id',
+        $payload = $request->all();
+        if (isset($payload['tipo_periodo'])) {
+            $payload['tipo_periodo'] = $this->normalizarTipoPeriodo($payload['tipo_periodo']);
+            $payload['plazo_unidad'] = $this->unidadPorPeriodo($payload['tipo_periodo']);
+        }
+
+        $validator = Validator::make($payload, [
+            'categoria_producto_id' => 'nullable|exists:categoria_productos,id',
+            'categoria_ids' => 'nullable|array',
+            'categoria_ids.*' => 'integer|exists:categoria_productos,id',
             'nombre' => 'required|string|max:100',
             'codigo' => 'nullable|string|max:50',
-            'tipo_periodo' => 'required|in:diario,semanal,quincenal,mensual',
+            'tipo_periodo' => 'required|in:semanal,quincenal,mensual',
             'plazo_numero' => 'required|integer|min:1',
             'plazo_unidad' => 'required|in:dias,semanas,quincenas,meses',
             'tasa_interes' => 'required|numeric|min:0',
@@ -181,29 +213,92 @@ class PlanInteresCategoriaController extends Controller
         try {
             DB::beginTransaction();
 
+            // Si existe un plan eliminado con la misma combinación categoría+codigo,
+            // reutilizarlo para evitar choque del índice único en BD.
+            $planEliminadoDuplicado = null;
+            if (!empty($payload['codigo'])) {
+                $planEliminadoDuplicado = PlanInteresCategoria::onlyTrashed()
+                    ->where(function ($q) use ($payload) {
+                        if (!empty($payload['categoria_producto_id'])) {
+                            $q->where('categoria_producto_id', $payload['categoria_producto_id']);
+                        } else {
+                            $q->whereNull('categoria_producto_id');
+                        }
+                    })
+                    ->where('codigo', $payload['codigo'])
+                    ->latest('id')
+                    ->first();
+            }
+
             // Verificar código único si se proporciona
-            if ($request->codigo) {
-                $existe = PlanInteresCategoria::where('categoria_producto_id', $request->categoria_producto_id)
-                    ->where('codigo', $request->codigo)
+            if (!empty($payload['codigo'])) {
+                $existe = PlanInteresCategoria::where(function ($q) use ($payload) {
+                        if (!empty($payload['categoria_producto_id'])) {
+                            $q->where('categoria_producto_id', $payload['categoria_producto_id']);
+                        } else {
+                            $q->whereNull('categoria_producto_id');
+                        }
+                    })
+                    ->whereNull('deleted_at')
+                    ->where('codigo', $payload['codigo'])
                     ->exists();
 
                 if ($existe) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Ya existe un plan con ese código para esta categoría'
-                    ], 422);
+                    // Si el código ya existe en un plan activo, permitir continuar
+                    // y delegar la generación de código único al modelo.
+                    $payload['codigo'] = null;
                 }
             }
 
-            $plan = PlanInteresCategoria::create($request->all());
+            if ($planEliminadoDuplicado) {
+                $planEliminadoDuplicado->restore();
+                $planEliminadoDuplicado->update(
+                    collect($payload)
+                        ->except(['_sucursal_scope', '_token', '_method', 'categoria_ids'])
+                        ->toArray()
+                );
+                $plan = $planEliminadoDuplicado;
+            } else {
+                $plan = PlanInteresCategoria::create(
+                    collect($payload)
+                        ->except(['_sucursal_scope', '_token', '_method', 'categoria_ids'])
+                        ->toArray()
+                );
+            }
+
+            // Sincronizar categorías en la tabla pivote
+            if ($request->has('categoria_ids')) {
+                $plan->syncCategorias($request->categoria_ids);
+            } elseif ($request->filled('categoria_producto_id')) {
+                $plan->syncCategorias([$request->categoria_producto_id]);
+            } else {
+                $plan->syncCategorias([]);
+            }
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Plan de interés creado exitosamente',
-                'data' => $plan->load('categoria')
+                'data' => $plan->load('categoria', 'categorias')
             ], 201);
+
+        } catch (\Illuminate\Database\QueryException $e) {
+            DB::rollBack();
+
+            if ((string) $e->getCode() === '23000') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ya existe un plan con la misma combinación de categoría y código. Cambia el nombre o código del plan.',
+                    'error' => $e->getMessage()
+                ], 422);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al crear el plan de interés',
+                'error' => $e->getMessage()
+            ], 500);
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -221,10 +316,19 @@ class PlanInteresCategoriaController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $validator = Validator::make($request->all(), [
+        $payload = $request->all();
+        if (isset($payload['tipo_periodo'])) {
+            $payload['tipo_periodo'] = $this->normalizarTipoPeriodo($payload['tipo_periodo']);
+            $payload['plazo_unidad'] = $this->unidadPorPeriodo($payload['tipo_periodo']);
+        }
+
+        $validator = Validator::make($payload, [
+            'categoria_producto_id' => 'nullable|exists:categoria_productos,id',
+            'categoria_ids' => 'nullable|array',
+            'categoria_ids.*' => 'integer|exists:categoria_productos,id',
             'nombre' => 'sometimes|string|max:100',
             'codigo' => 'nullable|string|max:50',
-            'tipo_periodo' => 'sometimes|in:diario,semanal,quincenal,mensual',
+            'tipo_periodo' => 'sometimes|in:semanal,quincenal,mensual',
             'plazo_numero' => 'sometimes|integer|min:1',
             'plazo_unidad' => 'sometimes|in:dias,semanas,quincenas,meses',
             'tasa_interes' => 'sometimes|numeric|min:0',
@@ -261,28 +365,67 @@ class PlanInteresCategoriaController extends Controller
             DB::beginTransaction();
 
             // Verificar código único si se cambia
-            if ($request->has('codigo') && $request->codigo !== $plan->codigo) {
-                $existe = PlanInteresCategoria::where('categoria_producto_id', $plan->categoria_producto_id)
-                    ->where('codigo', $request->codigo)
+            if (array_key_exists('codigo', $payload) && $payload['codigo'] !== $plan->codigo) {
+                $existe = PlanInteresCategoria::where(function ($q) use ($plan, $payload) {
+                        $catId = array_key_exists('categoria_producto_id', $payload) ? $payload['categoria_producto_id'] : $plan->categoria_producto_id;
+                        if ($catId) {
+                            $q->where('categoria_producto_id', $catId);
+                        } else {
+                            $q->whereNull('categoria_producto_id');
+                        }
+                    })
+                    ->whereNull('deleted_at')
+                    ->where('codigo', $payload['codigo'])
                     ->where('id', '!=', $id)
                     ->exists();
 
                 if ($existe) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Ya existe un plan con ese código para esta categoría'
-                    ], 422);
+                    // Si el código existe en otro plan activo, no bloquear la operación.
+                    // Se vacía para que el modelo regenere un código único.
+                    $payload['codigo'] = null;
                 }
             }
 
-            $plan->update($request->all());
+            // Si al cambiar código existe un registro eliminado con esa combinación,
+            // eliminarlo físicamente para no chocar con el índice único al guardar.
+            if (!empty($payload['codigo'])) {
+                PlanInteresCategoria::onlyTrashed()
+                    ->where(function ($q) use ($plan, $payload) {
+                        $catId = array_key_exists('categoria_producto_id', $payload) ? $payload['categoria_producto_id'] : $plan->categoria_producto_id;
+                        if ($catId) {
+                            $q->where('categoria_producto_id', $catId);
+                        } else {
+                            $q->whereNull('categoria_producto_id');
+                        }
+                    })
+                    ->where('codigo', $payload['codigo'])
+                    ->where('id', '!=', $id)
+                    ->forceDelete();
+            }
+
+            $plan->update(
+                collect($payload)
+                    ->except(['_sucursal_scope', '_token', '_method', 'categoria_ids'])
+                    ->toArray()
+            );
+
+            // Sincronizar categorías en la tabla pivote si se envían
+            if ($request->has('categoria_ids')) {
+                $plan->syncCategorias($request->categoria_ids);
+            } elseif ($request->has('categoria_producto_id')) {
+                if ($request->filled('categoria_producto_id')) {
+                    $plan->syncCategorias([$request->categoria_producto_id]);
+                } else {
+                    $plan->syncCategorias([]);
+                }
+            }
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Plan de interés actualizado exitosamente',
-                'data' => $plan->load('categoria')
+                'data' => $plan->load('categoria', 'categorias')
             ]);
 
         } catch (\Exception $e) {
@@ -307,7 +450,13 @@ class PlanInteresCategoriaController extends Controller
             DB::beginTransaction();
 
             // Quitar default de otros planes de la misma categoría
-            PlanInteresCategoria::where('categoria_producto_id', $plan->categoria_producto_id)
+            PlanInteresCategoria::where(function ($q) use ($plan) {
+                    if ($plan->categoria_producto_id) {
+                        $q->where('categoria_producto_id', $plan->categoria_producto_id);
+                    } else {
+                        $q->whereNull('categoria_producto_id');
+                    }
+                })
                 ->where('id', '!=', $id)
                 ->update(['es_default' => false]);
 
@@ -345,7 +494,13 @@ class PlanInteresCategoriaController extends Controller
 
             // Si se está desactivando y es el default, buscar otro para marcar como default
             if (!$nuevoEstado && $plan->es_default) {
-                $otroActivo = PlanInteresCategoria::where('categoria_producto_id', $plan->categoria_producto_id)
+                $otroActivo = PlanInteresCategoria::where(function ($q) use ($plan) {
+                        if ($plan->categoria_producto_id) {
+                            $q->where('categoria_producto_id', $plan->categoria_producto_id);
+                        } else {
+                            $q->whereNull('categoria_producto_id');
+                        }
+                    })
                     ->where('id', '!=', $id)
                     ->where('activo', true)
                     ->first();

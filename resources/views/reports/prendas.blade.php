@@ -6,28 +6,28 @@
     <title>Reporte de Prendas</title>
     <style>
         @page {
+            size: letter landscape;
             margin: 0cm 0cm;
         }
         body {
             font-family: 'Courier New', monospace;
-            font-size: 11px;
+            font-size: 9px;
             color: #000;
-            line-height: 1.3;
+            line-height: 1.2;
             margin-top: 2cm;
-            margin-bottom: 2cm;
-            margin-left: 2cm;
-            margin-right: 2cm;
+            margin-bottom: 1.5cm;
+            margin-left: 1cm;
+            margin-right: 1cm;
         }
         header {
             position: fixed;
             top: 0cm;
             left: 0cm;
             right: 0cm;
-            height: 2.5cm;
+            height: 2.2cm;
             background-color: #fff;
             color: #000;
             text-align: center;
-            line-height: 30px;
             border-bottom: 2px solid #000;
         }
         footer {
@@ -35,66 +35,82 @@
             bottom: 0cm;
             left: 0cm;
             right: 0cm;
-            height: 1.5cm;
+            height: 1.2cm;
             background-color: #fff;
             color: #000;
             text-align: center;
-            line-height: 1.5cm;
+            line-height: 1.2cm;
             border-top: 1px solid #000;
-            font-size: 9px;
+            font-size: 8px;
         }
         .document-title {
             text-align: center;
-            font-size: 18px;
+            font-size: 14px;
             font-weight: bold;
             color: #000;
-            margin-top: 10px;
-            margin-bottom: 20px;
+            margin-top: 8px;
+            margin-bottom: 10px;
             text-transform: uppercase;
             letter-spacing: 1px;
+        }
+        .summary {
+            margin-bottom: 8px;
+            font-size: 8px;
         }
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 10px;
+            margin-top: 6px;
             background-color: #fff;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
         th {
             background-color: #000;
             color: #fff;
             font-weight: bold;
             text-transform: uppercase;
-            font-size: 10px;
-            padding: 10px 8px;
+            font-size: 7px;
+            padding: 6px 4px;
             border: 1px solid #000;
             text-align: left;
         }
         td {
-            padding: 8px;
+            padding: 5px 4px;
             border: 1px solid #000;
             color: #000;
             vertical-align: middle;
-            font-size: 10px;
+            font-size: 7px;
         }
         .text-right { text-align: right; }
         .text-center { text-align: center; }
-
         tr:nth-child(even) { background-color: #f5f5f5; }
-
         .status-badge {
-            padding: 2px 6px;
+            padding: 1px 4px;
             border: 1px solid #000;
-            font-size: 9px;
+            font-size: 6px;
             font-weight: bold;
             text-transform: uppercase;
+        }
+        .money {
+            white-space: nowrap;
         }
     </style>
 </head>
 <body>
-    <header>
-        <div style="font-size: 18px; font-weight: bold; padding-top: 15px;">DigiPrenda</div>
-        <div style="font-size: 10px; color: #666;">Reporte de Inventario de Prendas</div>
+    <header style="padding-bottom: 5px;">
+        <table width="100%" style="margin-top: 5px;">
+            <tr>
+                <td width="20%" style="text-align: left; vertical-align: middle; border: none;">
+                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 50px; margin-left: 10px;">
+                </td>
+                <td width="60%" style="text-align: center; vertical-align: middle; border: none; line-height: 1.2;">
+                    <div style="font-size: 16px; font-weight: bold;">Avanza</div>
+                    <div style="font-size: 9px; color: #666;">Reporte de Inventario de Prendas</div>
+                </td>
+                <td width="20%" style="border: none; text-align: right; font-size: 8px; padding-right: 10px;">
+                    Total: {{ $prendas->count() }} prendas
+                </td>
+            </tr>
+        </table>
     </header>
 
     <footer>
@@ -106,31 +122,58 @@
     <table>
         <thead>
             <tr>
-                <th width="12%">Código</th>
-                <th width="15%">Categoría</th>
-                <th width="25%">Descripción</th>
-                <th width="10%">Estado</th>
-                <th class="text-right" width="12%">Avalúo</th>
-                <th class="text-right" width="12%">Préstamo</th>
-                <th class="text-right" width="12%">Venta</th>
+                <th width="7%">Código</th>
+                <th width="9%">Cód. Barras</th>
+                <th width="7%">Categoría</th>
+                <th width="13%">Descripción</th>
+                <th width="5%">Marca</th>
+                <th width="5%">Modelo</th>
+                <th width="5%">Serie</th>
+                <th width="4%">Color</th>
+                <th width="6%">Estado</th>
+                <th class="text-right" width="7%">Avaúo</th>
+                <th class="text-right" width="7%">Préstamo</th>
+                <th class="text-right" width="7%">Precio Venta</th>
+                <th width="8%">Sucursal</th>
+                <th width="10%">Cliente</th>
             </tr>
         </thead>
         <tbody>
             @foreach($prendas as $prenda)
+                @php
+                    $sucursalNombre = $prenda->creditoPrendario?->sucursal?->nombre
+                        ?? $prenda->sucursal?->nombre
+                        ?? 'N/A';
+                    $clienteNombre = trim(
+                        ($prenda->creditoPrendario?->cliente?->nombres ?? '') . ' ' .
+                        ($prenda->creditoPrendario?->cliente?->apellidos ?? '')
+                    ) ?: 'N/A';
+                    $numCredito = $prenda->creditoPrendario?->numero_credito ?? null;
+                    $barcodeValue = $numCredito
+                        ? (preg_replace('/\s+/', '', strtoupper(trim($numCredito))) ?: $numCredito)
+                        : 'N/A';
+                @endphp
                 <tr>
                     <td>{{ $prenda->codigo_prenda }}</td>
+                    <td style="font-family: 'Courier New', monospace; font-size: 6px; letter-spacing: 1px;">{{ $barcodeValue }}</td>
                     <td>{{ $prenda->categoriaProducto?->nombre ?? 'N/A' }}</td>
-                    <td>{{ Str::limit($prenda->descripcion, 50) }}</td>
+                    <td>{{ Str::limit($prenda->descripcion, 40) }}</td>
+                    <td>{{ $prenda->marca ?: '-' }}</td>
+                    <td>{{ $prenda->modelo ?: '-' }}</td>
+                    <td>{{ $prenda->serie ?: '-' }}</td>
+                    <td>{{ $prenda->color ?: '-' }}</td>
                     <td><span class="status-badge">{{ str_replace('_', ' ', strtoupper($prenda->estado)) }}</span></td>
-                    <td class="text-right">Q{{ number_format($prenda->valor_tasacion, 2) }}</td>
-                    <td class="text-right">Q{{ number_format($prenda->valor_prestamo, 2) }}</td>
-                    <td class="text-right">
-                        @if($prenda->valor_venta)
-                           Q{{ number_format($prenda->valor_venta, 2) }}
+                    <td class="text-right money">Q{{ number_format($prenda->valor_tasacion ?? 0, 2) }}</td>
+                    <td class="text-right money">Q{{ number_format($prenda->valor_prestamo ?? 0, 2) }}</td>
+                    <td class="text-right money">
+                        @if($prenda->precio_venta)
+                            Q{{ number_format($prenda->precio_venta, 2) }}
                         @else
-                           -
+                            -
                         @endif
                     </td>
+                    <td>{{ Str::limit($sucursalNombre, 20) }}</td>
+                    <td>{{ Str::limit($clienteNombre, 20) }}</td>
                 </tr>
             @endforeach
         </tbody>

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PlanInteresCategoria extends Model
@@ -18,6 +19,8 @@ class PlanInteresCategoria extends Model
 
     protected $table = 'planes_interes_categoria';
 
+    protected $appends = ['categorias_ids'];
+
     // Constantes de tipos de periodo
     public const PERIODO_DIARIO = 'diario';
     public const PERIODO_SEMANAL = 'semanal';
@@ -25,7 +28,6 @@ class PlanInteresCategoria extends Model
     public const PERIODO_MENSUAL = 'mensual';
 
     public const PERIODOS = [
-        self::PERIODO_DIARIO,
         self::PERIODO_SEMANAL,
         self::PERIODO_QUINCENAL,
         self::PERIODO_MENSUAL,
@@ -116,21 +118,70 @@ class PlanInteresCategoria extends Model
                 $plan->codigo = $plan->generarCodigo();
             }
 
-            // Solo puede haber un plan default por categoría
-            if ($plan->es_default) {
-                static::where('categoria_producto_id', $plan->categoria_producto_id)
-                    ->where('id', '!=', $plan->id)
-                    ->update(['es_default' => false]);
-            }
+            // Nota: el es_default de la tabla principal ya no se usa para multi-categoría.
+            // El default por categoría se gestiona en el pivote plan_interes_categorias.
         });
     }
 
     /**
      * Relación con categoría de producto
      */
+    /**
+     * Relación primaria (legada): categoría directa (para créditos existentes)
+     */
     public function categoria(): BelongsTo
     {
         return $this->belongsTo(CategoriaProducto::class, 'categoria_producto_id');
+    }
+
+    /**
+     * Relación many-to-many con categorías (nueva - multi-categoría)
+     */
+    public function categorias(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            CategoriaProducto::class,
+            'plan_interes_categorias',
+            'plan_id',
+            'categoria_id'
+        )->withPivot(['es_default', 'orden'])->withTimestamps();
+    }
+
+    /**
+     * Sincronizar categorías del plan con el pivote.
+     * $ids = array de categoria_id a asociar.
+     * $defaultId = (opcional) categoría que será default.
+     */
+    public function syncCategorias(array $ids, ?int $defaultId = null): void
+    {
+        $syncData = [];
+        foreach ($ids as $i => $categoriaId) {
+            $syncData[$categoriaId] = [
+                'es_default' => ($defaultId !== null) ? ($categoriaId == $defaultId) : ($i === 0),
+                'orden'      => $i,
+            ];
+        }
+        $this->categorias()->sync($syncData);
+
+        // También actualizar categoria_producto_id principal con la primera categoría
+        // para mantener compatibilidad con créditos ya otorgados
+        if (!empty($ids)) {
+            $this->withoutEvents(function () use ($ids) {
+                $this->update(['categoria_producto_id' => $ids[0]]);
+            });
+        } else {
+            $this->withoutEvents(function () {
+                $this->update(['categoria_producto_id' => null]);
+            });
+        }
+    }
+
+    /**
+     * IDs de categorías asociadas (para el formulario)
+     */
+    public function getCategoriasIdsAttribute(): array
+    {
+        return $this->categorias()->pluck('categoria_productos.id')->toArray();
     }
 
     /**
@@ -152,9 +203,16 @@ class PlanInteresCategoria extends Model
     /**
      * Scope: Planes de una categoría
      */
+    /**
+     * Scope: planes que aplican a una categoría (por pivote O por FK directa)
+     */
     public function scopeDeCategoria($query, $categoriaId)
     {
-        return $query->where('categoria_producto_id', $categoriaId);
+        return $query->where(function ($q) use ($categoriaId) {
+            $q->where('planes_interes_categoria.categoria_producto_id', $categoriaId)
+              ->orWhereNull('planes_interes_categoria.categoria_producto_id')
+              ->orWhereHas('categorias', fn($r) => $r->where('categoria_productos.id', $categoriaId));
+        });
     }
 
     /**
@@ -170,9 +228,13 @@ class PlanInteresCategoria extends Model
      */
     public function scopePlanDefault($query, $categoriaId)
     {
-        return $query->where('categoria_producto_id', $categoriaId)
+        return $query->where(function ($q) use ($categoriaId) {
+                         $q->where('planes_interes_categoria.categoria_producto_id', $categoriaId)
+                           ->orWhereNull('planes_interes_categoria.categoria_producto_id');
+                     })
                      ->where('es_default', true)
-                     ->where('activo', true);
+                     ->where('activo', true)
+                     ->orderByRaw('planes_interes_categoria.categoria_producto_id DESC');
     }
 
     /**
@@ -210,7 +272,13 @@ class PlanInteresCategoria extends Model
         $base = "{$prefijo}{$numero}{$unidad}";
 
         // Verificar unicidad dentro de la misma categoría
-        $query = static::where('categoria_producto_id', $this->categoria_producto_id)
+        $query = static::withTrashed()->where(function ($q) {
+            if ($this->categoria_producto_id) {
+                $q->where('categoria_producto_id', $this->categoria_producto_id);
+            } else {
+                $q->whereNull('categoria_producto_id');
+            }
+        })
             ->where('codigo', 'like', "{$base}%");
 
         // Excluir el registro actual al actualizar
@@ -250,6 +318,16 @@ class PlanInteresCategoria extends Model
     {
         $tasaTotal = $this->tasa_interes + $this->tasa_almacenaje;
 
+        $divisor = match($this->tipo_periodo) {
+            self::PERIODO_DIARIO => 30.0,
+            self::PERIODO_SEMANAL => 4.0,
+            self::PERIODO_QUINCENAL => 2.0,
+            self::PERIODO_MENSUAL => 1.0,
+            default => 1.0,
+        };
+
+        $tasaProrrateada = $tasaTotal / $divisor;
+
         // Calcular según el tipo de periodo
         $numeroPeriodos = match($this->tipo_periodo) {
             self::PERIODO_DIARIO => $this->plazo_dias_total,
@@ -259,7 +337,7 @@ class PlanInteresCategoria extends Model
             default => $this->plazo_numero,
         };
 
-        return round($montoCapital * ($tasaTotal / 100) * $numeroPeriodos, 2);
+        return round($montoCapital * ($tasaProrrateada / 100) * $numeroPeriodos, 2);
     }
 
     /**

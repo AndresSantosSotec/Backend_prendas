@@ -27,6 +27,7 @@ class DatabaseSeeder extends Seeder
             BancosSeeder::class,
             TipoPolizaSeeder::class,
             PlanCuentasSeeder::class,
+            ParametrizacionCuentasContablesSeeder::class, // Parametrización de cuentas para operaciones
             PlanesInteresCategoriaSeeder::class,
             VentaCreditoParametrizacionSeeder::class,
             CreateSuperAdminSeeder::class,

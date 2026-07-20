@@ -136,7 +136,7 @@ class OtrosGastosController extends Controller
         if (!$user->hasPermission('otros_gastos', 'ver')) {
             return response()->json(['success' => false, 'message' => 'Sin permisos'], 403);
         }
-        $canSeeAll = $user->rol === 'superadmin';
+        $canSeeAll = in_array($user->rol, ['superadmin', 'administrador']);
 
         $query = OtroGastoMovimiento::with(['tipo_gasto', 'user', 'sucursal'])
             ->where('estado', '!=', 'anulado');
@@ -297,7 +297,7 @@ class OtrosGastosController extends Controller
             return response()->json(['success' => false, 'message' => 'Sin permisos'], 403);
         }
 
-        if ($registro->user_id !== $user->id && $user->rol !== 'superadmin') {
+        if ($registro->user_id !== $user->id && !in_array($user->rol, ['superadmin', 'administrador'])) {
             return response()->json(['success' => false, 'message' => 'Sin permisos'], 403);
         }
 
@@ -349,7 +349,7 @@ class OtrosGastosController extends Controller
 
         $mes    = (int) $request->get('mes', now()->month);
         $anio   = (int) $request->get('anio', now()->year);
-        $canSeeAll = $user->rol === 'superadmin';
+        $canSeeAll = in_array($user->rol, ['superadmin', 'administrador']);
 
         $query = OtroGastoMovimiento::where('estado', 'aplicado')
             ->whereMonth('fecha', $mes)

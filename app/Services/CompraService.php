@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Database\QueryException;
 
 class CompraService
 {
@@ -27,27 +28,32 @@ class CompraService
      */
     public function procesarCompraDirecta(array $data): Compra
     {
-        return DB::transaction(function () use ($data) {
-            $user = Auth::user();
-            $sucursalId = $data['sucursal_id'] ?? $user->sucursal_id;
+        $intentos = 0;
+        $maxIntentos = 5;
 
-            if (!$sucursalId) {
-                $sucursalId = Sucursal::first()?->id;
-                if (!$sucursalId) {
-                    throw new \Exception('No se pudo determinar la sucursal');
-                }
-            }
+        while (true) {
+            try {
+                return DB::transaction(function () use ($data) {
+                    $user = Auth::user();
+                    $sucursalId = $data['sucursal_id'] ?? $user->sucursal_id;
 
-            // 1. Obtener datos del cliente (snapshot)
-            $cliente = isset($data['cliente_id']) && $data['cliente_id'] ? Cliente::find($data['cliente_id']) : null;
-            $categoria = CategoriaProducto::findOrFail($data['categoria_producto_id']);
+                    if (!$sucursalId) {
+                        $sucursalId = Sucursal::first()?->id;
+                        if (!$sucursalId) {
+                            throw new \Exception('No se pudo determinar la sucursal');
+                        }
+                    }
 
-            // 2. Generar códigos únicos
-            $codigoCompra = $this->generarCodigoCompra($sucursalId);
-            $codigoPrenda = $this->generarCodigoPrenda($data['categoria_producto_id']);
+                    // 1. Obtener datos del cliente (snapshot)
+                    $cliente = isset($data['cliente_id']) && $data['cliente_id'] ? Cliente::find($data['cliente_id']) : null;
+                    $categoria = CategoriaProducto::findOrFail($data['categoria_producto_id']);
 
-            // 3. Crear registro de compra (tabla independiente)
-            $compra = Compra::create([
+                    // 2. Generar códigos únicos
+                    $codigoCompra = $this->generarCodigoCompra($sucursalId);
+                    $codigoPrenda = $this->generarCodigoPrenda($data['categoria_producto_id']);
+
+                    // 3. Crear registro de compra (tabla independiente)
+                    $compra = Compra::create([
                 'cliente_id' => $cliente ? $cliente->id : null,
                 'categoria_producto_id' => $categoria->id,
                 'sucursal_id' => $sucursalId,
@@ -90,41 +96,57 @@ class CompraService
                 'datos_adicionales' => isset($data['campos_dinamicos']) && !empty($data['campos_dinamicos'])
                     ? $data['campos_dinamicos']
                     : null,
-            ]);
+                    ]);
 
-            // 4. Crear la Prenda en inventario
-            $prenda = $this->crearPrendaInventario($compra, $codigoPrenda, $sucursalId);
+                    // 4. Crear la Prenda en inventario
+                    $prenda = $this->crearPrendaInventario($compra, $codigoPrenda, $sucursalId);
 
-            // 5. Actualizar relación
-            $compra->update(['prenda_id' => $prenda->id]);
+                    // 5. Actualizar relación
+                    $compra->update(['prenda_id' => $prenda->id]);
 
-            // 6. Procesar campos dinámicos si existen
-            if (isset($data['campos_dinamicos']) && is_array($data['campos_dinamicos'])) {
-                $this->procesarCamposDinamicos($compra, $data['campos_dinamicos']);
-            }
+                    // 6. Procesar campos dinámicos si existen
+                    if (isset($data['campos_dinamicos']) && is_array($data['campos_dinamicos'])) {
+                        $this->procesarCamposDinamicos($compra, $data['campos_dinamicos']);
+                    }
 
-            // 7. Registrar movimiento de caja si es necesario
-            if ($compra->genera_egreso_caja) {
-                $movimiento = $this->registrarEgresoCaja($compra, $sucursalId);
-                if ($movimiento) {
-                    $compra->update(['movimiento_caja_id' => $movimiento->id]);
+                    // 7. Registrar movimiento de caja si es necesario
+                    if ($compra->genera_egreso_caja) {
+                        $movimiento = $this->registrarEgresoCaja($compra, $sucursalId);
+                        if ($movimiento) {
+                            $compra->update(['movimiento_caja_id' => $movimiento->id]);
+                        }
+                    }
+
+                    // 8. Log de auditoría
+                    Log::info("Compra directa registrada", [
+                        'codigo_compra' => $compra->codigo_compra,
+                        'codigo_prenda' => $prenda->codigo_prenda,
+                        'monto' => $compra->monto_pagado,
+                        'cliente' => $compra->cliente_nombre,
+                        'usuario' => $user->name ?? $user->username,
+                    ]);
+
+                    // 9. Disparar evento (opcional para hooks futuros)
+                    Event::dispatch('compra.registrada', [$compra]);
+
+                    return $compra->load(['cliente', 'prenda', 'categoriaProducto', 'sucursal', 'usuario', 'camposDinamicos']);
+                });
+            } catch (QueryException $e) {
+                $intentos++;
+                $isDuplicate = str_contains((string) $e->getMessage(), 'Duplicate entry')
+                    && (str_contains((string) $e->getMessage(), 'compras_codigo_compra_unique')
+                        || str_contains((string) $e->getMessage(), 'prendas_codigo_prenda_unique'));
+
+                if (!$isDuplicate || $intentos >= $maxIntentos) {
+                    throw $e;
                 }
+
+                Log::warning('Colisión de código al crear compra, reintentando...', [
+                    'intento' => $intentos,
+                    'max_intentos' => $maxIntentos,
+                ]);
             }
-
-            // 8. Log de auditoría
-            Log::info("Compra directa registrada", [
-                'codigo_compra' => $compra->codigo_compra,
-                'codigo_prenda' => $prenda->codigo_prenda,
-                'monto' => $compra->monto_pagado,
-                'cliente' => $compra->cliente_nombre,
-                'usuario' => $user->name ?? $user->username,
-            ]);
-
-            // 9. Disparar evento (opcional para hooks futuros)
-            Event::dispatch('compra.registrada', [$compra]);
-
-            return $compra->load(['cliente', 'prenda', 'categoriaProducto', 'sucursal', 'usuario', 'camposDinamicos']);
-        });
+        }
     }
 
     /**
@@ -133,11 +155,18 @@ class CompraService
     private function generarCodigoCompra(int $sucursalId): string
     {
         $prefix = 'CMP-' . str_pad($sucursalId, 3, '0', STR_PAD_LEFT);
-        $count = Compra::where('codigo_compra', 'like', $prefix . '%')->count() + 1;
 
+        // Obtener el número más alto ya utilizado para este prefijo
+        $ultimo = Compra::withTrashed()->where('codigo_compra', 'like', $prefix . '-%')
+            ->selectRaw('MAX(CAST(SUBSTRING_INDEX(codigo_compra, "-", -1) AS UNSIGNED)) as max_num')
+            ->value('max_num');
+
+        $count = ($ultimo ?? 0) + 1;
+
+        // Verificar que no exista (salvaguarda ante concurrencia)
         do {
             $codigo = $prefix . '-' . str_pad($count, 6, '0', STR_PAD_LEFT);
-            $existe = Compra::where('codigo_compra', $codigo)->exists();
+            $existe = Compra::withTrashed()->where('codigo_compra', $codigo)->exists();
             if ($existe) $count++;
         } while ($existe);
 
@@ -150,16 +179,24 @@ class CompraService
     private function generarCodigoPrenda($categoriaId): string
     {
         $prefix = 'PRD-CMP-' . str_pad($categoriaId, 2, '0', STR_PAD_LEFT);
-        $count = Prenda::where('codigo_prenda', 'like', $prefix . '%')->count() + 1;
 
+        // Obtener el número más alto ya utilizado para este prefijo
+        $ultimo = Prenda::withTrashed()->where('codigo_prenda', 'like', $prefix . '-%')
+            ->selectRaw('MAX(CAST(SUBSTRING_INDEX(codigo_prenda, "-", -1) AS UNSIGNED)) as max_num')
+            ->value('max_num');
+
+        $count = ($ultimo ?? 0) + 1;
+
+        // Verificar que no exista (salvaguarda ante concurrencia)
         do {
             $codigo = $prefix . '-' . str_pad($count, 6, '0', STR_PAD_LEFT);
-            $existe = Prenda::where('codigo_prenda', $codigo)->exists();
+            $existe = Prenda::withTrashed()->where('codigo_prenda', $codigo)->exists();
             if ($existe) $count++;
         } while ($existe);
 
         return $codigo;
     }
+
 
     /**
      * Crear prenda en inventario

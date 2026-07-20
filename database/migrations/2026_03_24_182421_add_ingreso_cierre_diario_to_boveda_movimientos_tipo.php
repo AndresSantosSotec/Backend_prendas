@@ -10,7 +10,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement("ALTER TABLE boveda_movimientos MODIFY COLUMN tipo_movimiento ENUM('entrada', 'salida', 'transferencia_entrada', 'transferencia_salida', 'ingreso_cierre_diario') NOT NULL COMMENT 'Tipo de movimiento'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE boveda_movimientos MODIFY COLUMN tipo_movimiento ENUM('entrada', 'salida', 'transferencia_entrada', 'transferencia_salida', 'ingreso_cierre_diario') NOT NULL COMMENT 'Tipo de movimiento'");
+        }
     }
 
     /**
@@ -18,6 +20,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        DB::statement("ALTER TABLE boveda_movimientos MODIFY COLUMN tipo_movimiento ENUM('entrada', 'salida', 'transferencia_entrada', 'transferencia_salida') NOT NULL COMMENT 'Tipo de movimiento'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE boveda_movimientos MODIFY COLUMN tipo_movimiento ENUM('entrada', 'salida', 'transferencia_entrada', 'transferencia_salida') NOT NULL COMMENT 'Tipo de movimiento'");
+        }
     }
 };

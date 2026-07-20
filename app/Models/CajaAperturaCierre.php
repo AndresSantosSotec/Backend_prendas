@@ -31,10 +31,15 @@ class CajaAperturaCierre extends Model
         'resultado_arqueo',
         'detalles_arqueo',
         'estado',
-        'boveda_destino_id',   // ← FK a la bóveda receptora del cierre diario
+        'boveda_destino_id',       // FK a la bóveda receptora del cierre diario
+        // Campos integración Caja-Bóveda (modo integrado)
+        'boveda_origen_id',            // Bóveda de la que se extrajo el saldo inicial
+        'boveda_movimiento_apertura_id', // ID del movimiento de bóveda del retiro inicial
     ];
 
     protected $casts = [
+        'user_id'         => 'integer',
+        'sucursal_id'     => 'integer',
         'detalles_arqueo' => 'array',
         'fecha_cierre'    => 'datetime',
         'saldo_inicial'   => 'decimal:2',
@@ -64,4 +69,13 @@ class CajaAperturaCierre extends Model
     {
         return $this->belongsTo(Boveda::class, 'boveda_destino_id');
     }
+
+    /**
+     * Bóveda de la que se tomó el saldo inicial al abrir (modo integrado).
+     */
+    public function bovedaOrigen()
+    {
+        return $this->belongsTo(Boveda::class, 'boveda_origen_id');
+    }
 }
+

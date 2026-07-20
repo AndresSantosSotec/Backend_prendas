@@ -22,3 +22,7 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Archivos con credenciales sensibles
+CREDENCIALES_USUARIOS.md
+

@@ -19,6 +19,12 @@ class BovedaMovimiento extends Model
 
     protected $table = 'boveda_movimientos';
 
+    protected $appends = [
+        'tipo_movimiento_label',
+        'estado_label',
+        'monto_formateado',
+    ];
+
     protected $fillable = [
         'boveda_id',
         'usuario_id',
@@ -213,15 +219,15 @@ class BovedaMovimiento extends Model
 
     public function getTipoMovimientoLabelAttribute()
     {
-        $labels = [
+        $clave = 'boveda_label_' . $this->tipo_movimiento;
+        return \App\Models\ConfiguracionSistema::obtener($clave, match($this->tipo_movimiento) {
             'entrada' => 'Entrada',
             'salida' => 'Salida',
             'transferencia_entrada' => 'Transferencia Entrada',
             'transferencia_salida' => 'Transferencia Salida',
             'ingreso_cierre_diario' => 'Ingreso por Cierre Diario',
-        ];
-
-        return $labels[$this->tipo_movimiento] ?? $this->tipo_movimiento;
+            default => $this->tipo_movimiento,
+        });
     }
 
     public function getEstadoLabelAttribute()

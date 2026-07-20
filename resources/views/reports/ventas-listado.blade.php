@@ -32,9 +32,19 @@
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>LISTADO DE VENTAS</h1>
-        <p>DigiPrenda - Reporte generado el {{ now()->format('d/m/Y H:i:s') }}</p>
+        <div class="header" style="border:none; padding-bottom: 10px; border-bottom: 1px solid #ccc; margin-bottom: 15px;">
+        <table width="100%">
+            <tr>
+                <td width="25%" style="text-align: left; vertical-align: middle;">
+                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                </td>
+                <td width="50%" style="text-align: center; vertical-align: middle;">
+                    <h1>LISTADO DE VENTAS</h1>
+        <p>Avanza - Reporte generado el {{ now()->format('d/m/Y H:i:s') }}</p>
+                </td>
+                <td width="25%"></td>
+            </tr>
+        </table>
     </div>
 
     <div class="filters">
@@ -47,43 +57,45 @@
         @if(!empty($filtros['busqueda']))
             <span>Búsqueda: <strong>{{ $filtros['busqueda'] }}</strong></span>
         @endif
-        <span>Total registros: <strong>{{ $ventas->count() }}</strong></span>
+        <span>Total registros: <strong>{{ count($items) }}</strong></span>
     </div>
 
     <table class="table">
         <thead>
             <tr>
-                <th>CÓDIGO</th>
+                <th>CÓDIGO VENTA</th>
                 <th>FECHA</th>
                 <th>CLIENTE</th>
-                <th>NIT</th>
-                <th>SUCURSAL</th>
-                <th>VENDEDOR</th>
-                <th class="text-right">SUBTOTAL</th>
-                <th class="text-right">DESC.</th>
-                <th class="text-right">TOTAL</th>
+                <th>ARTÍCULO (DESCRIPCIÓN)</th>
+                <th class="text-right">P. COMPRA (COSTO)</th>
+                <th class="text-right">P. VENTA</th>
+                <th class="text-right">UTILIDAD</th>
+                <th class="text-right">% MARGEN</th>
                 <th class="text-center">ESTADO</th>
             </tr>
         </thead>
         <tbody>
-            @forelse($ventas as $venta)
+            @forelse($items as $item)
                 <tr>
-                    <td>{{ $venta->codigo_venta }}</td>
-                    <td>{{ \Carbon\Carbon::parse($venta->fecha_venta)->format('d/m/Y') }}</td>
-                    <td>{{ Str::limit($venta->cliente_nombre, 20) }}</td>
-                    <td>{{ $venta->cliente_nit ?? 'C/F' }}</td>
-                    <td>{{ Str::limit($venta->sucursal->nombre ?? '-', 12) }}</td>
-                    <td>{{ Str::limit($venta->vendedor->name ?? '-', 12) }}</td>
-                    <td class="text-right">Q{{ number_format($venta->subtotal, 2) }}</td>
-                    <td class="text-right">Q{{ number_format($venta->total_descuentos, 2) }}</td>
-                    <td class="text-right"><strong>Q{{ number_format($venta->total_final, 2) }}</strong></td>
+                    <td>{{ $item->codigo_venta }}</td>
+                    <td>{{ $item->fecha_venta ? \Carbon\Carbon::parse($item->fecha_venta)->format('d/m/Y H:i') : '' }}</td>
+                    <td>{{ Str::limit($item->cliente_nombre, 18) }}</td>
+                    <td>{{ Str::limit($item->descripcion, 32) }}</td>
+                    <td class="text-right">Q{{ number_format($item->precio_compra, 2) }}</td>
+                    <td class="text-right">Q{{ number_format($item->precio_venta, 2) }}</td>
+                    <td class="text-right" style="color: {{ $item->utilidad >= 0 ? '#155724' : '#721c24' }}">
+                        <strong>Q{{ number_format($item->utilidad, 2) }}</strong>
+                    </td>
+                    <td class="text-right" style="color: {{ $item->margen >= 0 ? '#155724' : '#721c24' }}">
+                        <strong>{{ number_format($item->margen, 2) }}%</strong>
+                    </td>
                     <td class="text-center">
-                        <span class="badge badge-{{ $venta->estado }}">{{ strtoupper($venta->estado) }}</span>
+                        <span class="badge badge-{{ $item->estado }}">{{ strtoupper($item->estado) }}</span>
                     </td>
                 </tr>
             @empty
                 <tr>
-                    <td colspan="10" class="text-center">No hay ventas para mostrar</td>
+                    <td colspan="9" class="text-center">No hay artículos vendidos para mostrar</td>
                 </tr>
             @endforelse
         </tbody>
@@ -92,22 +104,26 @@
     <div class="totals">
         <table>
             <tr>
-                <td>Total Subtotal:</td>
-                <td class="text-right">Q{{ number_format($totales['subtotal'], 2) }}</td>
+                <td>Total Costo (Compra):</td>
+                <td class="text-right">Q{{ number_format($totales['costo'], 2) }}</td>
             </tr>
             <tr>
-                <td>Total Descuentos:</td>
-                <td class="text-right">-Q{{ number_format($totales['descuentos'], 2) }}</td>
+                <td>Total Venta:</td>
+                <td class="text-right">Q{{ number_format($totales['venta'], 2) }}</td>
             </tr>
             <tr class="total-row">
-                <td>TOTAL GENERAL:</td>
-                <td class="text-right">Q{{ number_format($totales['total'], 2) }}</td>
+                <td>UTILIDAD TOTAL:</td>
+                <td class="text-right" style="color: {{ $totales['utilidad'] >= 0 ? '#155724' : '#721c24' }}">Q{{ number_format($totales['utilidad'], 2) }}</td>
+            </tr>
+            <tr class="total-row">
+                <td>MARGEN GENERAL:</td>
+                <td class="text-right" style="color: {{ $totales['margen'] >= 0 ? '#155724' : '#721c24' }}">{{ number_format($totales['margen'], 2) }}%</td>
             </tr>
         </table>
     </div>
 
     <div class="footer">
-        DigiPrenda - {{ now()->format('Y') }}
+        Avanza - {{ now()->format('Y') }}
     </div>
 </body>
 </html>

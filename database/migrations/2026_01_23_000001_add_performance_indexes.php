@@ -193,7 +193,11 @@ return new class extends Migration
      */
     private function indexExists(string $table, string $index): bool
     {
-        $indexes = DB::select("SHOW INDEX FROM `{$table}` WHERE Key_name = '{$index}'");
+        if (DB::getDriverName() === 'sqlite') {
+            $indexes = DB::select("SELECT name FROM sqlite_master WHERE type='index' AND name='{$index}'");
+        } else {
+            $indexes = DB::select("SHOW INDEX FROM `{$table}` WHERE Key_name = '{$index}'");
+        }
         return !empty($indexes);
     }
 };

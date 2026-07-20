@@ -14,7 +14,9 @@ return new class extends Migration
     public function up(): void
     {
         // Modificar el ENUM directamente con ALTER TABLE
-        DB::statement("ALTER TABLE ventas MODIFY COLUMN tipo_documento ENUM('NOTA', 'FACTURA', 'RECIBO', 'COTIZACION', 'FEL') DEFAULT 'NOTA'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE ventas MODIFY COLUMN tipo_documento ENUM('NOTA', 'FACTURA', 'RECIBO', 'COTIZACION', 'FEL') DEFAULT 'NOTA'");
+        }
     }
 
     /**
@@ -22,10 +24,12 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Revertir: primero actualizar los registros con FEL a FACTURA
-        DB::statement("UPDATE ventas SET tipo_documento = 'FACTURA' WHERE tipo_documento = 'FEL'");
+        if (DB::getDriverName() !== 'sqlite') {
+            // Revertir: primero actualizar los registros con FEL a FACTURA
+            DB::statement("UPDATE ventas SET tipo_documento = 'FACTURA' WHERE tipo_documento = 'FEL'");
 
-        // Luego restaurar el ENUM original
-        DB::statement("ALTER TABLE ventas MODIFY COLUMN tipo_documento ENUM('NOTA', 'FACTURA', 'RECIBO', 'COTIZACION') DEFAULT 'NOTA'");
+            // Luego restaurar el ENUM original
+            DB::statement("ALTER TABLE ventas MODIFY COLUMN tipo_documento ENUM('NOTA', 'FACTURA', 'RECIBO', 'COTIZACION') DEFAULT 'NOTA'");
+        }
     }
 };

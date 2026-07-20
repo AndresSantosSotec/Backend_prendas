@@ -895,6 +895,8 @@ class ClienteController extends Controller
             'nit' => $cliente->nit,
             'fechaNacimiento' => $cliente->fecha_nacimiento->format('Y-m-d'),
             'genero' => $cliente->genero,
+            'estadoCivil' => $cliente->estado_civil,
+            'profesion' => $cliente->profesion,
             'telefono' => $cliente->telefono,
             'telefonoSecundario' => $cliente->telefono_secundario,
             'email' => $cliente->email,
@@ -926,6 +928,38 @@ class ClienteController extends Controller
                 })->values()->all()
                 : [],
         ];
+    }
+
+    /**
+     * Consultar NIT en SAT mediante TEKRA
+     */
+    public function consultaNit(string $nit, \App\Services\FelService $felService): JsonResponse
+    {
+        try {
+            $resultado = $felService->consultarNit($nit);
+            return response()->json($resultado);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Consultar CUI en SAT mediante TEKRA
+     */
+    public function consultaCui(string $cui, \App\Services\FelService $felService): JsonResponse
+    {
+        try {
+            $resultado = $felService->consultarCui($cui);
+            return response()->json($resultado);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 400);
+        }
     }
 }
 

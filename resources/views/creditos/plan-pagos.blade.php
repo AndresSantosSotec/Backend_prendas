@@ -153,9 +153,19 @@
     </style>
 </head>
 <body>
-    <header>
-        <div class="brand-title">{{ $sucursal->nombre ?? 'DigiPrenda' }}</div>
-        <div class="brand-subtitle">{{ $sucursal->direccion ?? 'Sistema de Gestión de Créditos' }}</div>
+    <header style="padding-bottom: 10px; border-bottom: 1px solid #ccc; margin-bottom: 15px;">
+        <table width="100%">
+            <tr>
+                <td width="25%" style="text-align: left; vertical-align: middle;">
+                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                </td>
+                <td width="50%" style="text-align: center; vertical-align: middle;">
+                    <div class="brand-title">{{ $sucursal->nombre ?? 'Avanza' }}</div>
+                    <div class="brand-subtitle">{{ $sucursal->direccion ?? 'Sistema de Gestión de Créditos' }}</div>
+                </td>
+                <td width="25%"></td>
+            </tr>
+        </table>
     </header>
 
     <footer>
@@ -193,8 +203,14 @@
             </div>
             <div class="info-item">
                 <span class="info-label">Tasa de Interés</span>
-                <span class="info-value">{{ number_format($credito->tasa_interes ?? 0, 2) }}% {{ ucfirst($credito->tipo_interes ?? 'mensual') }}</span>
+                <span class="info-value">{{ number_format($credito->tasa_interes ?? 0, 2) }}% </span>
             </div>
+            @if(isset($credito->tipo_interes) && $credito->tipo_interes !== 'mensual')
+            <div class="info-item">
+                <span class="info-label">Frecuencia de Pago</span>
+                <span class="info-value">{{ ucfirst($credito->tipo_interes ?? 'mensual') }}</span>
+            </div>
+            @endif
             <div class="info-item">
                 <div style="display: inline-block; width: 45%;">
                     <span class="info-label">Plazo</span>
@@ -235,12 +251,26 @@
             @endphp
             @foreach($planPagos as $cuota)
                 @php
-                    $capital = $cuota->capital_proyectado ?? 0;
-                    $interes = $cuota->interes_proyectado ?? 0;
-                    $mora = $cuota->mora_proyectada ?? 0;
-                    // Soportar tanto créditos reales (otros_cargos_proyectados) como simulaciones (otros_proyectados)
-                    $otros = $cuota->otros_cargos_proyectados ?? $cuota->otros_proyectados ?? 0;
-                    $totalCuota = $cuota->monto_cuota_proyectado ?? ($capital + $interes + $mora + $otros);
+                    // Compatibilidad amplia entre estructuras de cuota (crédito generado, simulación JSON y preliminar).
+                    $capital = (float) ($cuota->capital_proyectado ?? $cuota->capital_pendiente ?? $cuota->capital ?? 0);
+                    $interes = (float) ($cuota->interes_proyectado ?? $cuota->interes_pendiente ?? $cuota->interes ?? $cuota->cuota_interes ?? 0);
+                    $mora = (float) ($cuota->mora_proyectada ?? $cuota->mora_pendiente ?? $cuota->mora ?? $cuota->cuota_mora ?? 0);
+                    $otros = (float) (
+                        $cuota->otros_cargos_proyectados
+                        ?? $cuota->otros_cargos_pendientes
+                        ?? $cuota->otros_proyectados
+                        ?? $cuota->gastos_proyectado
+                        ?? $cuota->gastos
+                        ?? $cuota->otros
+                        ?? $cuota->cuota_gastos
+                        ?? 0
+                    );
+
+                    // El total debe reflejar SIEMPRE capital + interés + mora + otros.
+                    $totalCuota = round($capital + $interes + $mora + $otros, 2);
+                    if ($totalCuota <= 0) {
+                        $totalCuota = (float) ($cuota->monto_cuota_proyectado ?? $cuota->cuota_total ?? $cuota->cuota ?? 0);
+                    }
 
                     $totalCapital += $capital;
                     $totalInteres += $interes;
@@ -293,8 +323,17 @@
     </table>
 
     <div class="disclaimer">
-        Nota: Este documento es un plan de pagos proyectado. Los montos de mora pueden variar dependiendo de la fecha real de pago.
-        El pago puntual evita recargos adicionales y mantiene su buen historial crediticio.
+        <strong>Importante:</strong>
+        <ul style="margin: 5px 0 0 20px; padding: 0;">
+            <li><strong>Tasa de Interés:</strong> {{ number_format($credito->tasa_interes ?? 0, 2) }}% aplicada {{ $credito->tipo_interes ?? 'mensualmente' }}. Los intereses se calculan sobre el monto total del crédito.</li>
+            @if(isset($totalGastos) && $totalGastos > 0)
+            <li><strong>Otros Cargos:</strong> Incluye gastos administrativos (Q {{ number_format($totalGastos, 2, '.', ',') }} total) distribuidos proporcionalmente en las cuotas.</li>
+            @else
+            <li><strong>Otros Cargos:</strong> No se aplicaron gastos adicionales a este crédito.</li>
+            @endif
+            <li><strong>Mora:</strong> Este documento es un plan proyectado. Los montos de mora pueden variar según la fecha real de pago.</li>
+            <li>El pago puntual evita recargos adicionales y mantiene su buen historial crediticio.</li>
+        </ul>
     </div>
 </body>
 </html>

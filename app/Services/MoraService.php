@@ -30,21 +30,14 @@ class MoraService
     {
         $fechaCalculo = $fechaCalculo ?? Carbon::now()->startOfDay();
         $diasGracia = (int) ($credito->dias_gracia ?? 0);
-        $tipoMora = $credito->tipo_mora ?? 'porcentaje';
-        $tasaMora = (float) ($credito->tasa_mora ?? 0);
-        $moraMontoFijo = (float) ($credito->mora_monto_fijo ?? 0);
+        $moraConfig = $this->resolverConfiguracionMora($credito);
+        $tipoMora = $moraConfig['tipo_mora'];
+        $tasaMora = $moraConfig['tasa_mora'];
+        $moraMontoFijo = $moraConfig['mora_monto_fijo'];
 
         // Obtener parametrización de mora (días laborales, topes)
         $sucursalId = $credito->sucursal_id;
         $paramMora = ParametrizacionMora::obtenerConfiguracion($sucursalId);
-
-        // Fallback: si tasa_mora es 0, intentar obtener del plan de interés asociado
-        if ($tasaMora <= 0 && $tipoMora === 'porcentaje' && $credito->plan_interes_id) {
-            $plan = PlanInteresCategoria::find($credito->plan_interes_id);
-            if ($plan && (float)($plan->tasa_moratorios ?? 0) > 0) {
-                $tasaMora = (float) $plan->tasa_moratorios;
-            }
-        }
 
         $cuotasActualizadas = 0;
         $moraTotalGenerada = 0.0;
@@ -137,6 +130,54 @@ class MoraService
             'cuotas_actualizadas' => $cuotasActualizadas,
             'mora_total_generada' => round($sumMoraGenerada, 2),
             'dias_mora_max' => $diasMoraMax,
+        ];
+    }
+
+    /**
+     * Resuelve la configuracion de mora efectiva del credito.
+     * Prioriza lo guardado en el credito y usa el plan asociado como fallback,
+     * incluyendo soporte de monto fijo por dia.
+     */
+    private function resolverConfiguracionMora(CreditoPrendario $credito): array
+    {
+        $tipoMora = (string) ($credito->tipo_mora ?? '');
+        $tasaMora = (float) ($credito->tasa_mora ?? 0);
+        $moraMontoFijo = (float) ($credito->mora_monto_fijo ?? 0);
+        $plan = null;
+
+        if ($credito->plan_interes_id) {
+            $plan = PlanInteresCategoria::find($credito->plan_interes_id);
+        }
+
+        if ($tipoMora === '' && $plan) {
+            $tipoMora = (string) ($plan->tipo_mora ?? '');
+        }
+
+        if ($tipoMora === '') {
+            $tipoMora = 'porcentaje';
+        }
+
+        if ($tipoMora === 'monto_fijo') {
+            if ($moraMontoFijo <= 0 && $plan && (float) ($plan->mora_monto_fijo ?? 0) > 0) {
+                $moraMontoFijo = (float) $plan->mora_monto_fijo;
+            }
+        } else {
+            if ($tasaMora <= 0 && $plan && (float) ($plan->tasa_moratorios ?? 0) > 0) {
+                $tasaMora = (float) $plan->tasa_moratorios;
+            }
+
+            // Si el credito quedo con tipo porcentaje sin tasa, pero el plan usa monto fijo,
+            // tomar configuracion del plan para no perder el cobro de mora.
+            if ($tasaMora <= 0 && $plan && (string) ($plan->tipo_mora ?? '') === 'monto_fijo' && (float) ($plan->mora_monto_fijo ?? 0) > 0) {
+                $tipoMora = 'monto_fijo';
+                $moraMontoFijo = (float) $plan->mora_monto_fijo;
+            }
+        }
+
+        return [
+            'tipo_mora' => $tipoMora,
+            'tasa_mora' => $tasaMora,
+            'mora_monto_fijo' => $moraMontoFijo,
         ];
     }
 

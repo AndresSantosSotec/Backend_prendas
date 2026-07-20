@@ -171,14 +171,24 @@
 </head>
 <body>
     <!-- Encabezado -->
-    <div class="encabezado">
-        <div class="empresa">{{ $cotizacion->sucursal->nombre ?? 'DIGIPRENDA' }}</div>
-        <div style="font-size: 10px;">
-            {{ $cotizacion->sucursal->direccion ?? '' }}<br>
-            Tel: {{ $cotizacion->sucursal->telefono ?? '' }}
-        </div>
-        <div class="titulo-documento">COTIZACIÓN DE VENTA</div>
-        <div style="font-size: 12px; font-weight: bold;">No. {{ $cotizacion->numero_cotizacion }}</div>
+    <div class="encabezado" style="padding-bottom: 10px; border-bottom: 1px solid #ccc; margin-bottom: 15px;">
+        <table width="100%">
+            <tr>
+                <td width="25%" style="text-align: left; vertical-align: middle;">
+                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                </td>
+                <td width="50%" style="text-align: center; vertical-align: middle;">
+                    <div class="empresa">{{ $cotizacion->sucursal->nombre ?? 'AVANZA' }}</div>
+                    <div style="font-size: 10px;">
+                        {{ $cotizacion->sucursal->direccion ?? '' }}<br>
+                        Tel: {{ $cotizacion->sucursal->telefono ?? '' }}
+                    </div>
+                    <div class="titulo-documento">COTIZACIÓN DE VENTA</div>
+                    <div style="font-size: 12px; font-weight: bold;">No. {{ $cotizacion->numero_cotizacion }}</div>
+                </td>
+                <td width="25%"></td>
+            </tr>
+        </table>
     </div>
 
     <!-- Información General -->

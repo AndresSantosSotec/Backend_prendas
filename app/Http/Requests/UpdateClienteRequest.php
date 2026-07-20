@@ -39,6 +39,8 @@ class UpdateClienteRequest extends FormRequest
             'nit' => 'nullable|string|max:20',
             'fecha_nacimiento' => 'sometimes|required|date|before:today',
             'genero' => 'sometimes|required|in:masculino,femenino,otro',
+            'estado_civil' => 'nullable|string|max:100',
+            'profesion' => 'nullable|string|max:150',
             'telefono' => 'nullable|string|max:20',
             'telefono_secundario' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',

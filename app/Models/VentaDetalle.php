@@ -46,6 +46,11 @@ class VentaDetalle extends Model
         return $this->belongsTo(Prenda::class);
     }
 
+    public function compra()
+    {
+        return $this->belongsTo(Compra::class, 'producto_id');
+    }
+
     // Accessors
     public function getMontoDescuentoAttribute()
     {

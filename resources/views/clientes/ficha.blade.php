@@ -235,8 +235,9 @@
 </head>
 <body>
     <header>
+
         <div class="header-inner">
-            <div class="brand">DigiPrenda</div>
+            <div class="brand">Avanza</div>
             <div class="doc-type">Ficha de Cliente — Documento interno</div>
         </div>
     </header>

@@ -226,39 +226,51 @@ class VentaPlanPagoService
             // 2. Recalcular mora si aplica
             $this->recalcularMoraCuota($cuota);
 
-            // 3. Determinar cuánto se debe en total en esta cuota
-            $totalAdeudar = $cuota->monto_pendiente;
+            // 3. Determinar cuánto se debe en total en esta cuota y buscar cuotas siguientes para excedente
+            $totalAdeudar = (float) $cuota->monto_pendiente;
 
-            if ($monto > $totalAdeudar) {
-                throw new Exception("El monto Q{$monto} excede lo adeudado Q{$totalAdeudar} en esta cuota");
+            $cuotasSiguientes = $ventaCredito->planPagos()
+                ->where('numero_cuota', '>', $cuota->numero_cuota)
+                ->whereIn('estado', ['pendiente', 'pagada_parcial', 'vencida', 'en_mora'])
+                ->orderBy('numero_cuota')
+                ->get();
+
+            $saldoTotalCredito = $totalAdeudar + $cuotasSiguientes->sum('monto_pendiente');
+            if ($monto > $saldoTotalCredito + 0.01) {
+                throw new Exception("El monto Q" . number_format($monto, 2) . " excede el saldo total pendiente del crédito Q" . number_format($saldoTotalCredito, 2));
             }
 
-            // 4. Aplicar pago con prioridad: MORA → INTERÉS → CAPITAL
-            $montoRestante = $monto;
+            $montoExcedente = 0.0;
+            $montoAplicarEstaCuota = $monto;
 
-            // a) Aplicar a mora
-            $pagoMora = min($montoRestante, $cuota->mora_pendiente);
-            $cuota->mora_pagada += $pagoMora;
-            $cuota->mora_pendiente -= $pagoMora;
-            $montoRestante -= $pagoMora;
+            if ($monto > $totalAdeudar) {
+                $montoAplicarEstaCuota = $totalAdeudar;
+                $montoExcedente = $monto - $totalAdeudar;
+            }
 
-            // b) Aplicar a interés
-            $pagoInteres = min($montoRestante, $cuota->interes_pendiente);
-            $cuota->interes_pagado += $pagoInteres;
-            $cuota->interes_pendiente -= $pagoInteres;
-            $montoRestante -= $pagoInteres;
+            // 4. Aplicar pago a la cuota actual con prioridad: MORA → INTERÉS → CAPITAL
+            $montoRestante = $montoAplicarEstaCuota;
 
-            // c) Aplicar a capital
-            $pagoCapital = min($montoRestante, $cuota->capital_pendiente);
-            $cuota->capital_pagado += $pagoCapital;
-            $cuota->capital_pendiente -= $pagoCapital;
-            $montoRestante -= $pagoCapital;
+            $pagoMoraEsta = min($montoRestante, $cuota->mora_pendiente);
+            $cuota->mora_pagada += $pagoMoraEsta;
+            $cuota->mora_pendiente -= $pagoMoraEsta;
+            $montoRestante -= $pagoMoraEsta;
 
-            // 5. Actualizar totales de cuota
-            $cuota->monto_total_pagado += $monto;
+            $pagoInteresEsta = min($montoRestante, $cuota->interes_pendiente);
+            $cuota->interes_pagado += $pagoInteresEsta;
+            $cuota->interes_pendiente -= $pagoInteresEsta;
+            $montoRestante -= $pagoInteresEsta;
+
+            $pagoCapitalEsta = min($montoRestante, $cuota->capital_pendiente);
+            $cuota->capital_pagado += $pagoCapitalEsta;
+            $cuota->capital_pendiente -= $pagoCapitalEsta;
+            $montoRestante -= $pagoCapitalEsta;
+
+            // 5. Actualizar totales de cuota actual
+            $cuota->monto_total_pagado += $montoAplicarEstaCuota;
             $cuota->monto_pendiente = $cuota->capital_pendiente + $cuota->interes_pendiente + $cuota->mora_pendiente;
 
-            // 6. Actualizar estado de cuota
+            // 6. Actualizar estado de cuota actual
             if ($cuota->monto_pendiente <= 0.01) { // Tolerancia de 1 centavo
                 $cuota->estado = 'pagada';
                 $cuota->fecha_pago = now();
@@ -319,8 +331,17 @@ class VentaPlanPagoService
                 }
             }
 
-            // 7. Crear movimiento (tabla venta_credito_movimientos: sucursal_id obligatorio, caja_apertura_cierre_id, tipo_movimiento enum)
-            $saldoNuevoTotal = $ventaCredito->saldo_actual - $monto + $interesNuevoRefinanciamiento + $gastoRefinanciamiento;
+            // Inicializar acumuladores para actualizar el venta_credito
+            $pagoMoraTotal = $pagoMoraEsta;
+            $pagoInteresTotal = $pagoInteresEsta;
+            $pagoCapitalTotal = $pagoCapitalEsta;
+
+            $runningCapitalPendiente = $ventaCredito->capital_pendiente - $pagoCapitalEsta;
+            $runningInteresPendiente = $ventaCredito->interes_pendiente - $pagoInteresEsta;
+            $runningMoraGenerada = max(0, ($ventaCredito->mora_generada ?? 0) - ($ventaCredito->mora_pagada ?? 0) - $pagoMoraEsta);
+            $runningSaldoActual = $ventaCredito->saldo_actual - $montoAplicarEstaCuota;
+
+            // 7. Crear movimiento de la cuota principal
             $esPagoAdelantado = $cuota->fecha_vencimiento && Carbon::parse($cuota->fecha_vencimiento)->isFuture();
             if ($esPagoAdelantado) {
                 $tipoMov = ($cuota->monto_pendiente <= 0.01) ? 'pago_adelantado' : 'pago_parcial';
@@ -337,26 +358,108 @@ class VentaPlanPagoService
                 'numero_cuota' => $cuota->numero_cuota,
                 'fecha_movimiento' => now(),
                 'fecha_registro' => now(),
-                'monto_total' => $monto,
-                'capital' => $pagoCapital,
-                'interes' => $pagoInteres,
-                'mora' => $pagoMora,
+                'monto_total' => $montoAplicarEstaCuota,
+                'capital' => $pagoCapitalEsta,
+                'interes' => $pagoInteresEsta,
+                'mora' => $pagoMoraEsta,
                 'otros_cargos' => 0,
-                'saldo_capital' => $ventaCredito->capital_pendiente - $pagoCapital,
-                'saldo_interes' => $ventaCredito->interes_pendiente - $pagoInteres,
-                'saldo_mora' => max(0, ($ventaCredito->mora_generada ?? 0) - ($ventaCredito->mora_pagada ?? 0) - $pagoMora),
-                'saldo_total' => $saldoNuevoTotal,
+                'saldo_capital' => $runningCapitalPendiente,
+                'saldo_interes' => $runningInteresPendiente,
+                'saldo_mora' => $runningMoraGenerada,
+                'saldo_total' => $runningSaldoActual,
                 'observaciones' => $datos['observacion'] ?? "Pago cuota #{$cuota->numero_cuota}",
                 'caja_apertura_cierre_id' => $cajaId,
             ]);
 
+            // Aplicar excedente a cuotas subsecuentes si hay
+            $excedenteRestante = $montoExcedente;
+            foreach ($cuotasSiguientes as $siguienteCuota) {
+                if ($excedenteRestante <= 0) {
+                    break;
+                }
+
+                $this->recalcularMoraCuota($siguienteCuota);
+
+                $adeudoSiguiente = (float) $siguienteCuota->monto_pendiente;
+                $montoAplicarSiguiente = min($excedenteRestante, $adeudoSiguiente);
+
+                $tempRestante = $montoAplicarSiguiente;
+
+                $pagoMoraSiguiente = min($tempRestante, $siguienteCuota->mora_pendiente);
+                $siguienteCuota->mora_pagada += $pagoMoraSiguiente;
+                $siguienteCuota->mora_pendiente -= $pagoMoraSiguiente;
+                $tempRestante -= $pagoMoraSiguiente;
+
+                $pagoInteresSiguiente = min($tempRestante, $siguienteCuota->interes_pendiente);
+                $siguienteCuota->interes_pagado += $pagoInteresSiguiente;
+                $siguienteCuota->interes_pendiente -= $pagoInteresSiguiente;
+                $tempRestante -= $pagoInteresSiguiente;
+
+                $pagoCapitalSiguiente = min($tempRestante, $siguienteCuota->capital_pendiente);
+                $siguienteCuota->capital_pagado += $pagoCapitalSiguiente;
+                $siguienteCuota->capital_pendiente -= $pagoCapitalSiguiente;
+
+                $siguienteCuota->monto_total_pagado += $montoAplicarSiguiente;
+                $siguienteCuota->monto_pendiente = $siguienteCuota->capital_pendiente + $siguienteCuota->interes_pendiente + $siguienteCuota->mora_pendiente;
+
+                if ($siguienteCuota->monto_pendiente <= 0.01) {
+                    $siguienteCuota->estado = 'pagada';
+                    $siguienteCuota->fecha_pago = now();
+                    $siguienteCuota->monto_pendiente = 0;
+                } else {
+                    $siguienteCuota->estado = 'pagada_parcial';
+                }
+
+                $siguienteCuota->usuario_pago_id = Auth::id();
+                $siguienteCuota->save();
+
+                $runningCapitalPendiente -= $pagoCapitalSiguiente;
+                $runningInteresPendiente -= $pagoInteresSiguiente;
+                $runningMoraGenerada = max(0, $runningMoraGenerada - $pagoMoraSiguiente);
+                $runningSaldoActual -= $montoAplicarSiguiente;
+
+                $esAdelantadoSiguiente = $siguienteCuota->fecha_vencimiento && Carbon::parse($siguienteCuota->fecha_vencimiento)->isFuture();
+                $tipoMovSiguiente = $esAdelantadoSiguiente
+                    ? (($siguienteCuota->estado === 'pagada') ? 'pago_adelantado' : 'pago_parcial')
+                    : (($siguienteCuota->estado === 'pagada') ? 'pago' : 'pago_parcial');
+
+                VentaCreditoMovimiento::create([
+                    'venta_credito_id' => $ventaCredito->id,
+                    'usuario_id' => Auth::id(),
+                    'sucursal_id' => $ventaCredito->sucursal_id,
+                    'cuota_id' => $siguienteCuota->id,
+                    'numero_movimiento' => VentaCreditoMovimiento::generarNumeroMovimiento(),
+                    'tipo_movimiento' => $tipoMovSiguiente,
+                    'numero_cuota' => $siguienteCuota->numero_cuota,
+                    'fecha_movimiento' => now(),
+                    'fecha_registro' => now(),
+                    'monto_total' => $montoAplicarSiguiente,
+                    'capital' => $pagoCapitalSiguiente,
+                    'interes' => $pagoInteresSiguiente,
+                    'mora' => $pagoMoraSiguiente,
+                    'otros_cargos' => 0,
+                    'saldo_capital' => $runningCapitalPendiente,
+                    'saldo_interes' => $runningInteresPendiente,
+                    'saldo_mora' => $runningMoraGenerada,
+                    'saldo_total' => $runningSaldoActual,
+                    'observaciones' => "Abono excedente desde cuota #{$cuota->numero_cuota}",
+                    'caja_apertura_cierre_id' => $cajaId,
+                ]);
+
+                $pagoMoraTotal += $pagoMoraSiguiente;
+                $pagoInteresTotal += $pagoInteresSiguiente;
+                $pagoCapitalTotal += $pagoCapitalSiguiente;
+
+                $excedenteRestante -= $montoAplicarSiguiente;
+            }
+
             // 8. Actualizar venta_credito
-            $ventaCredito->capital_pagado += $pagoCapital;
-            $ventaCredito->capital_pendiente -= $pagoCapital;
-            $ventaCredito->interes_pagado += $pagoInteres;
-            $ventaCredito->interes_pendiente -= $pagoInteres;
-            $ventaCredito->mora_pagada += $pagoMora;
-            $ventaCredito->mora_generada = max(0, $ventaCredito->mora_generada - $pagoMora);
+            $ventaCredito->capital_pagado += $pagoCapitalTotal;
+            $ventaCredito->capital_pendiente -= $pagoCapitalTotal;
+            $ventaCredito->interes_pagado += $pagoInteresTotal;
+            $ventaCredito->interes_pendiente -= $pagoInteresTotal;
+            $ventaCredito->mora_pagada += $pagoMoraTotal;
+            $ventaCredito->mora_generada = max(0, ($ventaCredito->mora_generada ?? 0) - $pagoMoraTotal);
             $ventaCredito->saldo_actual -= $monto;
             if ($generarNuevaCuota && ($interesNuevoRefinanciamiento > 0 || $gastoRefinanciamiento > 0)) {
                 $ventaCredito->interes_pendiente += $interesNuevoRefinanciamiento;
@@ -377,14 +480,25 @@ class VentaPlanPagoService
 
                 // Marcar venta como pagada y prendas/productos como vendidos (no deben seguir en "Disponible para Venta")
                 $venta = $ventaCredito->venta->load('detalles.prenda');
-                $venta->update([
-                    'estado' => 'pagada',
-                    'fecha_liquidacion' => now(),
-                    'saldo_pendiente' => 0,
-                    'total_pagado' => $venta->total_credito ?? $venta->total_final,
-                ]);
+                if ($venta) {
+                    $venta->update([
+                        'estado' => 'pagada',
+                        'fecha_liquidacion' => now(),
+                        'saldo_pendiente' => 0,
+                        'total_pagado' => ($venta->enganche ?? 0) + $ventaCredito->capital_pagado + $ventaCredito->interes_pagado + $ventaCredito->mora_pagada,
+                    ]);
+                }
 
                 $this->marcarDetallesVentaComoVendidos($venta);
+            } else {
+                // Mantener saldo_pendiente y total_pagado sincronizados en la venta
+                $venta = $ventaCredito->venta;
+                if ($venta) {
+                    $venta->update([
+                        'saldo_pendiente' => $ventaCredito->saldo_actual,
+                        'total_pagado' => ($venta->enganche ?? 0) + $ventaCredito->capital_pagado + $ventaCredito->interes_pagado + $ventaCredito->mora_pagada,
+                    ]);
+                }
             }
 
             $ventaCredito->save();
@@ -415,9 +529,9 @@ class VentaPlanPagoService
                     'glosa' => "Abono cuota #{$cuota->numero_cuota} - Crédito {$ventaCredito->numero_credito}",
                     'fecha_documento' => now(),
                     'monto' => $monto,
-                    'monto_capital' => $pagoCapital,
-                    'monto_interes' => $pagoInteres,
-                    'monto_mora' => $pagoMora,
+                    'monto_capital' => $pagoCapitalTotal,
+                    'monto_interes' => $pagoInteresTotal,
+                    'monto_mora' => $pagoMoraTotal,
                     'caja_id' => $cajaId,
                 ]);
             } catch (Exception $e) {
@@ -428,9 +542,9 @@ class VentaPlanPagoService
                 'cuota_id' => $cuota->id,
                 'numero_cuota' => $cuota->numero_cuota,
                 'monto' => $monto,
-                'capital' => $pagoCapital,
-                'interes' => $pagoInteres,
-                'mora' => $pagoMora,
+                'capital' => $pagoCapitalTotal,
+                'interes' => $pagoInteresTotal,
+                'mora' => $pagoMoraTotal,
                 'saldo_nuevo' => $ventaCredito->saldo_actual,
                 'liquidado' => $ventaCredito->estado === 'pagado',
             ]);
@@ -441,12 +555,12 @@ class VentaPlanPagoService
                 'ventaCredito' => $ventaCredito->fresh(['planPagos']),
                 'desglose' => [
                     'monto_total' => $monto,
-                    'aplicado_mora' => $pagoMora,
-                    'aplicado_interes' => $pagoInteres,
-                    'aplicado_capital' => $pagoCapital,
+                    'aplicado_mora' => $pagoMoraTotal,
+                    'aplicado_interes' => $pagoInteresTotal,
+                    'aplicado_capital' => $pagoCapitalTotal,
                 ],
                 'saldo_anterior' => $movimiento->saldo_anterior ?? null,
-                'saldo_nuevo' => $movimiento->saldo_nuevo ?? $saldoNuevoTotal,
+                'saldo_nuevo' => $movimiento->saldo_total ?? $ventaCredito->saldo_actual,
                 'liquidado' => $ventaCredito->estado === 'pagado',
             ];
         });
@@ -584,13 +698,23 @@ class VentaPlanPagoService
                 $ventaCredito->save();
 
                 $venta = $ventaCredito->venta->load('detalles.prenda');
-                $venta->update([
-                    'estado' => 'pagada',
-                    'fecha_liquidacion' => $hoy,
-                    'saldo_pendiente' => 0,
-                    'total_pagado' => $venta->total_credito ?? $venta->total_final,
-                ]);
+                if ($venta) {
+                    $venta->update([
+                        'estado' => 'pagada',
+                        'fecha_liquidacion' => $hoy,
+                        'saldo_pendiente' => 0,
+                        'total_pagado' => ($venta->enganche ?? 0) + $ventaCredito->capital_pagado + $ventaCredito->interes_pagado + $ventaCredito->mora_pagada,
+                    ]);
+                }
                 $this->marcarDetallesVentaComoVendidos($venta);
+            } else {
+                $venta = $ventaCredito->venta;
+                if ($venta) {
+                    $venta->update([
+                        'saldo_pendiente' => $ventaCredito->saldo_actual,
+                        'total_pagado' => ($venta->enganche ?? 0) + $ventaCredito->capital_pagado + $ventaCredito->interes_pagado + $ventaCredito->mora_pagada,
+                    ]);
+                }
             }
 
             try {

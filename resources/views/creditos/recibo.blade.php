@@ -137,9 +137,19 @@
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="brand-title">{{ $sucursal->nombre ?? 'DigiPrenda' }}</div>
-        <div class="brand-subtitle">{{ $sucursal->direccion ?? 'Sistema de Gestión de Créditos' }}</div>
+    <div class="header" style="padding-bottom: 10px; border-bottom: 1px solid #ccc; margin-bottom: 15px;">
+        <table width="100%">
+            <tr>
+                <td width="25%" style="text-align: left; vertical-align: middle;">
+                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                </td>
+                <td width="50%" style="text-align: center; vertical-align: middle;">
+                    <div class="brand-title">{{ $sucursal->nombre ?? 'Avanza' }}</div>
+                    <div class="brand-subtitle">{{ $sucursal->direccion ?? 'Sistema de Gestión de Créditos' }}</div>
+                </td>
+                <td width="25%"></td>
+            </tr>
+        </table>
     </div>
 
     <h2 class="document-title">Recibo de Crédito Prendario</h2>
@@ -208,20 +218,17 @@
 
         <div class="summary-row">
             <span>Tasa de Interés:</span>
-            <span>{{ number_format($credito->tasa_interes ?? 0, 2) }}% {{ ucfirst($credito->tipo_interes ?? 'mensual') }}</span>
+            <span>{{ number_format($credito->tasa_interes ?? 0, 2) }}%</span>
         </div>
-        @if(isset($credito->tasa_mora) && $credito->tasa_mora)
-        <div class="summary-row">
-            <span>Tasa de Mora:</span>
-            <span>{{ number_format($credito->tasa_mora, 2) }}% diario</span>
-        </div>
-        @endif
+
         <div class="summary-row">
             <span>Plazo:</span>
-            @if(isset($credito->tipo_interes) && strtolower($credito->tipo_interes) == 'mensual')
-                <span>{{ $credito->numero_cuotas ?? 'N/A' }} {{ ($credito->numero_cuotas ?? 0) == 1 ? 'mes' : 'meses' }}</span>
+            @if(isset($credito->plazo_dias) && $credito->plazo_dias)
+                <span>{{ $credito->plazo_dias }} días</span>
+            @elseif(isset($credito->numero_cuotas) && $credito->numero_cuotas)
+                <span>{{ $credito->numero_cuotas }} cuota{{ ($credito->numero_cuotas ?? 0) == 1 ? '' : 's' }}</span>
             @else
-                <span>{{ $credito->plazo_dias ?? 'N/A' }} días</span>
+                <span>N/A</span>
             @endif
         </div>
         @if(isset($credito->numero_cuotas) && $credito->numero_cuotas)
@@ -249,7 +256,7 @@
         @if(isset($barcodeImage))
             <img src="data:image/png;base64,{{ $barcodeImage }}" alt="Código de Barras" class="barcode-image">
         @endif
-        <div class="barcode-number">{{ $credito->numero_credito }}</div>
+        <div class="barcode-number">{{ $barcodeValue ?? ($credito->numero_credito ?? 'N/A') }}</div>
     </div>
 
     <div class="footer">

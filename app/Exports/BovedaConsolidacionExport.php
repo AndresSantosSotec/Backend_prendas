@@ -56,7 +56,7 @@ class BovedaConsolidacionExport implements FromCollection, WithHeadings, WithMap
             }
 
             $movimientos = $movimientosQuery->get();
-            $entradas = $movimientos->filter(fn($m) => in_array($m->tipo_movimiento, ['entrada', 'transferencia_entrada']));
+            $entradas = $movimientos->filter(fn($m) => in_array($m->tipo_movimiento, ['entrada', 'transferencia_entrada', 'ingreso_cierre_diario']));
             $salidas = $movimientos->filter(fn($m) => in_array($m->tipo_movimiento, ['salida', 'transferencia_salida']));
 
             return (object)[

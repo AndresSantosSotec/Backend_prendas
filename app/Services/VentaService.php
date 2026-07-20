@@ -286,12 +286,14 @@ class VentaService
             }
 
             // Devolver prenda a estado en_venta
-            $venta->prenda->update([
-                'estado' => 'en_venta',
-                'comprador_id' => null,
-                'observaciones' => ($venta->prenda->observaciones ?? '') . "\n" .
-                    "Venta cancelada el " . now()->format('d/m/Y H:i') . " - " . $motivo
-            ]);
+            if ($venta->prenda) {
+                $venta->prenda->update([
+                    'estado' => 'en_venta',
+                    'comprador_id' => null,
+                    'observaciones' => ($venta->prenda->observaciones ?? '') . "\n" .
+                        "Venta cancelada el " . now()->format('d/m/Y H:i') . " - " . $motivo
+                ]);
+            }
 
             // Marcar venta como cancelada
             $venta->update([
@@ -299,6 +301,15 @@ class VentaService
                 'fecha_cancelacion' => now(),
                 'motivo_cancelacion' => $motivo
             ]);
+
+            // Cancelar el crédito de venta asociado si existe
+            if ($venta->ventaCredito) {
+                $venta->ventaCredito->update([
+                    'estado' => 'cancelado',
+                    'observaciones' => ($venta->ventaCredito->observaciones ?? '') . "\nCrédito cancelado por anulación de venta el " . now()->format('d/m/Y H:i') . "."
+                ]);
+                $venta->ventaCredito->planPagos()->update(['estado' => 'cancelada']);
+            }
 
             // Revertir aplicación al crédito si existe
             if ($venta->creditoPrendario) {

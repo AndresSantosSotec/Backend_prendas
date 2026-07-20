@@ -92,9 +92,19 @@
     </style>
 </head>
 <body>
-    <header>
-        <div class="brand-title">{{ $venta->sucursal->nombre ?? 'DIGIPRENDA' }}</div>
-        <div class="brand-subtitle">{{ $venta->sucursal->direccion ?? 'Sistema de Gestión de Empeños' }}</div>
+    <header style="padding-bottom: 5px;">
+        <table width="100%" style="margin-top: 5px;">
+            <tr>
+                <td width="25%" style="text-align: left; vertical-align: middle; border: none;">
+                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 60px; margin-left: 10px;">
+                </td>
+                <td width="50%" style="text-align: center; vertical-align: middle; border: none; line-height: 1.2;">
+                    <div class="brand-title" style="padding-top: 0;">{{ $venta->sucursal->nombre ?? 'AVANZA' }}</div>
+                    <div class="brand-subtitle">{{ $venta->sucursal->direccion ?? 'Sistema de Gestión de Empeños' }}</div>
+                </td>
+                <td width="25%" style="border: none;"></td>
+            </tr>
+        </table>
     </header>
 
     <footer>
@@ -133,7 +143,13 @@
             </div>
             <div class="info-item">
                 <span class="info-label">Vencimiento</span>
-                <span class="info-value">{{ \Carbon\Carbon::parse($credito->fecha_vencimiento)->format('d/m/Y') }}</span>
+                <span class="info-value">
+                    @if(isset($planPagos) && $planPagos->count() > 0)
+                        {{ \Carbon\Carbon::parse($planPagos->last()->fecha_vencimiento)->format('d/m/Y') }}
+                    @else
+                        {{ \Carbon\Carbon::parse($credito->fecha_vencimiento)->format('d/m/Y') }}
+                    @endif
+                </span>
             </div>
             <div class="info-item">
                 <span class="info-label">Estado</span>
@@ -165,8 +181,17 @@
         </thead>
         <tbody>
             <tr>
-                <td>Monto venta</td>
-                <td class="amount">{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($credito->monto_venta, 2) }}</td>
+                <td>
+                    <strong>Monto venta</strong>
+                    @if($venta->detalles && $venta->detalles->count() > 0)
+                    <div style="font-size: 8.5px; color: #555; margin-top: 4px; padding-left: 8px; line-height: 1.3;">
+                        @foreach($venta->detalles as $detalle)
+                            • {{ $detalle->descripcion }} (Cant: {{ (int)$detalle->cantidad }}) @if($detalle->codigo) [{{ $detalle->codigo }}] @endif<br>
+                        @endforeach
+                    </div>
+                    @endif
+                </td>
+                <td class="amount" style="vertical-align: top;">{{ $venta->moneda->simbolo ?? 'Q' }}{{ number_format($credito->monto_venta, 2) }}</td>
             </tr>
             <tr>
                 <td>Enganche pagado</td>

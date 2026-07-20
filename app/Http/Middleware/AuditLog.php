@@ -41,9 +41,6 @@ class AuditLog
         '/ficha',
     ];
 
-    /**
-     * Registrar auditoría de todas las operaciones relevantes
-     */
     public function handle(Request $request, Closure $next): Response
     {
         // Solo auditar si está habilitado en config
@@ -53,6 +50,9 @@ class AuditLog
 
         $startTime = microtime(true);
 
+        // Capturar datos del registro antes de que sea modificado o eliminado por la solicitud
+        $datosAnteriores = $this->capturarDatosAnteriores($request);
+
         // Ejecutar request
         $response = $next($request);
 
@@ -61,7 +61,7 @@ class AuditLog
 
         // Determinar si debe auditarse
         if ($this->shouldAudit($request)) {
-            $this->guardarAuditoria($request, $response, $duration);
+            $this->guardarAuditoria($request, $response, $duration, $datosAnteriores);
         }
 
         return $response;
@@ -102,7 +102,7 @@ class AuditLog
     /**
      * Guardar auditoría en base de datos
      */
-    private function guardarAuditoria(Request $request, Response $response, float $duration): void
+    private function guardarAuditoria(Request $request, Response $response, float $duration, ?array $datosAnteriores = null): void
     {
         try {
             $user = Auth::user();
@@ -119,6 +119,39 @@ class AuditLog
                 'new_password', 'token', 'api_token', '_token',
             ]));
 
+            // Si es un error (código de estado >= 400), capturar el detalle de la respuesta para facilitar la depuración
+            if ($statusCode >= 400) {
+                $decoded = null;
+                try {
+                    $content = $response->getContent();
+                    $decoded = json_decode($content, true);
+                    if (is_array($decoded)) {
+                        $datosRequest['_error_respuesta'] = [
+                            'mensaje' => $decoded['message'] ?? $decoded['error'] ?? 'Sin mensaje de error en la respuesta.',
+                            'errores_validacion' => $decoded['errors'] ?? null,
+                            'transiciones_validas' => $decoded['transiciones_validas'] ?? null,
+                        ];
+                    } else {
+                        $datosRequest['_error_respuesta'] = [
+                            'mensaje' => substr($content, 0, 1000) ?: 'Respuesta vacía o formato desconocido.',
+                        ];
+                    }
+                } catch (\Exception $respEx) {
+                    $datosRequest['_error_respuesta'] = [
+                        'mensaje' => 'No se pudo parsear el cuerpo de la respuesta de error: ' . $respEx->getMessage(),
+                    ];
+                }
+
+                // Generar y agregar diagnóstico sugerido para la IA y el Administrador
+                $datosRequest['_error_respuesta']['diagnostico_sugerido'] = $this->generarDiagnosticoSugerido(
+                    $statusCode,
+                    $method,
+                    $path,
+                    $decoded,
+                    $datosRequest
+                );
+            }
+
             // Generar descripción
             $descripcion = $this->generarDescripcion($method, $path, $statusCode, $duration, $request);
 
@@ -131,8 +164,8 @@ class AuditLog
                 'descripcion' => $descripcion,
                 'tabla' => $this->extraerTabla($path),
                 'registro_id' => $this->extraerRegistroId($path),
-                'datos_anteriores' => null,
-                'datos_nuevos' => (!empty($datosRequest) && in_array($method, ['POST', 'PUT', 'PATCH']))
+                'datos_anteriores' => $datosAnteriores,
+                'datos_nuevos' => (!empty($datosRequest) && (in_array($method, ['POST', 'PUT', 'PATCH']) || $statusCode >= 400))
                     ? $datosRequest
                     : null,
                 'ip_address' => $request->ip(),
@@ -387,5 +420,78 @@ class AuditLog
         } else {
             Log::info('AUDIT: Success', $logData);
         }
+    }
+
+    /**
+     * Capturar datos anteriores de un registro antes de ser modificado o eliminado
+     */
+    private function capturarDatosAnteriores(Request $request): ?array
+    {
+        try {
+            $method = $request->method();
+            if (!in_array($method, ['PUT', 'PATCH', 'DELETE'])) {
+                return null;
+            }
+
+            $path = $request->path();
+            $tabla = $this->extraerTabla($path);
+            $id = $this->extraerRegistroId($path);
+
+            if ($tabla && $id) {
+                $registro = \Illuminate\Support\Facades\DB::table($tabla)->find($id);
+                if ($registro) {
+                    // Convertir a array y sanitizar campos sensibles
+                    return $this->sanitizeInput((array) $registro);
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning('Error capturando datos anteriores en AuditLog middleware: ' . $e->getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * Generar un diagnóstico y recomendación de solución para el administrador o la IA
+     */
+    private function generarDiagnosticoSugerido(int $statusCode, string $method, string $path, ?array $decodedResponse, ?array $requestData): string
+    {
+        if ($statusCode === 422) {
+            $msg = $decodedResponse['message'] ?? '';
+            if (str_contains(strtolower($msg), 'caja abierta') || str_contains(strtolower($msg), 'apertura')) {
+                return "El usuario no tiene una caja abierta en esta sucursal. Vaya a 'Caja -> Apertura de Caja' antes de realizar esta operación.";
+            }
+            $errors = $decodedResponse['errors'] ?? [];
+            if (!empty($errors)) {
+                $campos = implode(', ', array_keys($errors));
+                return "Error de validación en los campos: {$campos}. Verifique que los valores ingresados cumplan con las reglas de negocio (ej. formatos, campos requeridos, valores positivos).";
+            }
+            return "Error de validación o regla de negocio. Verifique el mensaje de error del servidor.";
+        }
+
+        if ($statusCode === 400) {
+            $msg = $decodedResponse['message'] ?? '';
+            if (str_contains($msg, 'No se puede cambiar de estado')) {
+                $transiciones = isset($decodedResponse['transiciones_validas']) 
+                    ? implode(', ', $decodedResponse['transiciones_validas']) 
+                    : 'ninguna';
+                return "Transición de estado inválida. Para cambiar el estado de este crédito, debe usar la acción del flujo correspondiente (ej. Pagar, Renovar, Anular, o Reactivar) en lugar del formulario general de edición. Transiciones permitidas desde el estado anterior: [{$transiciones}].";
+            }
+            return "Solicitud incorrecta (HTTP 400). Verifique los datos enviados.";
+        }
+
+        if ($statusCode === 403) {
+            return "Error de Permisos (HTTP 403). El usuario no cuenta con los permisos necesarios para realizar esta acción o modificar este campo (ej. modificar tasa de interés o mora).";
+        }
+
+        if ($statusCode === 401) {
+            return "Sesión expirada o no autenticada (HTTP 401). Vuelva a iniciar sesión en la plataforma.";
+        }
+
+        if ($statusCode >= 500) {
+            return "Error interno del servidor (HTTP {$statusCode}). Revise la pestaña 'Errores de Servidor' o los logs de Laravel para obtener el stack trace de la excepción y diagnosticar la falla.";
+        }
+
+        return "Verifique los datos ingresados e intente nuevamente.";
     }
 }

@@ -31,6 +31,8 @@ services:
       dockerfile: Dockerfile
     container_name: empenios_app
     restart: unless-stopped
+    environment:
+      TZ: America/Guatemala
     working_dir: /var/www
     volumes:
       - ./:/var/www

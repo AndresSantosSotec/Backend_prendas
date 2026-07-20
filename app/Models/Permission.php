@@ -115,6 +115,10 @@ class Permission extends Model
             'compras' => ['ver'],
             'prendas' => ['ver'],
             'cotizaciones' => ['ver', 'crear', 'editar'],
+            'caja' => ['abrir', 'cerrar', 'ver_movimientos'],
+            'cobros' => ['realizar', 'ver', 'imprimir_recibo'],
+            'recibos' => ['ver', 'crear', 'imprimir'],
+            'historial' => ['ver'],
         ],
         'supervisor' => [
             'dashboard' => ['ver'],

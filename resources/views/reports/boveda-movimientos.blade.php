@@ -122,9 +122,19 @@
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>REPORTE DE MOVIMIENTOS DE BÓVEDA</h1>
+        <div class="header" style="border:none; padding-bottom: 10px; border-bottom: 1px solid #ccc; margin-bottom: 15px;">
+        <table width="100%">
+            <tr>
+                <td width="25%" style="text-align: left; vertical-align: middle;">
+                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                </td>
+                <td width="50%" style="text-align: center; vertical-align: middle;">
+                    <h1>REPORTE DE MOVIMIENTOS DE BÓVEDA</h1>
         <h2>{{ $boveda->nombre }} ({{ $boveda->codigo }})</h2>
+                </td>
+                <td width="25%"></td>
+            </tr>
+        </table>
     </div>
 
     <div class="info-section">
@@ -175,7 +185,7 @@
             @endphp
             @foreach($movimientos as $mov)
             @php
-                $esEntrada = in_array($mov->tipo_movimiento, ['entrada', 'transferencia_entrada']);
+                $esEntrada = in_array($mov->tipo_movimiento, ['entrada', 'transferencia_entrada', 'ingreso_cierre_diario']);
                 if($esEntrada) {
                     $totalEntradas += $mov->monto;
                 } else {
@@ -186,7 +196,7 @@
                 <td>{{ $mov->created_at->format('d/m/Y H:i') }}</td>
                 <td>
                     <span class="badge {{ $esEntrada ? 'badge-entrada' : 'badge-salida' }}">
-                        {{ $esEntrada ? 'Entrada' : 'Salida' }}
+                        {{ $mov->tipo_movimiento_label }}
                     </span>
                 </td>
                 <td>{{ $mov->concepto }}</td>
@@ -221,7 +231,7 @@
     @endif
 
     <div class="footer">
-        <p>DigiPrenda - Sistema de Gestión de Empeños</p>
+        <p>Avanza - Sistema de Gestión de Empeños</p>
         <p>Documento generado el {{ $fecha_generacion }}</p>
     </div>
 </body>

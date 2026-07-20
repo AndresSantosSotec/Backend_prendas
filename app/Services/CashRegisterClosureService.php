@@ -105,7 +105,7 @@ class CashRegisterClosureService
                     'boveda_id' => $boveda->id,
                     'usuario_id' => $cajeroId,
                     'sucursal_id' => $boveda->sucursal_id,
-                    'tipo_movimiento' => 'ingreso_cierre_diario',
+                    'tipo_movimiento' => 'entrada',
                     'monto' => $montoContado,
                     'concepto' => sprintf(
                         'Ingreso por cierre diario de caja #%d (cajero: %s)',

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Recibo de Pago - Cuota #{{ $cuota->numero_cuota }}</title>
+    <title>Recibo de Pago</title>
     <style>
         @page { margin: 0.8cm; }
         body {
@@ -99,7 +99,7 @@
 <body>
 
 <div class="header">
-    <div class="brand-title">{{ $sucursal->nombre ?? config('app.name', 'DigiPrenda') }}</div>
+    <div class="brand-title">{{ $sucursal->nombre ?? config('app.name', 'Avanza') }}</div>
     @if(!empty($sucursal->direccion))
     <div class="brand-sub">{{ $sucursal->direccion }}</div>
     @endif
@@ -117,7 +117,7 @@
         @elseif(isset($esLiquidacion) && $esLiquidacion)
             Liquidación Total
         @else
-            Pago Cuota #{{ $cuota->numero_cuota }}
+            Pago
         @endif
     </span>
 </div>
@@ -239,7 +239,7 @@
 
 <div class="footer">
     <p>Este documento es un comprobante oficial de pago. Consérvelo para sus registros.</p>
-    <p>{{ config('app.name', 'DigiPrenda') }} &bull; {{ \Carbon\Carbon::now()->format('d/m/Y H:i:s') }} &bull; {{ $sucursal->nombre ?? '' }}</p>
+    <p>{{ config('app.name', 'Avanza') }} &bull; {{ \Carbon\Carbon::now()->format('d/m/Y H:i:s') }} &bull; {{ $sucursal->nombre ?? '' }}</p>
 </div>
 
 </body>

@@ -60,6 +60,9 @@ class PagoService
             $moraTotal = 0.0;
             $otrosTotal = 0.0;
             $diasMora = 0;
+            $diasGracia = (int) ($credito->dias_gracia ?? 0);
+            $paramMora = ParametrizacionMora::obtenerConfiguracion($credito->sucursal_id);
+            $moraService = app(MoraService::class);
 
             foreach ($cuotasPendientes as $cuota) {
                 $capitalPendienteCuota = (float) ($cuota->capital_pendiente ?? max(0, ((float) $cuota->capital_proyectado - (float) ($cuota->capital_pagado ?? 0))));
@@ -74,7 +77,12 @@ class PagoService
 
                 $diasMoraCuota = (int) ($cuota->dias_mora ?? 0);
                 if ($diasMoraCuota <= 0 && $cuota->fecha_vencimiento && $fechaCalculo->gt($cuota->fecha_vencimiento)) {
-                    $diasMoraCuota = (int) $cuota->fecha_vencimiento->diffInDays($fechaCalculo);
+                    $diasMoraCuota = $moraService->calcularDiasLaboralesMora(
+                        $cuota->fecha_vencimiento,
+                        $fechaCalculo,
+                        $diasGracia,
+                        $paramMora
+                    );
                 }
                 $diasMora = max($diasMora, $diasMoraCuota);
             }
@@ -94,8 +102,24 @@ class PagoService
                 $interesPorPeriodo = max(0, $capitalPendiente * $tasaPorPeriodo);
             }
 
-            $minimoRenovacion = $moraTotal + $interesPorPeriodo;
+            $minimoRenovacion = $moraTotal + $interesPorPeriodo + $otrosTotal;
             $totalPagar = $capitalPendiente + $interesTotal + $moraTotal + $otrosTotal;
+            $totalRecalculado = round($capitalPendiente + $interesTotal + $moraTotal + $otrosTotal, 2);
+            $totalParaLiquidar = round($totalPagar, 2);
+            $diferenciaTotal = round($totalParaLiquidar - $totalRecalculado, 2);
+
+            $debugCuotas = $cuotasPendientes->map(function ($cuota) {
+                return [
+                    'numero_cuota' => (int) $cuota->numero_cuota,
+                    'estado' => (string) $cuota->estado,
+                    'fecha_vencimiento' => $cuota->fecha_vencimiento?->format('Y-m-d'),
+                    'capital_pendiente' => round((float) ($cuota->capital_pendiente ?? 0), 2),
+                    'interes_pendiente' => round((float) ($cuota->interes_pendiente ?? 0), 2),
+                    'mora_pendiente' => round((float) ($cuota->mora_pendiente ?? 0), 2),
+                    'otros_pendiente' => round((float) ($cuota->otros_cargos_pendientes ?? 0), 2),
+                    'monto_pendiente' => round((float) ($cuota->monto_pendiente ?? 0), 2),
+                ];
+            })->values()->all();
 
             return [
                 'fecha_calculo' => $fechaCalculo->format('Y-m-d'),
@@ -106,8 +130,9 @@ class PagoService
                 'interes_acumulado' => round($interesTotal, 2),
                 'interes_periodo_actual' => round($interesPorPeriodo, 2),
                 'mora_acumulada' => round($moraTotal, 2),
+                'otros_acumulados' => round($otrosTotal, 2),
                 'dias_mora' => $diasMora,
-                'total_para_liquidar' => round($totalPagar, 2),
+                'total_para_liquidar' => $totalParaLiquidar,
                 'minimo_renovacion' => round($minimoRenovacion, 2),
                 'interes_por_periodo' => round($interesPorPeriodo, 2),
                 'monto_cuota_actual' => round($montoCuotaActual, 2),
@@ -118,6 +143,21 @@ class PagoService
                 'cuota_numero' => $primeraCuota?->numero_cuota,
                 'fecha_vencimiento' => $credito->fecha_vencimiento?->format('Y-m-d'),
                 'en_mora' => ($diasMora > 0) || ($moraTotal > 0),
+                'debug_calculo' => [
+                    'usa_plan_pagos' => true,
+                    'fecha_base' => $fechaBase?->format('Y-m-d'),
+                    'dias_transcurridos' => $diasTranscurridos,
+                    'cuotas_pendientes_count' => $cuotasPendientes->count(),
+                    'capital_total' => round($capitalPendiente, 2),
+                    'interes_total' => round($interesTotal, 2),
+                    'mora_total' => round($moraTotal, 2),
+                    'otros_total' => round($otrosTotal, 2),
+                    'total_para_liquidar' => $totalParaLiquidar,
+                    'total_recalculado' => $totalRecalculado,
+                    'diferencia_total' => $diferenciaTotal,
+                    'incluye_otros' => true,
+                    'cuotas' => $debugCuotas,
+                ],
                 'opciones_adelanto' => $this->calcularOpcionesRenovacion($credito, $interesPorPeriodo, $minimoRenovacion),
                 'opciones_cuotas_adelanto' => $this->calcularOpcionesCuotasAdelanto($credito),
             ];
@@ -148,19 +188,13 @@ class PagoService
             );
 
             if ($diasMora > 0) {
-                $tipoMora = $credito->tipo_mora ?? 'porcentaje';
-                $tasaMoraCredito = (float) ($credito->tasa_mora ?? 0);
+                $moraConfig = $this->resolverConfiguracionMora($credito);
+                $tipoMora = $moraConfig['tipo_mora'];
+                $tasaMoraCredito = $moraConfig['tasa_mora'];
+                $moraMontoFijo = $moraConfig['mora_monto_fijo'];
 
-                // Fallback: obtener tasa del plan de interés si el crédito no la tiene
-                if ($tasaMoraCredito <= 0 && $tipoMora === 'porcentaje' && $credito->plan_interes_id) {
-                    $plan = PlanInteresCategoria::find($credito->plan_interes_id);
-                    if ($plan && (float)($plan->tasa_moratorios ?? 0) > 0) {
-                        $tasaMoraCredito = (float) $plan->tasa_moratorios;
-                    }
-                }
-
-                if ($tipoMora === 'monto_fijo' && ($credito->mora_monto_fijo ?? 0) > 0) {
-                    $moraDevengada = (float) $credito->mora_monto_fijo * $diasMora;
+                if ($tipoMora === 'monto_fijo' && $moraMontoFijo > 0) {
+                    $moraDevengada = $moraMontoFijo * $diasMora;
                 } elseif ($tipoMora === 'porcentaje' && $tasaMoraCredito > 0) {
                     $tasaMoraDiaria = ($tasaMoraCredito / 100) / 30;
                     $moraDevengada = $credito->capital_pendiente * $tasaMoraDiaria * $diasMora;
@@ -176,15 +210,19 @@ class PagoService
         $interesTotal = $interesHistorico + $interesDevengado;
         $moraTotal = $moraHistorica + $moraDevengada;
 
-        $totalPagar = $credito->capital_pendiente + $interesTotal + $moraTotal;
+        $otrosTotal = max(0, (float) ($credito->otros_cargos_pendientes ?? 0));
+        $totalPagar = $credito->capital_pendiente + $interesTotal + $moraTotal + $otrosTotal;
+        $totalRecalculado = round((float) $credito->capital_pendiente + $interesTotal + $moraTotal + $otrosTotal, 2);
+        $totalParaLiquidar = round($totalPagar, 2);
+        $diferenciaTotal = round($totalParaLiquidar - $totalRecalculado, 2);
 
         // Interés por un periodo (para cálculo de adelantos y renovación)
         // Usar tasa convertida al período correcto (mensual, semanal, etc.)
         $tasaPorPeriodo = $this->calcularTasaPorPeriodo($credito->tasa_interes, $credito->tipo_interes);
         $interesPorPeriodo = $credito->capital_pendiente * $tasaPorPeriodo;
 
-        // Renovación = solo pagar interés de nuevos períodos, NO deuda acumulada
-        $minimoRenovacion = $interesPorPeriodo;
+        // Renovación = pagar interés de nuevos períodos + mora + otros acumulados
+        $minimoRenovacion = $moraTotal + $interesPorPeriodo + $otrosTotal;
 
         // Primera cuota no pagada (para tipo CUOTA)
         $primeraCuota = CreditoPlanPago::where('credito_prendario_id', $credito->id)
@@ -214,8 +252,9 @@ class PagoService
             'interes_acumulado' => round($interesTotal, 2),
             'interes_periodo_actual' => round($interesDevengado, 2),
             'mora_acumulada' => round($moraTotal, 2),
+            'otros_acumulados' => round($otrosTotal, 2),
             'dias_mora' => $diasMora,
-            'total_para_liquidar' => round($totalPagar, 2),
+            'total_para_liquidar' => $totalParaLiquidar,
             'minimo_renovacion' => round($minimoRenovacion, 2),
             'interes_por_periodo' => round($interesPorPeriodo, 2),
             'monto_cuota_actual' => round($montoCuotaActual, 2),
@@ -226,6 +265,22 @@ class PagoService
             'cuota_numero' => $primeraCuota?->numero_cuota,
             'fecha_vencimiento' => $credito->fecha_vencimiento?->format('Y-m-d'),
             'en_mora' => $diasMora > 0,
+            'debug_calculo' => [
+                'usa_plan_pagos' => false,
+                'fecha_base' => $fechaBase?->format('Y-m-d'),
+                'dias_transcurridos' => $diasTranscurridos,
+                'tasa_mensual' => round((float) $credito->tasa_interes, 4),
+                'tipo_interes' => (string) $credito->tipo_interes,
+                'periodos_cobrados' => $periodosCobrar,
+                'capital_total' => round((float) $credito->capital_pendiente, 2),
+                'interes_total' => round($interesTotal, 2),
+                'mora_total' => round($moraTotal, 2),
+                'otros_total' => round($otrosTotal, 2),
+                'total_para_liquidar' => $totalParaLiquidar,
+                'total_recalculado' => $totalRecalculado,
+                'diferencia_total' => $diferenciaTotal,
+                'incluye_otros' => true,
+            ],
             // Opciones para renovación (pagos de interés adelantado)
             'opciones_adelanto' => $this->calcularOpcionesRenovacion($credito, $interesPorPeriodo, $minimoRenovacion),
             // Opciones para adelanto de cuotas completas
@@ -249,23 +304,67 @@ class PagoService
     /**
      * Convierte la tasa anual a tasa por período
      */
-    private function calcularTasaPorPeriodo(float $tasaAnual, string $tipoInteres): float
+    private function calcularTasaPorPeriodo(float $tasaMensual, string $tipoInteres): float
     {
         switch ($tipoInteres) {
             case 'diario':
-                return $tasaAnual / 100 / 365;
+                return ($tasaMensual / 30) / 100;
             case 'semanal':
-                return $tasaAnual / 100 / 52;
+                return ($tasaMensual / 4) / 100;
             case 'catorcenal':
-                return $tasaAnual / 100 / 26; // 26 catorcenas al año
+                return ($tasaMensual / 2.14) / 100;
             case 'quincenal':
-                return $tasaAnual / 100 / 24;
+                return ($tasaMensual / 2) / 100;
             case 'cada_28_dias':
-                return $tasaAnual / 100 / 13; // 13 períodos de 28 días al año
+                return ($tasaMensual * (28 / 30)) / 100;
             case 'mensual':
             default:
-                return $tasaAnual / 100 / 12;
+                return $tasaMensual / 100;
         }
+    }
+
+    /**
+     * Obtiene la configuracion de mora efectiva del credito, con fallback al plan.
+     */
+    private function resolverConfiguracionMora(CreditoPrendario $credito): array
+    {
+        $tipoMora = (string) ($credito->tipo_mora ?? '');
+        $tasaMora = (float) ($credito->tasa_mora ?? 0);
+        $moraMontoFijo = (float) ($credito->mora_monto_fijo ?? 0);
+        $plan = null;
+
+        if ($credito->plan_interes_id) {
+            $plan = PlanInteresCategoria::find($credito->plan_interes_id);
+        }
+
+        if ($tipoMora === '' && $plan) {
+            $tipoMora = (string) ($plan->tipo_mora ?? '');
+        }
+
+        if ($tipoMora === '') {
+            $tipoMora = 'porcentaje';
+        }
+
+        if ($tipoMora === 'monto_fijo') {
+            if ($moraMontoFijo <= 0 && $plan && (float) ($plan->mora_monto_fijo ?? 0) > 0) {
+                $moraMontoFijo = (float) $plan->mora_monto_fijo;
+            }
+        } else {
+            if ($tasaMora <= 0 && $plan && (float) ($plan->tasa_moratorios ?? 0) > 0) {
+                $tasaMora = (float) $plan->tasa_moratorios;
+            }
+
+            if ($tasaMora <= 0 && $plan && (string) ($plan->tipo_mora ?? '') === 'monto_fijo' && (float) ($plan->mora_monto_fijo ?? 0) > 0) {
+                $tipoMora = 'monto_fijo';
+                $moraMontoFijo = (float) $plan->mora_monto_fijo;
+            }
+        }
+
+        return [
+            'tipo_mora' => $tipoMora,
+            'tasa_mora' => $tasaMora,
+            'mora_monto_fijo' => $moraMontoFijo,
+        ];
     }
 
     /**
@@ -409,9 +508,9 @@ class PagoService
      */
     private function procesarPagoCuotaCompleta(CreditoPrendario $credito, float $monto, array $data)
     {
-        // 1. Buscar primera cuota PENDIENTE (saltar pagadas y renovadas)
+        // 1. Buscar primera cuota pendiente (incluye vencidas, en mora y parciales)
         $cuota = CreditoPlanPago::where('credito_prendario_id', $credito->id)
-            ->where('estado', 'pendiente')
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
             ->orderBy('numero_cuota', 'asc')
             ->first();
 
@@ -419,9 +518,11 @@ class PagoService
             throw new \Exception("No hay cuotas pendientes para pagar");
         }
 
-        // 2. Calcular total de la cuota
-        $totalCuota = $cuota->capital_proyectado + $cuota->interes_proyectado +
-                      ($cuota->mora_proyectada ?? 0) + ($cuota->otros_cargos_proyectados ?? 0);
+        // 2. Calcular total de la cuota (reales pendientes)
+        $totalCuota = ($cuota->capital_pendiente ?? $cuota->capital_proyectado) +
+                      ($cuota->interes_pendiente ?? $cuota->interes_proyectado) +
+                      ($cuota->mora_pendiente ?? $cuota->mora_proyectada ?? 0) +
+                      ($cuota->otros_cargos_pendientes ?? $cuota->otros_cargos_proyectados ?? 0);
 
         // 3. Validar monto suficiente
         if ($monto < ($totalCuota - 0.10)) {
@@ -430,17 +531,22 @@ class PagoService
 
         // 4. Registrar movimiento
         $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
+        $capitalAPagar = $cuota->capital_pendiente ?? $cuota->capital_proyectado;
+        $interesAPagar = $cuota->interes_pendiente ?? $cuota->interes_proyectado;
+        $moraAPagar = $cuota->mora_pendiente ?? $cuota->mora_proyectada ?? 0;
+        $otrosAPagar = $cuota->otros_cargos_pendientes ?? $cuota->otros_cargos_proyectados ?? 0;
+
         $movimiento = CreditoMovimiento::create([
             'credito_prendario_id' => $credito->id,
             'tipo_movimiento' => 'pago',
             'fecha_movimiento' => now(),
             'fecha_registro' => now(),
             'monto_total' => $monto,
-            'capital' => $cuota->capital_proyectado,
-            'interes' => $cuota->interes_proyectado,
-            'mora' => $cuota->mora_proyectada ?? 0,
-            'otros_cargos' => $cuota->otros_cargos_proyectados ?? 0,
-            'saldo_capital' => $credito->capital_pendiente - $cuota->capital_proyectado,
+            'capital' => $capitalAPagar,
+            'interes' => $interesAPagar,
+            'mora' => $moraAPagar,
+            'otros_cargos' => $otrosAPagar,
+            'saldo_capital' => $credito->capital_pendiente - $capitalAPagar,
             'usuario_id' => Auth::id() ?? 1,
             'sucursal_id' => $credito->sucursal_id,
             'numero_movimiento' => Str::upper(Str::random(10)),
@@ -452,11 +558,11 @@ class PagoService
         // 5. Marcar cuota como pagada
         $cuota->estado = 'pagada';
         $cuota->fecha_pago = now();
-        $cuota->capital_pagado = $cuota->capital_proyectado;
-        $cuota->interes_pagado = $cuota->interes_proyectado;
-        $cuota->mora_pagada = $cuota->mora_proyectada ?? 0;
-        $cuota->otros_cargos_pagados = $cuota->otros_cargos_proyectados ?? 0;
-        $cuota->monto_total_pagado = $totalCuota;
+        $cuota->capital_pagado = ($cuota->capital_pagado ?? 0) + $capitalAPagar;
+        $cuota->interes_pagado = ($cuota->interes_pagado ?? 0) + $interesAPagar;
+        $cuota->mora_pagada = ($cuota->mora_pagada ?? 0) + $moraAPagar;
+        $cuota->otros_cargos_pagados = ($cuota->otros_cargos_pagados ?? 0) + $otrosAPagar;
+        $cuota->monto_total_pagado = ($cuota->monto_total_pagado ?? 0) + $totalCuota;
         $cuota->capital_pendiente = 0;
         $cuota->interes_pendiente = 0;
         $cuota->mora_pendiente = 0;
@@ -465,16 +571,16 @@ class PagoService
         $cuota->save();
 
         // 6. Actualizar crédito
-        $credito->capital_pendiente -= $cuota->capital_proyectado;
-        $credito->capital_pagado += $cuota->capital_proyectado;
-        $credito->interes_pagado += $cuota->interes_proyectado;
-        $credito->mora_pagada += ($cuota->mora_proyectada ?? 0);
+        $credito->capital_pendiente -= $capitalAPagar;
+        $credito->capital_pagado += $capitalAPagar;
+        $credito->interes_pagado += $interesAPagar;
+        $credito->mora_pagada += $moraAPagar;
         $credito->fecha_ultimo_pago = now();
 
         // Si fue la última cuota, marcar como pagado
         // Solo considerar cuotas que aún requieren pago (no renovadas ni pagadas)
         $cuotasPendientes = CreditoPlanPago::where('credito_prendario_id', $credito->id)
-            ->whereIn('estado', ['pendiente', 'pagada_parcial'])
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
             ->count();
 
         if ($cuotasPendientes == 0) {
@@ -513,11 +619,37 @@ class PagoService
 
         // Calcular monto necesario para N períodos
         $interesPorPeriodo = $calculo['interes_por_periodo'];
-        $minimoNecesario = $calculo['mora_acumulada'] + ($interesPorPeriodo * $periodosRenovar);
+        $moraAPagar = (float) $calculo['mora_acumulada'];
+        $otrosAPagar = (float) $calculo['otros_acumulados'];
+        $interesAPagar = $interesPorPeriodo * $periodosRenovar;
+        $minimoNecesario = $moraAPagar + $interesAPagar + $otrosAPagar;
 
         if ($monto < ($minimoNecesario - 0.10)) {
             throw new \Exception("Monto insuficiente. Necesario para {$periodosRenovar} período(s): Q" . number_format($minimoNecesario, 2));
         }
+
+        // Obtener la última cuota para calcular nueva fecha de vencimiento
+        $ultimaCuotaExistente = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+            ->orderBy('numero_cuota', 'desc')
+            ->first();
+
+        if (!$ultimaCuotaExistente) {
+            throw new \Exception("No se encontró ninguna cuota en el plan de pagos");
+        }
+
+        $diasPorPeriodo = match($credito->tipo_interes) {
+            'diario' => 1,
+            'semanal' => 7,
+            'catorcenal' => 14,
+            'quincenal' => 15,
+            'cada_28_dias' => 28,
+            'mensual' => 30,
+            default => 30
+        };
+
+        $fechaBaseNuevasCuotas = Carbon::parse($ultimaCuotaExistente->fecha_vencimiento);
+        $fechaVencimientoNueva = $fechaBaseNuevasCuotas->copy()->addDays($diasPorPeriodo * $periodosRenovar);
+        $fechaVenceFormateada = $fechaVencimientoNueva->format('d/m/Y');
 
         // 1. Registrar Movimiento
         $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
@@ -528,23 +660,23 @@ class PagoService
             'fecha_registro' => now(),
             'monto_total' => $monto,
             'capital' => 0, // NO SE PAGA CAPITAL
-            'interes' => min($monto - $calculo['mora_acumulada'], $interesPorPeriodo * $periodosRenovar),
-            'mora' => $calculo['mora_acumulada'],
-            'otros_cargos' => 0,
+            'interes' => $monto - $moraAPagar - $otrosAPagar,
+            'mora' => $moraAPagar,
+            'otros_cargos' => $otrosAPagar,
             'saldo_capital' => $credito->capital_pendiente, // SALDO NO CAMBIA
             'usuario_id' => Auth::id() ?? 1,
             'sucursal_id' => $credito->sucursal_id,
             'numero_movimiento' => Str::upper(Str::random(10)),
             'forma_pago' => $formaPago,
-            'observaciones' => "RENOVACIÓN {$periodosRenovar} período(s) - " . ($data['observaciones'] ?? ''),
+            'observaciones' => "RENOVACIÓN {$periodosRenovar} período(s) (Vence: {$fechaVenceFormateada}) - " . ($data['observaciones'] ?? ''),
             'estado' => 'activo'
         ]);
 
         // 2. Actualizar contadores del crédito (pero NO el saldo de capital)
         $credito->interes_pagado = (float)$credito->interes_pagado + ($interesPorPeriodo * $periodosRenovar);
-        $credito->mora_pagada = (float)$credito->mora_pagada + (float)$calculo['mora_acumulada'];
+        $credito->mora_pagada = (float)$credito->mora_pagada + $moraAPagar;
         $credito->interes_generado = (float)$credito->interes_generado + ($interesPorPeriodo * $periodosRenovar);
-        $credito->mora_generada = (float)$credito->mora_generada + (float)$calculo['mora_acumulada'];
+        $credito->mora_generada = (float)$credito->mora_generada + $moraAPagar;
         $credito->fecha_ultimo_pago = now();
         $credito->dias_mora = 0;
 
@@ -561,42 +693,64 @@ class PagoService
             default => 30
         };
 
-        // 4. MARCAR cuotas pendientes como RENOVADAS
-        // Las primeras N cuotas pendientes se marcan como "renovadas" porque
-        // estás pagando el interés para extender su plazo
-        $cuotasAMarcarRenovadas = CreditoPlanPago::where('credito_prendario_id', $credito->id)
-            ->whereIn('estado', ['pendiente', 'pagada_parcial'])
+        // 4. MARCAR cuotas pendientes como RENOVADAS y limpiar mora/otros cargos de todas
+        $todasLasCuotasPendientes = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
             ->orderBy('numero_cuota', 'asc')
-            ->limit($periodosRenovar)
             ->get();
 
-        foreach ($cuotasAMarcarRenovadas as $cuota) {
-            $cuota->estado = 'renovada';
+        $renovadasCount = 0;
+        foreach ($todasLasCuotasPendientes as $cuota) {
+            $esRenovada = $renovadasCount < $periodosRenovar;
 
-            if ($cuota->tipo_modificacion === 'original') {
-                $cuota->tipo_modificacion = 'refinanciamiento';
-                $cuota->motivo_modificacion = "Renovada el " . now()->format('d/m/Y');
+            // Todos los pagos de mora y otros acumulados se aplican a todas las cuotas
+            $cuota->mora_pagada = (float) ($cuota->mora_pagada ?? 0) + (float) ($cuota->mora_pendiente ?? 0);
+            $cuota->mora_pendiente = 0;
+
+            $cuota->otros_cargos_pagados = (float) ($cuota->otros_cargos_pagados ?? 0) + (float) ($cuota->otros_cargos_pendientes ?? 0);
+            $cuota->otros_cargos_pendientes = 0;
+
+            if ($esRenovada) {
+                // Para las primeras N cuotas, se pagan sus intereses y se marcan como renovadas
+                $cuota->estado = 'renovada';
+                $cuota->capital_pendiente = 0;
+                $cuota->interes_pagado = (float) ($cuota->interes_pagado ?? 0) + (float) ($cuota->interes_pendiente ?? 0);
+                $cuota->interes_pendiente = 0;
+                $cuota->monto_pendiente = 0;
+                $cuota->fecha_pago = now();
+
+                if ($cuota->tipo_modificacion === 'original') {
+                    $cuota->tipo_modificacion = 'refinanciamiento';
+                    $cuota->motivo_modificacion = "Renovada el " . now()->format('d/m/Y');
+                } else {
+                    $cuota->motivo_modificacion .= " | Renovada el " . now()->format('d/m/Y');
+                }
+
+                $cuota->fecha_modificacion = now();
+                $cuota->modificado_por = Auth::id() ?? 1;
+                $renovadasCount++;
             } else {
-                $cuota->motivo_modificacion .= " | Renovada el " . now()->format('d/m/Y');
+                // Para las demás cuotas pendientes, recalculamos el monto pendiente
+                $cuota->monto_pendiente = max(0, (float) ($cuota->capital_pendiente ?? 0) + (float) ($cuota->interes_pendiente ?? 0));
             }
-
-            $cuota->fecha_modificacion = now();
-            $cuota->modificado_por = Auth::id() ?? 1;
             $cuota->save();
         }
 
         // 5. CREAR NUEVAS CUOTAS: Agregar N cuotas al final
-        // Obtener la última cuota (puede ser renovada anterior)
-        $ultimaCuotaExistente = CreditoPlanPago::where('credito_prendario_id', $credito->id)
-            ->orderBy('numero_cuota', 'desc')
-            ->first();
-
-        if (!$ultimaCuotaExistente) {
-            throw new \Exception("No se encontró ninguna cuota en el plan de pagos");
-        }
-
         $numeroBase = $ultimaCuotaExistente->numero_cuota;
         $interesProyectado = $this->calcularInteresProyectado($credito);
+
+        // Obtener el valor original de otros cargos de la primera cuota para replicarlo
+        $primerCuotaPlan = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+            ->orderBy('numero_cuota', 'asc')
+            ->first();
+        $gastoPorCuota = 0.0;
+        if ($primerCuotaPlan) {
+            $gastoPorCuota = (float) $primerCuotaPlan->otros_cargos_proyectados;
+            if ($gastoPorCuota <= 0) {
+                $gastoPorCuota = (float) $primerCuotaPlan->otros_cargos_pendientes;
+            }
+        }
 
         // Contar cuotas pendientes para redistribuir capital
         $cuotasPendientesCount = CreditoPlanPago::where('credito_prendario_id', $credito->id)
@@ -608,9 +762,6 @@ class PagoService
         $capitalPorCuota = $totalCuotasFuturas > 0
             ? round($credito->capital_pendiente / $totalCuotasFuturas, 2)
             : $credito->capital_pendiente;
-
-        // Calcular fecha base para las nuevas cuotas
-        $fechaBaseNuevasCuotas = Carbon::parse($ultimaCuotaExistente->fecha_vencimiento);
 
         for ($i = 1; $i <= $periodosRenovar; $i++) {
             $numeroNuevaCuota = $numeroBase + $i;
@@ -624,17 +775,31 @@ class PagoService
                 'capital_proyectado' => $capitalPorCuota,
                 'interes_proyectado' => $interesProyectado,
                 'mora_proyectada' => 0,
-                'otros_cargos_proyectados' => 0,
-                'monto_cuota_proyectado' => $capitalPorCuota + $interesProyectado,
+                'otros_cargos_proyectados' => $gastoPorCuota,
+                'monto_cuota_proyectado' => $capitalPorCuota + $interesProyectado + $gastoPorCuota,
                 'capital_pendiente' => $capitalPorCuota,
                 'interes_pendiente' => $interesProyectado,
                 'mora_pendiente' => 0,
-                'otros_cargos_pendientes' => 0,
-                'monto_pendiente' => $capitalPorCuota + $interesProyectado,
+                'otros_cargos_pendientes' => $gastoPorCuota,
+                'monto_pendiente' => $capitalPorCuota + $interesProyectado + $gastoPorCuota,
                 'saldo_capital_credito' => $credito->capital_pendiente,
                 'tipo_modificacion' => 'refinanciamiento',
                 'motivo_modificacion' => "Renovación #{$i} - {$periodosRenovar} período(s) - " . now()->format('d/m/Y')
             ]);
+        }
+
+        // Actualizar el capital de las cuotas que quedaron pendientes
+        if ($cuotasPendientesCount > 0) {
+            $cuotasRestantes = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+                ->whereIn('estado', ['pendiente', 'pagada_parcial'])
+                ->get();
+            foreach ($cuotasRestantes as $cuotaRestante) {
+                $cuotaRestante->capital_proyectado = $capitalPorCuota;
+                $cuotaRestante->capital_pendiente = $capitalPorCuota;
+                $cuotaRestante->monto_cuota_proyectado = $capitalPorCuota + (float) $cuotaRestante->interes_proyectado;
+                $cuotaRestante->monto_pendiente = $capitalPorCuota + (float) $cuotaRestante->interes_pendiente;
+                $cuotaRestante->save();
+            }
         }
 
         // 6. Actualizar fecha de vencimiento del crédito y número de cuotas
@@ -791,7 +956,7 @@ class PagoService
 
         // Si no quedan cuotas pendientes, marcar como pagado
         $pendientes = CreditoPlanPago::where('credito_prendario_id', $credito->id)
-            ->where('estado', 'pendiente')
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
             ->count();
 
         if ($pendientes == 0) {
@@ -1002,9 +1167,9 @@ class PagoService
      */
     private function procesarPagoParcial(CreditoPrendario $credito, float $monto, array $data)
     {
-        // 1. Obtener todas las cuotas con montos pendientes
+        // 1. Obtener todas las cuotas con montos pendientes (excluir pagadas y renovadas)
         $cuotasPendientes = CreditoPlanPago::where('credito_prendario_id', $credito->id)
-            ->where('estado', '!=', 'pagada')
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
             ->orderBy('numero_cuota', 'asc')
             ->get();
 
@@ -1228,9 +1393,10 @@ class PagoService
             throw new \Exception("Monto insuficiente para liquidar. Total requerido: Q" . number_format($totalDeuda, 2));
         }
 
-        $pagoCapital = $credito->capital_pendiente;
+        $pagoCapital = $calculo['capital_pendiente'];
         $pagoInteres = $calculo['interes_acumulado'];
         $pagoMora = $calculo['mora_acumulada'];
+        $pagoOtros = $calculo['otros_acumulados'] ?? 0;
 
         // Registrar Movimiento
         $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
@@ -1243,7 +1409,7 @@ class PagoService
             'capital' => $pagoCapital,
             'interes' => $pagoInteres,
             'mora' => $pagoMora,
-            'otros_cargos' => 0,
+            'otros_cargos' => $pagoOtros,
             'saldo_capital' => 0,
             'usuario_id' => Auth::id() ?? 1,
             'sucursal_id' => $credito->sucursal_id,
@@ -1336,6 +1502,7 @@ class PagoService
                 'capital_pendiente' => 0,
                 'interes_pendiente' => 0,
                 'mora_pendiente' => 0,
+                'otros_cargos_pendientes' => 0,
                 'saldo_capital_credito' => 0
             ]);
     }

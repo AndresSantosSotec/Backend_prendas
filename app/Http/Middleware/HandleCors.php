@@ -29,6 +29,7 @@ class HandleCors
             'http://127.0.0.1:5173',
             'http://127.0.0.1:3000',
             'https://digiprenda.inniserver.net',
+            'https://avanzadigiprenda.stockgenius-sotecpro.com',
         ];
 
         // Permitir cualquier localhost o 127.0.0.1 con cualquier puerto
@@ -37,15 +38,17 @@ class HandleCors
             preg_match('/^http:\/\/127\.0\.0\.1:\d+$/', $origin)
         );
 
-        if ($origin && (in_array($origin, $allowedOrigins) || $isLocalhost)) {
-            $response = $next($request);
+        $isAllowed = $origin && (in_array($origin, $allowedOrigins) || $isLocalhost);
 
+        // El manejo de OPTIONS lo hará el CORS nativo de Laravel (config/cors.php)
+        $response = $next($request);
+
+        if ($isAllowed) {
             // Manejar StreamedResponse y BinaryFileResponse de manera diferente
-            // Estos tipos de respuesta no soportan el método header() encadenado
             if ($response instanceof StreamedResponse || $response instanceof BinaryFileResponse) {
                 $response->headers->set('Access-Control-Allow-Origin', $origin);
                 $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-                $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+                $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Client-ID');
                 $response->headers->set('Access-Control-Allow-Credentials', 'true');
                 $response->headers->set('Access-Control-Max-Age', '86400');
                 return $response;
@@ -54,22 +57,12 @@ class HandleCors
             return $response
                 ->header('Access-Control-Allow-Origin', $origin)
                 ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH')
-                ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin')
+                ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Client-ID')
                 ->header('Access-Control-Allow-Credentials', 'true')
                 ->header('Access-Control-Max-Age', '86400');
         }
 
-        // Para peticiones OPTIONS (preflight)
-        if ($request->getMethod() === 'OPTIONS') {
-            return response('', 200)
-                ->header('Access-Control-Allow-Origin', $origin ?: '*')
-                ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH')
-                ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin')
-                ->header('Access-Control-Allow-Credentials', 'true')
-                ->header('Access-Control-Max-Age', '86400');
-        }
-
-        return $next($request);
+        return $response;
     }
 }
 

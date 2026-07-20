@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Carbon;
 use App\Models\Prenda;
 use App\Observers\PrendaObserver;
 
@@ -21,6 +22,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Carbon::setLocale(config('app.locale'));
+
         // Registrar Observer para Prenda
         Prenda::observe(PrendaObserver::class);
     }

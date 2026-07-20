@@ -302,6 +302,7 @@ class VentaController extends Controller
         try {
             $venta = Venta::with([
                 'detalles.prenda.categoriaProducto',
+                'detalles.compra',
                 'pagos',
                 'creditoPrendario',
                 'vendedor',
@@ -327,7 +328,7 @@ class VentaController extends Controller
      * Cancelar venta.
      * Para apartados: opcionalmente devolver el abono (enganche) al cliente registrando un egreso en caja.
      */
-    public function cancelar(Request $request, string $id)
+    public function cancelar(Request $request, string $id, \App\Services\FelService $felService)
     {
         $request->validate([
             'motivo' => 'required|string|max:500',
@@ -337,6 +338,11 @@ class VentaController extends Controller
         try {
             $venta = Venta::findOrFail($id);
             $devolverAbono = (bool) $request->input('devolver_abono', false);
+
+            // Si la factura ya fue certificada ante SAT, anularla primero
+            if ($venta->certificada) {
+                $felService->anularFactura($venta, $request->motivo);
+            }
 
             // Usar servicio apropiado según tipo de venta
             if ($venta->detalles()->count() > 0) {
@@ -349,7 +355,7 @@ class VentaController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Venta cancelada exitosamente',
+                'message' => $venta->certificada ? 'Factura anulada en SAT y venta cancelada exitosamente' : 'Venta cancelada exitosamente',
                 'data' => $resultado
             ]);
         } catch (\Exception $e) {
@@ -394,7 +400,7 @@ class VentaController extends Controller
     /**
      * Certificar factura (FEL Guatemala)
      */
-    public function certificar(string $id)
+    public function certificar(string $id, \App\Services\FelService $felService)
     {
         try {
             $venta = Venta::findOrFail($id);
@@ -403,16 +409,24 @@ class VentaController extends Controller
                 throw new \Exception('Esta venta ya ha sido certificada');
             }
 
-            // Simulación de certificación FEL
+            // Certificación real via FelService
+            $res = $felService->certificarFactura($venta);
+
             $venta->certificada = true;
-            $venta->no_autorizacion = strtoupper(bin2hex(random_bytes(16)));
-            $venta->fecha_certificacion = now();
-            $venta->generarNumeroDocumento();
+            $venta->facturada = true;
+            $venta->uuid_fel = $res['uuid'];
+            $venta->numero_autorizacion = $res['uuid'];
+            $venta->no_autorizacion = $res['uuid'];
+            $venta->serie_factura = $res['serie'];
+            $venta->serie_documento = $res['serie'];
+            $venta->numero_factura = $res['numero'];
+            $venta->numero_documento = $res['numero'];
+            $venta->fecha_certificacion = $res['fecha_certificacion'];
             $venta->save();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Factura certificada exitosamente',
+                'message' => 'Factura certificada (FEL) exitosamente',
                 'data' => $venta
             ]);
         } catch (\Exception $e) {
@@ -494,7 +508,7 @@ class VentaController extends Controller
         try {
             $filtros = $request->all();
 
-            $query = Venta::with(['cliente', 'vendedor', 'sucursal']);
+            $query = Venta::with(['cliente', 'vendedor', 'sucursal', 'detalles.prenda', 'detalles.compra', 'prenda']);
 
             if (!empty($filtros['estado']) && $filtros['estado'] !== 'todas') {
                 $query->where('estado', $filtros['estado']);
@@ -505,7 +519,11 @@ class VentaController extends Controller
                 $query->where(function($q) use ($busqueda) {
                     $q->where('codigo_venta', 'like', "%{$busqueda}%")
                       ->orWhere('cliente_nombre', 'like', "%{$busqueda}%")
-                      ->orWhere('cliente_nit', 'like', "%{$busqueda}%");
+                      ->orWhere('cliente_nit', 'like', "%{$busqueda}%")
+                      ->orWhereHas('detalles', function($d) use ($busqueda) {
+                          $d->where('descripcion', 'like', "%{$busqueda}%")
+                            ->orWhere('codigo', 'like', "%{$busqueda}%");
+                      });
                 });
             }
 
@@ -519,13 +537,79 @@ class VentaController extends Controller
 
             $ventas = $query->orderBy('fecha_venta', 'desc')->get();
 
+            // Compilar listado aplanado de artículos vendidos
+            $items = [];
+            $totalCosto = 0;
+            $totalVenta = 0;
+            foreach ($ventas as $venta) {
+                $detalles = $venta->detalles;
+                if ($detalles && $detalles->count() > 0) {
+                    foreach ($detalles as $detalle) {
+                        $precioCompra = 0;
+                        if ($detalle->prenda_id) {
+                            $precioCompra = $detalle->prenda?->valor_prestamo ?? 0;
+                        } elseif ($detalle->producto_id) {
+                            $precioCompra = $detalle->compra?->monto_pagado ?? 0;
+                        }
+
+                        $precioVenta = $detalle->total;
+                        $diferencia = $precioVenta - $precioCompra;
+                        $porcentajeDiferencia = $precioCompra > 0 ? round(($diferencia / $precioCompra) * 100, 2) : 0;
+
+                        $totalCosto += $precioCompra;
+                        $totalVenta += $precioVenta;
+
+                        $items[] = (object)[
+                            'codigo_venta' => $venta->codigo_venta,
+                            'fecha_venta' => $venta->fecha_venta,
+                            'cliente_nombre' => $venta->cliente_nombre,
+                            'cliente_nit' => $venta->cliente_nit ?? 'C/F',
+                            'descripcion' => $detalle->descripcion,
+                            'precio_compra' => $precioCompra,
+                            'precio_venta' => $precioVenta,
+                            'utilidad' => $diferencia,
+                            'margen' => $porcentajeDiferencia,
+                            'estado' => $venta->estado,
+                        ];
+                    }
+                } else {
+                    $precioCompra = 0;
+                    $descripcion = 'Venta de Prenda';
+                    if ($venta->prenda_id) {
+                        $precioCompra = $venta->prenda?->valor_prestamo ?? 0;
+                        $descripcion = $venta->prenda?->descripcion ?? $descripcion;
+                    }
+
+                    $precioVenta = $venta->precio_final;
+                    $diferencia = $precioVenta - $precioCompra;
+                    $porcentajeDiferencia = $precioCompra > 0 ? round(($diferencia / $precioCompra) * 100, 2) : 0;
+
+                    $totalCosto += $precioCompra;
+                    $totalVenta += $precioVenta;
+
+                    $items[] = (object)[
+                        'codigo_venta' => $venta->codigo_venta,
+                        'fecha_venta' => $venta->fecha_venta,
+                        'cliente_nombre' => $venta->cliente_nombre,
+                        'cliente_nit' => $venta->cliente_nit ?? 'C/F',
+                        'descripcion' => $descripcion,
+                        'precio_compra' => $precioCompra,
+                        'precio_venta' => $precioVenta,
+                        'utilidad' => $diferencia,
+                        'margen' => $porcentajeDiferencia,
+                        'estado' => $venta->estado,
+                    ];
+                }
+            }
+
             $totales = [
-                'subtotal' => $ventas->sum('subtotal'),
-                'descuentos' => $ventas->sum('total_descuentos'),
-                'total' => $ventas->sum('total_final'),
+                'costo' => $totalCosto,
+                'venta' => $totalVenta,
+                'utilidad' => $totalVenta - $totalCosto,
+                'margen' => $totalCosto > 0 ? round((($totalVenta - $totalCosto) / $totalCosto) * 100, 2) : 0,
             ];
 
-            $pdf = Pdf::loadView('reports.ventas-listado', compact('ventas', 'filtros', 'totales'));
+            $pdf = Pdf::loadView('reports.ventas-listado', compact('items', 'filtros', 'totales'));
             $pdf->setPaper('letter', 'landscape');
 
             return $pdf->download('Listado_Ventas_' . date('Ymd_His') . '.pdf');
@@ -623,6 +707,14 @@ class VentaController extends Controller
         ]);
 
         try {
+            // Verificar caja abierta si el pago es en efectivo
+            if ($request->input('metodo') === 'efectivo' && !\App\Services\CajaService::tieneCajaAbierta()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Debe tener una caja abierta para registrar abonos en efectivo. Vaya a Caja → Aperturar Caja.'
+                ], 422);
+            }
+
             $venta = Venta::with(['detalles.prenda', 'pagos'])->findOrFail($id);
 
             $resultado = $this->ventaCreditoService->registrarAbono($venta, $request->all());
@@ -635,7 +727,7 @@ class VentaController extends Controller
                     'usuario_id' => Auth::id(),
                     'venta_id' => $venta->id,
                     'numero_documento' => $venta->codigo_venta,
-                    'glosa' => 'Abono apartado/crédito - ' . $venta->codigo_venta,
+                    'glosa' => 'Abono venta crédito - ' . $venta->codigo_venta,
                     'fecha_documento' => now(),
                     'monto_abono' => $monto,
                 ]);
@@ -815,8 +907,16 @@ class VentaController extends Controller
                 'apartado'
             ])->findOrFail($id);
 
+            $esContado = $venta->tipo_venta === 'contado';
+            $totalPagadoRecibo = $esContado
+                ? (float) $venta->total_final
+                : (float) ($venta->total_pagado ?? 0);
+            $saldoPendienteRecibo = $esContado
+                ? 0.0
+                : max(0, (float) ($venta->saldo_pendiente ?? 0));
+
             // Generar PDF formato POS (80mm)
-            $pdf = Pdf::loadView('reports.recibo-pos', compact('venta'));
+            $pdf = Pdf::loadView('reports.recibo-pos', compact('venta', 'esContado', 'totalPagadoRecibo', 'saldoPendienteRecibo'));
 
             // Configurar papel de 80mm con altura automática (adaptativa)
             $pdf->setPaper([0, 0, 226.77, 841.89], 'portrait'); // 80mm de ancho en puntos

@@ -12,8 +12,10 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Modificar el enum de rol para incluir 'superadmin'
-        DB::statement("ALTER TABLE users MODIFY COLUMN rol ENUM('administrador', 'cajero', 'tasador', 'supervisor', 'vendedor', 'superadmin') DEFAULT 'cajero'");
+        if (DB::getDriverName() !== 'sqlite') {
+            // Modificar el enum de rol para incluir 'superadmin'
+            DB::statement("ALTER TABLE users MODIFY COLUMN rol ENUM('administrador', 'cajero', 'tasador', 'supervisor', 'vendedor', 'superadmin') DEFAULT 'cajero'");
+        }
     }
 
     /**
@@ -21,7 +23,9 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Revertir al enum original
-        DB::statement("ALTER TABLE users MODIFY COLUMN rol ENUM('administrador', 'cajero', 'tasador', 'supervisor', 'vendedor') DEFAULT 'cajero'");
+        if (DB::getDriverName() !== 'sqlite') {
+            // Revertir al enum original
+            DB::statement("ALTER TABLE users MODIFY COLUMN rol ENUM('administrador', 'cajero', 'tasador', 'supervisor', 'vendedor') DEFAULT 'cajero'");
+        }
     }
 };
