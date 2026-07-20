@@ -15,6 +15,7 @@ use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use Illuminate\Support\Collection;
 use Carbon\Carbon;
 
+// v2 - Incluye columna "Código de Barras" (numero_credito normalizado) - 2026-07-20
 class PrendasExport implements FromCollection, WithHeadings, WithMapping, WithStyles, WithTitle, ShouldAutoSize
 {
     protected $prendas;
