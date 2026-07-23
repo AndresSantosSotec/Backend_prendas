@@ -29,7 +29,7 @@ class MoraService
     public function recalcularMoraCredito(CreditoPrendario $credito, ?Carbon $fechaCalculo = null): array
     {
         $fechaCalculo = $fechaCalculo ?? Carbon::now()->startOfDay();
-        $diasGracia = (int) ($credito->dias_gracia ?? 0);
+        $diasGracia = 0; // Para Créditos Prendarios NO se aplican días de gracia
         $moraConfig = $this->resolverConfiguracionMora($credito);
         $tipoMora = $moraConfig['tipo_mora'];
         $tasaMora = $moraConfig['tasa_mora'];

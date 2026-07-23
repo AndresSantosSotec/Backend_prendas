@@ -60,7 +60,7 @@ class PagoService
             $moraTotal = 0.0;
             $otrosTotal = 0.0;
             $diasMora = 0;
-            $diasGracia = (int) ($credito->dias_gracia ?? 0);
+            $diasGracia = 0; // Para Créditos Prendarios NO se aplican días de gracia
             $paramMora = ParametrizacionMora::obtenerConfiguracion($credito->sucursal_id);
             $moraService = app(MoraService::class);
 
@@ -175,7 +175,7 @@ class PagoService
         $diasMora = 0;
 
         if ($credito->fecha_vencimiento && $fechaCalculo->gt($credito->fecha_vencimiento)) {
-            $diasGracia = $credito->dias_gracia ?? 0;
+            $diasGracia = 0; // Sin días de gracia en prendario
 
             // Usar parametrización de mora para días laborales
             $paramMora = ParametrizacionMora::obtenerConfiguracion($credito->sucursal_id);
@@ -1187,7 +1187,7 @@ class PagoService
             // Recalcular mora en memoria si está vencida (por si no se persigió antes)
             if ($cuota->fecha_vencimiento && now()->gt($cuota->fecha_vencimiento)) {
                 $diasMora = (int) abs(now()->diffInDays($cuota->fecha_vencimiento));
-                $diasGracia = $credito->dias_gracia ?? 0;
+                $diasGracia = 0; // Sin días de gracia en prendario
                 $diasMoraEfectivos = max(0, $diasMora - $diasGracia);
                 if ($diasMoraEfectivos > 0) {
                     $tipoMora = $credito->tipo_mora ?? 'porcentaje';
