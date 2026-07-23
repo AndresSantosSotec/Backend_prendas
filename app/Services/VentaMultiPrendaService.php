@@ -700,7 +700,7 @@ class VentaMultiPrendaService
         $numeroCuotas = $data['numero_cuotas'] ?? 3;
         $tasaInteresMensual = $data['tasa_interes_mensual'] ?? 5;
         $frecuenciaPago = $data['frecuencia_pago'] ?? 'mensual';
-        $diasGracia = $data['dias_gracia'] ?? 0;
+        $diasGracia = isset($data['dias_gracia']) ? (int) $data['dias_gracia'] : 3;
 
         // Gastos adicionales
         $gastoSeguro = $data['gasto_seguro'] ?? 0;

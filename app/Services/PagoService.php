@@ -1180,6 +1180,7 @@ class PagoService
         // 2. Calcular deuda total por concepto (prelación)
         $moraTotalPendiente = 0;
         $interesTotalPendiente = 0;
+        $otrosTotalPendiente = 0;
         $capitalTotalPendiente = 0;
 
         foreach ($cuotasPendientes as $cuota) {
@@ -1201,15 +1202,19 @@ class PagoService
 
             $moraTotalPendiente += max(0, ($cuota->mora_proyectada ?? 0) - ($cuota->mora_pagada ?? 0));
             $interesTotalPendiente += max(0, $cuota->interes_proyectado - ($cuota->interes_pagado ?? 0));
+            $otrosTotalPendiente += max(0, ($cuota->otros_cargos_pendientes ?? max(0, ($cuota->otros_cargos_proyectados ?? 0) - ($cuota->otros_cargos_pagados ?? 0))));
             $capitalTotalPendiente += max(0, $cuota->capital_proyectado - ($cuota->capital_pagado ?? 0));
         }
 
-        // 3. Aplicar prelación al monto del abono
+        // 3. Aplicar prelación al monto del abono (Mora -> Interés -> Otros Cargos -> Capital)
         $pagoMora = min($monto, $moraTotalPendiente);
         $remanente = $monto - $pagoMora;
 
         $pagoInteres = min($remanente, $interesTotalPendiente);
         $remanente = $remanente - $pagoInteres;
+
+        $pagoOtros = min($remanente, $otrosTotalPendiente);
+        $remanente = $remanente - $pagoOtros;
 
         $pagoCapital = min($remanente, $capitalTotalPendiente);
 
@@ -1224,7 +1229,7 @@ class PagoService
             'capital' => $pagoCapital,
             'interes' => $pagoInteres,
             'mora' => $pagoMora,
-            'otros_cargos' => 0,
+            'otros_cargos' => $pagoOtros,
             'saldo_capital' => $credito->capital_pendiente - $pagoCapital,
             'usuario_id' => Auth::id() ?? 1,
             'sucursal_id' => $credito->sucursal_id,
@@ -1232,6 +1237,7 @@ class PagoService
             'forma_pago' => $formaPago,
             'observaciones' => "ABONO - Mora: Q" . number_format($pagoMora, 2) .
                              ", Interés: Q" . number_format($pagoInteres, 2) .
+                             ", Otros: Q" . number_format($pagoOtros, 2) .
                              ", Capital: Q" . number_format($pagoCapital, 2) .
                              " - " . ($data['observaciones'] ?? ''),
             'estado' => 'activo'
@@ -1252,7 +1258,7 @@ class PagoService
         $credito->save();
 
         // 6. Distribuir el pago entre las cuotas (prelación por cuota)
-        $this->distribuirAbonoPrelacion($cuotasPendientes, $pagoMora, $pagoInteres, $pagoCapital, $credito);
+        $this->distribuirAbonoPrelacion($cuotasPendientes, $pagoMora, $pagoInteres, $pagoOtros, $pagoCapital, $credito);
 
         // 6.5 IMPORTANTE: Si se pagó capital, recalcular cuotas futuras con el nuevo saldo
         if ($pagoCapital > 0.10) {
@@ -1275,12 +1281,13 @@ class PagoService
     /**
      * Distribuye el abono entre cuotas aplicando prelación
      * Primero cubre toda la mora de todas las cuotas,
-     * luego todo el interés, y finalmente el capital
+     * luego todo el interés, luego otros cargos y finalmente el capital
      */
-    private function distribuirAbonoPrelacion($cuotas, float $pagoMora, float $pagoInteres, float $pagoCapital, CreditoPrendario $credito)
+    private function distribuirAbonoPrelacion($cuotas, float $pagoMora, float $pagoInteres, float $pagoOtros, float $pagoCapital, CreditoPrendario $credito)
     {
         $moraRestante = $pagoMora;
         $interesRestante = $pagoInteres;
+        $otrosRestante = $pagoOtros;
         $capitalRestante = $pagoCapital;
 
         foreach ($cuotas as $cuota) {
@@ -1304,7 +1311,17 @@ class PagoService
                 $interesRestante -= $interesAAplicar;
             }
 
-            // 3. Aplicar CAPITAL
+            // 3. Aplicar OTROS CARGOS (Manejo de cuenta / Gastos)
+            $otrosPendiente = max(0, ($cuota->otros_cargos_pendientes ?? max(0, ($cuota->otros_cargos_proyectados ?? 0) - ($cuota->otros_cargos_pagados ?? 0))));
+            $otrosAAplicar = min($otrosRestante, $otrosPendiente);
+
+            if ($otrosAAplicar > 0) {
+                $cuota->otros_cargos_pagados = (float)($cuota->otros_cargos_pagados ?? 0) + $otrosAAplicar;
+                $cuota->otros_cargos_pendientes = max(0, ($cuota->otros_cargos_proyectados ?? 0) - $cuota->otros_cargos_pagados);
+                $otrosRestante -= $otrosAAplicar;
+            }
+
+            // 4. Aplicar CAPITAL
             $capitalPendiente = max(0, $cuota->capital_proyectado - ($cuota->capital_pagado ?? 0));
             $capitalAAplicar = min($capitalRestante, $capitalPendiente);
 
@@ -1314,14 +1331,16 @@ class PagoService
                 $capitalRestante -= $capitalAAplicar;
             }
 
-            // 4. Actualizar totales y estado
+            // 5. Actualizar totales y estado (incluyendo OTROS CARGOS)
             $cuota->monto_total_pagado = ($cuota->capital_pagado ?? 0) +
                                          ($cuota->interes_pagado ?? 0) +
-                                         ($cuota->mora_pagada ?? 0);
+                                         ($cuota->mora_pagada ?? 0) +
+                                         ($cuota->otros_cargos_pagados ?? 0);
 
-            $cuota->monto_pendiente = $cuota->capital_pendiente +
-                                     $cuota->interes_pendiente +
-                                     ($cuota->mora_pendiente ?? 0);
+            $cuota->monto_pendiente = ($cuota->capital_pendiente ?? 0) +
+                                     ($cuota->interes_pendiente ?? 0) +
+                                     ($cuota->mora_pendiente ?? 0) +
+                                     ($cuota->otros_cargos_pendientes ?? 0);
 
             $cuota->saldo_capital_credito = $credito->capital_pendiente;
 
@@ -1336,7 +1355,7 @@ class PagoService
             $cuota->save();
 
             // Si ya no queda nada por aplicar, salir del loop
-            if ($moraRestante <= 0.01 && $interesRestante <= 0.01 && $capitalRestante <= 0.01) {
+            if ($moraRestante <= 0.01 && $interesRestante <= 0.01 && $otrosRestante <= 0.01 && $capitalRestante <= 0.01) {
                 break;
             }
         }
