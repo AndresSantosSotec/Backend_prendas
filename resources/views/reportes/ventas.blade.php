@@ -122,11 +122,13 @@
                 <th>Código Venta</th>
                 <th>Fecha</th>
                 <th>Cliente</th>
-                <th>Artículo (Descripción)</th>
+                <th>Artículo (Descripci<n)</th>
                 <th class="text-right">P. Compra (Costo)</th>
-                <th class="text-right">P. Venta</th>
+                <th class="text-right">P. Lista</th>
+                <th class="text-right" style="color:#d32f2f">Descuento</th>
+                <th class="text-right" style="background:#1b5e20; color:#fff;">P. Final (Cobrado)</th>
                 <th class="text-right">Utilidad</th>
-                <th class="text-right">% Diferencia</th>
+                <th class="text-right">% Margen</th>
                 <th class="text-center">Estado</th>
             </tr>
         </thead>
@@ -136,9 +138,11 @@
                 <td>{{ $venta['codigo_venta'] }}</td>
                 <td>{{ $venta['fecha_venta'] }}</td>
                 <td>{{ Str::limit($venta['cliente'], 18) }}</td>
-                <td>{{ Str::limit($venta['descripcion'], 32) }}</td>
+                <td>{{ Str::limit($venta['descripcion'], 28) }}</td>
                 <td class="text-right">Q{{ number_format($venta['precio_compra'], 2) }}</td>
-                <td class="text-right"><strong>Q{{ number_format($venta['precio_venta'], 2) }}</strong></td>
+                <td class="text-right">Q{{ number_format($venta['precio_original'] ?? $venta['precio_venta'], 2) }}</td>
+                <td class="text-right" style="color:#c62828">@if(($venta['descuento'] ?? 0) > 0)-Q{{ number_format($venta['descuento'], 2) }}@else &mdash;@endif</td>
+                <td class="text-right" style="font-weight:bold;"><strong>Q{{ number_format($venta['precio_final'] ?? $venta['precio_venta'], 2) }}</strong></td>
                 <td class="text-right" style="color: {{ $venta['utilidad'] >= 0 ? '#155724' : '#721c24' }}">Q{{ number_format($venta['utilidad'], 2) }}</td>
                 <td class="text-right" style="color: {{ $venta['margen'] >= 0 ? '#155724' : '#721c24' }}">{{ number_format($venta['margen'], 2) }}%</td>
                 <td class="text-center">
@@ -147,7 +151,7 @@
             </tr>
             @empty
             <tr>
-                <td colspan="9" style="text-align:center; padding:20px; color:#666;">
+                <td colspan="11" style="text-align:center; padding:20px; color:#666;">
                     No hay artículos vendidos para el período seleccionado
                 </td>
             </tr>
@@ -157,21 +161,31 @@
 
     @if(isset($totales))
     <div style="margin-top: 15px; text-align: right;">
-        <table style="display: inline-table; width: 250px; border-collapse: collapse; font-size: 9px; border: 1px solid #ccc;">
+        <table style="display: inline-table; width: 300px; border-collapse: collapse; font-size: 9px; border: 1px solid #ccc;">
             <tr>
                 <td style="padding: 4px; border: 1px solid #ccc; text-align: left;">Total Costo (Compra):</td>
                 <td style="padding: 4px; border: 1px solid #ccc; text-align: right;">Q{{ number_format($totales['costo'], 2) }}</td>
             </tr>
+            @if(isset($totales['precio_lista']))
             <tr>
-                <td style="padding: 4px; border: 1px solid #ccc; text-align: left;">Total Venta:</td>
-                <td style="padding: 4px; border: 1px solid #ccc; text-align: right;">Q{{ number_format($totales['venta'], 2) }}</td>
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: left;">Total Precio Lista:</td>
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: right;">Q{{ number_format($totales['precio_lista'], 2) }}</td>
+            </tr>
+            <tr style="color: #c62828;">
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: left;">Total Descuentos Aplicados:</td>
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: right;">-Q{{ number_format($totales['descuentos'], 2) }}</td>
+            </tr>
+            @endif
+            <tr style="font-weight: bold; background: #e8f5e9;">
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: left;">TOTAL PRECIO FINAL (Cobrado):</td>
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: right; color: #155724;">Q{{ number_format($totales['venta'], 2) }}</td>
             </tr>
             <tr style="font-weight: bold; background: #f5f5f5;">
                 <td style="padding: 4px; border: 1px solid #ccc; text-align: left;">UTILIDAD TOTAL:</td>
                 <td style="padding: 4px; border: 1px solid #ccc; text-align: right; color: {{ $totales['utilidad'] >= 0 ? '#155724' : '#721c24' }}">Q{{ number_format($totales['utilidad'], 2) }}</td>
             </tr>
             <tr style="font-weight: bold; background: #f5f5f5;">
-                <td style="padding: 4px; border: 1px solid #ccc; text-align: left;">% DIFERENCIA GENERAL:</td>
+                <td style="padding: 4px; border: 1px solid #ccc; text-align: left;">% MARGEN GENERAL:</td>
                 <td style="padding: 4px; border: 1px solid #ccc; text-align: right; color: {{ $totales['margen'] >= 0 ? '#155724' : '#721c24' }}">{{ number_format($totales['margen'], 2) }}%</td>
             </tr>
         </table>

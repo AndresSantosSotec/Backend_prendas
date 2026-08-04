@@ -60,17 +60,22 @@ class PrendaController extends Controller
                 });
             }
 
-            // Filtro por rango de fechas
+            // Filtro por rango de fechas:
+            // Si se filtra por estado 'vendida', usar fecha_venta.
+            // Para cualquier otro estado (en_custodia, en_venta, etc.), usar fecha_ingreso.
+            $estadoFiltro = $request->estado ?? '';
+            $columnaFecha = in_array($estadoFiltro, ['vendida', 'vendido']) ? 'fecha_venta' : 'fecha_ingreso';
+
             if ($request->has('fecha_desde') && !empty($request->fecha_desde)) {
-                $query->where('fecha_ingreso', '>=', $request->fecha_desde);
+                $query->where($columnaFecha, '>=', $request->fecha_desde);
             }
 
             if ($request->has('fecha_hasta') && !empty($request->fecha_hasta)) {
-                $query->where('fecha_ingreso', '<=', $request->fecha_hasta);
+                $query->where($columnaFecha, '<=', $request->fecha_hasta);
             }
 
-            // Ordenamiento
-            $query->orderBy('fecha_ingreso', 'desc');
+            // Ordenamiento: por fecha_venta si se filtra vendidas, si no por fecha_ingreso
+            $query->orderBy($columnaFecha, 'desc');
 
             $prendas = $query->get();
             $format = $request->input('format', 'pdf');
@@ -144,13 +149,18 @@ class PrendaController extends Controller
             });
         }
 
-        // Filtro por rango de fechas
+        // Filtro por rango de fechas:
+        // Si se filtra por estado 'vendida', usar fecha_venta.
+        // Para cualquier otro estado (en_custodia, en_venta, etc.), usar fecha_ingreso.
+        $estadoFiltro = $request->estado ?? '';
+        $columnaFecha = in_array($estadoFiltro, ['vendida', 'vendido']) ? 'fecha_venta' : 'fecha_ingreso';
+
         if ($request->has('fecha_desde') && !empty($request->fecha_desde)) {
-            $query->where('fecha_ingreso', '>=', $request->fecha_desde);
+            $query->where($columnaFecha, '>=', $request->fecha_desde);
         }
 
         if ($request->has('fecha_hasta') && !empty($request->fecha_hasta)) {
-            $query->where('fecha_ingreso', '<=', $request->fecha_hasta);
+            $query->where($columnaFecha, '<=', $request->fecha_hasta);
         }
 
         // Ordenamiento
