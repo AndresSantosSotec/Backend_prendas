@@ -45,7 +45,11 @@ class PrendaController extends Controller
 
             // Filtro por estado
             if ($request->has('estado') && !empty($request->estado) && $request->estado !== 'todos') {
-                $query->where('estado', $request->estado);
+                if (in_array($request->estado, ['vendida', 'vendido'])) {
+                    $query->whereIn('estado', ['vendida', 'vendido']);
+                } else {
+                    $query->where('estado', $request->estado);
+                }
             }
 
              // Filtro por categoría
@@ -67,11 +71,11 @@ class PrendaController extends Controller
             $columnaFecha = in_array($estadoFiltro, ['vendida', 'vendido']) ? 'fecha_venta' : 'fecha_ingreso';
 
             if ($request->has('fecha_desde') && !empty($request->fecha_desde)) {
-                $query->where($columnaFecha, '>=', $request->fecha_desde);
+                $query->whereDate($columnaFecha, '>=', $request->fecha_desde);
             }
 
             if ($request->has('fecha_hasta') && !empty($request->fecha_hasta)) {
-                $query->where($columnaFecha, '<=', $request->fecha_hasta);
+                $query->whereDate($columnaFecha, '<=', $request->fecha_hasta);
             }
 
             // Ordenamiento: por fecha_venta si se filtra vendidas, si no por fecha_ingreso
@@ -133,17 +137,21 @@ class PrendaController extends Controller
         }
 
         // Filtro por estado
-        if ($request->has('estado') && !empty($request->estado)) {
-            $query->where('estado', $request->estado);
+        if ($request->has('estado') && !empty($request->estado) && $request->estado !== 'todos') {
+            if (in_array($request->estado, ['vendida', 'vendido'])) {
+                $query->whereIn('estado', ['vendida', 'vendido']);
+            } else {
+                $query->where('estado', $request->estado);
+            }
         }
 
         // Filtro por categoría
-        if ($request->has('categoria') && !empty($request->categoria)) {
+        if ($request->has('categoria') && !empty($request->categoria) && $request->categoria !== 'todos') {
             $query->where('categoria_producto_id', $request->categoria);
         }
 
         // Filtro por sucursal
-        if ($request->has('sucursal') && !empty($request->sucursal)) {
+        if ($request->has('sucursal') && !empty($request->sucursal) && $request->sucursal !== 'todos') {
             $query->whereHas('creditoPrendario', function ($q) use ($request) {
                 $q->where('sucursal_id', $request->sucursal);
             });
@@ -156,11 +164,11 @@ class PrendaController extends Controller
         $columnaFecha = in_array($estadoFiltro, ['vendida', 'vendido']) ? 'fecha_venta' : 'fecha_ingreso';
 
         if ($request->has('fecha_desde') && !empty($request->fecha_desde)) {
-            $query->where($columnaFecha, '>=', $request->fecha_desde);
+            $query->whereDate($columnaFecha, '>=', $request->fecha_desde);
         }
 
         if ($request->has('fecha_hasta') && !empty($request->fecha_hasta)) {
-            $query->where($columnaFecha, '<=', $request->fecha_hasta);
+            $query->whereDate($columnaFecha, '<=', $request->fecha_hasta);
         }
 
         // Ordenamiento
