@@ -123,7 +123,8 @@ Agregado el dominio de Avanza:
 
 ```php
 'allowed_origins' => [
-    'https://avanzadigiprenda.stockgenius-sotecpro.com', // ✅ Nuevo
+    'https://crediprendasdigi.stockgenius-sotecpro.com', // ✅ Nuevo dominio frontend
+    'https://avanzadigiprenda.stockgenius-sotecpro.com',
     'https://digiprenda.inniserver.net',
     // ... otros
 ],
