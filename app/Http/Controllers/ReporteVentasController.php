@@ -241,13 +241,7 @@ class ReporteVentasController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'No se pudo generar el PDF del reporte de ventas.',
-                // TODO: quitar debug_info después de diagnosticar
-                'debug_info' => [
-                    'error'   => $e->getMessage(),
-                    'file'    => $e->getFile(),
-                    'line'    => $e->getLine(),
-                    'class'   => get_class($e),
-                ],
+                'error'   => config('app.debug') ? $e->getMessage() : 'Error interno del servidor.',
             ], 500);
         }
     }
