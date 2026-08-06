@@ -117,7 +117,12 @@ class PrendaController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal']);
+        $query = Prenda::with([
+            'categoriaProducto',
+            'creditoPrendario.cliente',
+            'creditoPrendario.sucursal',
+            'venta', // Para obtener fecha_venta desde la tabla ventas si falta en la prenda
+        ]);
 
         // Búsqueda
         if ($request->has('busqueda') && !empty($request->busqueda)) {

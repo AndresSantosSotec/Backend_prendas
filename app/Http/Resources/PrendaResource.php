@@ -28,8 +28,12 @@ class PrendaResource extends JsonResource
             'descuentoMaximo' => 20,
             'estado' => $this->mapearEstado($this->estado),
             'fechaIngreso' => $this->fecha_ingreso ? $this->fecha_ingreso->toISOString() : null,
-            'fechaVenta' => $this->fecha_venta ? $this->fecha_venta->toISOString() : null,
-            'fechaPasaVenta' => $this->fecha_venta ? $this->fecha_venta->toISOString() : null,
+            'fechaVenta' => $this->fecha_venta
+                ? $this->fecha_venta->toISOString()
+                : ($this->venta?->created_at?->toISOString() ?? null),
+            'fechaPasaVenta' => $this->fecha_venta
+                ? $this->fecha_venta->toISOString()
+                : ($this->venta?->created_at?->toISOString() ?? null),
             'creditoId' => $this->credito_prendario_id,
             'tasadorId' => $this->tasador_id,
             'ubicacionBodega' => $this->ubicacion_fisica ?? ($this->seccion ? "{$this->seccion}-{$this->estante}" : null),

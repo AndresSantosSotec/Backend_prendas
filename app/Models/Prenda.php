@@ -113,6 +113,14 @@ class Prenda extends Model
     }
 
     /**
+     * Venta directa de esta prenda (relación con tabla ventas vía prenda_id)
+     */
+    public function venta()
+    {
+        return $this->hasOne(Venta::class, 'prenda_id')->latest();
+    }
+
+    /**
      * Relación con los datos adicionales normalizados (tabla EAV)
      */
     public function datosAdicionalesNormalizados()
