@@ -157,9 +157,8 @@ class PrendaController extends Controller
             });
         }
 
-        // Filtro por rango de fechas:
-        // Si se filtra por estado 'vendida', usar fecha_venta.
-        // Para cualquier otro estado (en_custodia, en_venta, etc.), usar fecha_ingreso.
+        // Filtro por rango de fechas de ingreso:
+        // Si se filtra por estado 'vendida', usar fecha_venta. Para otros estados, usar fecha_ingreso.
         $estadoFiltro = $request->estado ?? '';
         $columnaFecha = in_array($estadoFiltro, ['vendida', 'vendido']) ? 'fecha_venta' : 'fecha_ingreso';
 
@@ -169,6 +168,15 @@ class PrendaController extends Controller
 
         if ($request->has('fecha_hasta') && !empty($request->fecha_hasta)) {
             $query->whereDate($columnaFecha, '<=', $request->fecha_hasta);
+        }
+
+        // Filtro por rango de fechas de venta (independiente del estado)
+        if ($request->has('fecha_venta_desde') && !empty($request->fecha_venta_desde)) {
+            $query->whereDate('fecha_venta', '>=', $request->fecha_venta_desde);
+        }
+
+        if ($request->has('fecha_venta_hasta') && !empty($request->fecha_venta_hasta)) {
+            $query->whereDate('fecha_venta', '<=', $request->fecha_venta_hasta);
         }
 
         // Ordenamiento
