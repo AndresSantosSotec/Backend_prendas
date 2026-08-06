@@ -187,46 +187,63 @@ class ReporteVentasController extends Controller
             'tipo_venta'   => 'nullable|string',
         ]);
 
-        $ventas = $this->buildQuery($request)->get();
-        $items = $this->compilarArticulosVendidos($ventas);
-        $estadisticas = $this->calcularEstadisticas($ventas);
+        try {
+            $ventas = $this->buildQuery($request)->get();
+            $items = $this->compilarArticulosVendidos($ventas);
+            $estadisticas = $this->calcularEstadisticas($ventas);
 
-        $fechaDesde = $request->fecha_desde ?? $request->fecha_inicio ?? 'N/A';
-        $fechaHasta = $request->fecha_hasta ?? $request->fecha_fin ?? 'N/A';
+            $fechaDesde = $request->fecha_desde ?? $request->fecha_inicio ?? 'N/A';
+            $fechaHasta = $request->fecha_hasta ?? $request->fecha_fin ?? 'N/A';
 
-        $totalCosto       = 0;
-        $totalPrecioLista = 0;
-        $totalDescuentos  = 0;
-        $totalPrecioFinal = 0;
-        foreach ($items as $item) {
-            $totalCosto       += $item['precio_compra'];
-            $totalPrecioLista += $item['precio_original'];
-            $totalDescuentos  += $item['descuento'];
-            $totalPrecioFinal += $item['precio_final'];
+            $totalCosto       = 0;
+            $totalPrecioLista = 0;
+            $totalDescuentos  = 0;
+            $totalPrecioFinal = 0;
+            foreach ($items as $item) {
+                $totalCosto       += $item['precio_compra'];
+                $totalPrecioLista += $item['precio_original'];
+                $totalDescuentos  += $item['descuento'];
+                $totalPrecioFinal += $item['precio_final'];
+            }
+
+            $totales = [
+                'costo'        => $totalCosto,
+                'precio_lista' => $totalPrecioLista,
+                'descuentos'   => $totalDescuentos,
+                'venta'        => $totalPrecioFinal,
+                'utilidad'     => $totalPrecioFinal - $totalCosto,
+                'margen'       => $totalCosto > 0 ? round((($totalPrecioFinal - $totalCosto) / $totalCosto) * 100, 2) : 0,
+            ];
+
+            $html = view('reportes.ventas', [
+                'ventas'       => $items,
+                'estadisticas' => $estadisticas,
+                'totales'      => $totales,
+                'fecha_desde'  => $fechaDesde,
+                'fecha_hasta'  => $fechaHasta,
+                'generado_por' => Auth::user()->name ?? 'Sistema',
+                'generado_en'  => now()->format('d/m/Y H:i'),
+            ])->render();
+
+            $pdf = Pdf::loadHTML($html)->setPaper('A4', 'landscape');
+
+            return $pdf->download("reporte-ventas-{$fechaDesde}-{$fechaHasta}.pdf");
+
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Error generando PDF de ventas', [
+                'error'   => $e->getMessage(),
+                'file'    => $e->getFile(),
+                'line'    => $e->getLine(),
+                'user_id' => Auth::id(),
+                'params'  => $request->only(['fecha_desde', 'fecha_hasta', 'sucursal_id']),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo generar el PDF del reporte de ventas.',
+                'error'   => config('app.debug') ? $e->getMessage() : 'Error interno del servidor.',
+            ], 500);
         }
-
-        $totales = [
-            'costo'        => $totalCosto,
-            'precio_lista' => $totalPrecioLista,
-            'descuentos'   => $totalDescuentos,
-            'venta'        => $totalPrecioFinal,
-            'utilidad'     => $totalPrecioFinal - $totalCosto,
-            'margen'       => $totalCosto > 0 ? round((($totalPrecioFinal - $totalCosto) / $totalCosto) * 100, 2) : 0,
-        ];
-
-        $html = view('reportes.ventas', [
-            'ventas'       => $items,
-            'estadisticas' => $estadisticas,
-            'totales'      => $totales,
-            'fecha_desde'  => $fechaDesde,
-            'fecha_hasta'  => $fechaHasta,
-            'generado_por' => Auth::user()->name ?? 'Sistema',
-            'generado_en'  => now()->format('d/m/Y H:i'),
-        ])->render();
-
-        $pdf = Pdf::loadHTML($html)->setPaper('A4', 'landscape');
-
-        return $pdf->download("reporte-ventas-{$fechaDesde}-{$fechaHasta}.pdf");
     }
 
     // ─── Excel (CSV) ──────────────────────────────────────────────────────────

@@ -42,23 +42,28 @@
 </head>
 <body>
 
-        <div class="header" style="border:none; padding-bottom: 10px; border-bottom: 1px solid #ccc; margin-bottom: 15px;">
+    <div class="header" style="border:none; padding-bottom: 10px; border-bottom: 1px solid #ccc; margin-bottom: 15px;">
         <table width="100%">
             <tr>
                 <td width="25%" style="text-align: left; vertical-align: middle;">
-                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                    @php $logoPath = resource_path('logos/avanza_logo.png'); @endphp
+                    @if(file_exists($logoPath))
+                        <img src="data:image/png;base64,{{ base64_encode(file_get_contents($logoPath)) }}" alt="Logo" style="height: 80px;">
+                    @else
+                        <span style="font-size:14px; font-weight:bold;">DIGIPRENDA</span>
+                    @endif
                 </td>
                 <td width="50%" style="text-align: center; vertical-align: middle;">
                     <h1>REPORTE DE VENTAS</h1>
-        <div class="subtitle">
-            Período: {{ $fecha_desde }} — {{ $fecha_hasta }}
-            &nbsp;&nbsp;|&nbsp;&nbsp;
-            Generado el {{ $generado_en }} por {{ $generado_por }}
+                    <div class="subtitle">
+                        Período: {{ $fecha_desde }} — {{ $fecha_hasta }}
+                        &nbsp;&nbsp;|&nbsp;&nbsp;
+                        Generado el {{ $generado_en }} por {{ $generado_por }}
+                    </div>
                 </td>
                 <td width="25%"></td>
             </tr>
         </table>
-    </div>
     </div>
 
     <!-- Estadísticas principales -->
