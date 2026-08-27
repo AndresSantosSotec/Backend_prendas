@@ -27,6 +27,7 @@ class PrendaResource extends JsonResource
             'precioMinimo' => (float) ($this->valor_venta * 0.8) ?? 0, // 20% de descuento máximo
             'descuentoMaximo' => 20,
             'estado' => $this->mapearEstado($this->estado),
+            'enPlanPagos' => $this->relationLoaded('ventas') && $this->ventas->isNotEmpty(),
             'fechaIngreso' => $this->fecha_ingreso ? $this->fecha_ingreso->toISOString() : null,
             'fechaVenta' => $this->fecha_venta
                 ? $this->fecha_venta->toISOString()

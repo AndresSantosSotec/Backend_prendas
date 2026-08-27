@@ -24,7 +24,13 @@ class PrendaController extends Controller
      */
     public function reporte(Request $request) {
         try {
-            $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal', 'sucursal']);
+            $query = Prenda::with([
+                'categoriaProducto',
+                'creditoPrendario.cliente',
+                'creditoPrendario.sucursal',
+                'sucursal',
+                'ventas' => fn ($query) => $query->where('estado', 'plan_pagos'),
+            ]);
 
             // Búsqueda
             if ($request->has('busqueda') && !empty($request->busqueda)) {
@@ -45,7 +51,14 @@ class PrendaController extends Controller
 
             // Filtro por estado
             if ($request->has('estado') && !empty($request->estado) && $request->estado !== 'todos') {
-                if (in_array($request->estado, ['vendida', 'vendido'])) {
+                if ($request->estado === 'en_custodia') {
+                    $query->where(function ($query) {
+                        $query->where('estado', 'en_custodia')
+                            ->orWhereHas('ventas', function ($ventaQuery) {
+                                $ventaQuery->where('estado', 'plan_pagos');
+                            });
+                    });
+                } elseif (in_array($request->estado, ['vendida', 'vendido'])) {
                     $query->whereIn('estado', ['vendida', 'vendido']);
                 } else {
                     $query->where('estado', $request->estado);
@@ -122,6 +135,7 @@ class PrendaController extends Controller
             'creditoPrendario.cliente',
             'creditoPrendario.sucursal',
             'venta', // Para obtener fecha_venta desde la tabla ventas si falta en la prenda
+            'ventas' => fn ($query) => $query->where('estado', 'plan_pagos'),
         ]);
 
         // Búsqueda
@@ -143,7 +157,14 @@ class PrendaController extends Controller
 
         // Filtro por estado
         if ($request->has('estado') && !empty($request->estado) && $request->estado !== 'todos') {
-            if (in_array($request->estado, ['vendida', 'vendido'])) {
+            if ($request->estado === 'en_custodia') {
+                $query->where(function ($query) {
+                    $query->where('estado', 'en_custodia')
+                        ->orWhereHas('ventas', function ($ventaQuery) {
+                            $ventaQuery->where('estado', 'plan_pagos');
+                        });
+                });
+            } elseif (in_array($request->estado, ['vendida', 'vendido'])) {
                 $query->whereIn('estado', ['vendida', 'vendido']);
             } else {
                 $query->where('estado', $request->estado);

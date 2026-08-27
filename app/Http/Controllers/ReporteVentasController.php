@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Venta;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 class ReporteVentasController extends Controller
@@ -20,10 +21,10 @@ class ReporteVentasController extends Controller
         $fechaHasta = $request->fecha_hasta ?? $request->fecha_fin;
 
         if ($fechaDesde) {
-            $query->whereDate('created_at', '>=', $fechaDesde);
+            $query->whereDate(DB::raw('COALESCE(fecha_liquidacion, created_at)'), '>=', $fechaDesde);
         }
         if ($fechaHasta) {
-            $query->whereDate('created_at', '<=', $fechaHasta);
+            $query->whereDate(DB::raw('COALESCE(fecha_liquidacion, created_at)'), '<=', $fechaHasta);
         }
         if ($request->sucursal_id) {
             $query->where('sucursal_id', $request->sucursal_id);
@@ -35,7 +36,7 @@ class ReporteVentasController extends Controller
             $query->where('tipo_venta', $request->tipo_venta);
         }
 
-        return $query->orderBy('created_at', 'desc');
+        return $query->orderByRaw('COALESCE(fecha_liquidacion, created_at) DESC');
     }
 
     private function calcularEstadisticas($ventas): array
@@ -102,7 +103,7 @@ class ReporteVentasController extends Controller
                         'porcentaje_diferencia' => (float)$margen,
                         'margen'                => (float)$margen,
                         'metodo_pago'           => $venta->metodo_pago,
-                        'fecha_venta'           => $venta->created_at?->format('d/m/Y H:i'),
+                        'fecha_venta'           => ($venta->fecha_liquidacion ?? $venta->created_at)?->format('d/m/Y H:i'),
                     ];
                 }
             } else {
@@ -139,7 +140,7 @@ class ReporteVentasController extends Controller
                     'porcentaje_diferencia' => (float)$margen,
                     'margen'                => (float)$margen,
                     'metodo_pago'           => $venta->metodo_pago,
-                    'fecha_venta'           => $venta->created_at?->format('d/m/Y H:i'),
+                    'fecha_venta'           => ($venta->fecha_liquidacion ?? $venta->created_at)?->format('d/m/Y H:i'),
                 ];
             }
         }

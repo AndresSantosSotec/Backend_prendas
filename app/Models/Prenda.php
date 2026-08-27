@@ -120,6 +120,11 @@ class Prenda extends Model
         return $this->hasOne(Venta::class, 'prenda_id')->latest();
     }
 
+    public function ventas()
+    {
+        return $this->belongsToMany(Venta::class, 'venta_detalles', 'prenda_id', 'venta_id');
+    }
+
     /**
      * Relación con los datos adicionales normalizados (tabla EAV)
      */
