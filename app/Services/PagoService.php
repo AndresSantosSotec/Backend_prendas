@@ -97,6 +97,11 @@ class PagoService
             $primeraCuota = $cuotasPendientes->first();
 
             $cuotaCapital = round((float) ($primeraCuota->capital_pendiente ?? 0), 2);
+            // Si el crédito tiene 1 sola cuota pendiente y su capital estaba en 0 pero el crédito tiene capital pendiente real:
+            if ($cuotaCapital <= 0 && $cuotasPendientes->count() === 1 && (float) $credito->capital_pendiente > 0) {
+                $cuotaCapital = (float) $credito->capital_pendiente;
+            }
+
             $cuotaInteres = round((float) ($primeraCuota->interes_pendiente ?? 0), 2);
             $cuotaMora = round((float) ($primeraCuota->mora_pendiente ?? 0), 2);
             $cuotaGastos = round((float) ($primeraCuota->otros_cargos_pendientes ?? 0), 2);
@@ -537,10 +542,17 @@ class PagoService
 
         // 4. Registrar movimiento
         $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
-        $capitalAPagar = $cuota->capital_pendiente ?? $cuota->capital_proyectado;
-        $interesAPagar = $cuota->interes_pendiente ?? $cuota->interes_proyectado;
-        $moraAPagar = $cuota->mora_pendiente ?? $cuota->mora_proyectada ?? 0;
-        $otrosAPagar = $cuota->otros_cargos_pendientes ?? $cuota->otros_cargos_proyectados ?? 0;
+        $capitalAPagar = (float) ($cuota->capital_pendiente ?? $cuota->capital_proyectado ?? 0);
+        $cuotasPendientesCount = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
+            ->count();
+        if ($capitalAPagar <= 0 && $cuotasPendientesCount === 1 && (float) $credito->capital_pendiente > 0) {
+            $capitalAPagar = (float) $credito->capital_pendiente;
+        }
+
+        $interesAPagar = (float) ($cuota->interes_pendiente ?? $cuota->interes_proyectado ?? 0);
+        $moraAPagar = (float) ($cuota->mora_pendiente ?? $cuota->mora_proyectada ?? 0);
+        $otrosAPagar = (float) ($cuota->otros_cargos_pendientes ?? $cuota->otros_cargos_proyectados ?? 0);
 
         $movimiento = CreditoMovimiento::create([
             'credito_prendario_id' => $credito->id,
