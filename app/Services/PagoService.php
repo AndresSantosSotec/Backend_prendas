@@ -87,6 +87,12 @@ class PagoService
                 $diasMora = max($diasMora, $diasMoraCuota);
             }
 
+            // Si el plan de pagos tiene cuotas de solo interés (ej: refrendo o gracia) donde capital es 0,
+            // asegurar que la liquidación total tome el capital pendiente real del crédito
+            if ($capitalPendiente <= 0 && (float) $credito->capital_pendiente > 0) {
+                $capitalPendiente = (float) $credito->capital_pendiente;
+            }
+
             $periodosCobrar = $this->calcularPeriodos($diasTranscurridos, $credito->tipo_interes);
             $primeraCuota = $cuotasPendientes->first();
 
