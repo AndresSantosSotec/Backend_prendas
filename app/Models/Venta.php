@@ -15,6 +15,40 @@ class Venta extends Model
     protected string $auditoriaModulo = 'ventas';
     public static bool $auditarDeshabilitado = false;
 
+    /**
+     * Boot del modelo - Evento para integración contable automática
+     */
+    protected static function booted()
+    {
+        static::created(function ($venta) {
+            if (!config('contabilidad.auto_asientos', false)) {
+                return;
+            }
+
+            if (!config('contabilidad.auto_asientos_por_operacion.venta_prenda', false)) {
+                return;
+            }
+
+            try {
+                $service = app(\App\Services\ContabilidadService::class);
+                $asiento = $service->generarAsientoAutomatico($venta, 'venta_prenda');
+
+                if (config('contabilidad.log_asientos', true)) {
+                    \Illuminate\Support\Facades\Log::info("Asiento contable de venta generado automáticamente", [
+                        'venta_id' => $venta->id,
+                        'asiento_id' => $asiento->id,
+                        'numero_comprobante' => $asiento->numero_comprobante,
+                    ]);
+                }
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error("Error al generar asiento contable de venta", [
+                    'venta_id' => $venta->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        });
+    }
+
     protected $fillable = [
         // Campos anteriores
         'prenda_id',
