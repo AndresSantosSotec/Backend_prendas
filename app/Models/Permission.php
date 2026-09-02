@@ -62,7 +62,6 @@ class Permission extends Model
         'reportes' => ['generar', 'exportar'],
         'usuarios' => ['ver', 'crear', 'editar', 'eliminar', 'asignar_permisos'],
         'compras' => ['ver', 'crear', 'editar', 'eliminar'],
-        'remates' => ['ver', 'crear', 'cancelar'],
         'categorias_productos' => ['ver', 'crear', 'editar', 'eliminar', 'toggle_activa'],
         'gastos' => ['ver', 'crear', 'editar', 'eliminar', 'asignar_credito'],
         'auditoria' => ['ver', 'exportar'], // Solo para superadmin
@@ -129,7 +128,6 @@ class Permission extends Model
             'prendas' => ['ver', 'cambiar_estado'],
             'ventas' => ['ver', 'modificar_precio', 'aplicar_descuento'],
             'reportes' => ['generar', 'exportar'],
-            'remates' => ['ver'],
             'caja' => ['ver_movimientos'],
             'categorias_productos' => ['ver', 'crear', 'editar'],
             'gastos' => ['ver', 'crear', 'editar', 'asignar_credito'],

@@ -15,7 +15,8 @@ class AuditoriaController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        if ($request->user()->rol !== 'superadmin') {
+        $user = $request->user() ?: \Illuminate\Support\Facades\Auth::user();
+        if (!$user || $user->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
                 'message' => 'No tienes permiso para acceder a este módulo'
@@ -110,7 +111,8 @@ class AuditoriaController extends Controller
      */
     public function estadisticas(Request $request): JsonResponse
     {
-        if ($request->user()->rol !== 'superadmin') {
+        $user = $request->user() ?: \Illuminate\Support\Facades\Auth::user();
+        if (!$user || $user->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
                 'message' => 'No tienes permiso para acceder a este módulo'
@@ -184,7 +186,8 @@ class AuditoriaController extends Controller
      */
     public function show(Request $request, $id): JsonResponse
     {
-        if ($request->user()->rol !== 'superadmin') {
+        $user = $request->user() ?: \Illuminate\Support\Facades\Auth::user();
+        if (!$user || $user->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
                 'message' => 'No tienes permiso para acceder a este módulo'
@@ -211,7 +214,8 @@ class AuditoriaController extends Controller
      */
     public function modulos(Request $request): JsonResponse
     {
-        if ($request->user()->rol !== 'superadmin') {
+        $user = $request->user() ?: \Illuminate\Support\Facades\Auth::user();
+        if (!$user || $user->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
                 'message' => 'No tienes permiso para acceder a este módulo'
@@ -233,7 +237,8 @@ class AuditoriaController extends Controller
      */
     public function acciones(Request $request): JsonResponse
     {
-        if ($request->user()->rol !== 'superadmin') {
+        $user = $request->user() ?: \Illuminate\Support\Facades\Auth::user();
+        if (!$user || $user->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
                 'message' => 'No tienes permiso para acceder a este módulo'
@@ -256,7 +261,8 @@ class AuditoriaController extends Controller
      */
     public function test(Request $request): JsonResponse
     {
-        if ($request->user()->rol !== 'superadmin') {
+        $user = $request->user() ?: \Illuminate\Support\Facades\Auth::user();
+        if (!$user || $user->rol !== 'superadmin') {
             return response()->json([
                 'success' => false,
                 'message' => 'No tienes permiso para ejecutar este test'

@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\CreditoPrendario;
 use App\Services\PagoService;
+use App\Exports\CreditosVigentesExport;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Maatwebsite\Excel\Facades\Excel;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -56,13 +58,18 @@ class ReporteCreditosController extends Controller
             'cliente:id,nombres,apellidos',
             'sucursal:id,nombre',
             'prendas:id,credito_prendario_id,descripcion',
+            'prendas.ventaDetalles' => fn ($vd) => $vd
+                ->whereHas('venta', fn ($v) => $v->whereIn('estado', ['pagada', 'completada', 'plan_pagos'])
+                    ->whereDate('fecha_venta', '<=', $fechaCorte->toDateString()))
+                ->with(['venta:id,estado,fecha_venta,total_final,codigo_venta']),
+            'prendas.venta' => fn ($v) => $v->whereIn('estado', ['pagada', 'completada', 'plan_pagos'])
+                ->whereDate('fecha_venta', '<=', $fechaCorte->toDateString()),
             'planPagos' => fn ($planPagos) => $planPagos->orderBy('numero_cuota'),
             'movimientos' => fn ($movimientos) => $movimientos
                 ->where('estado', 'activo')
                 ->whereDate('fecha_movimiento', '<=', $fechaCorte->toDateString())
                 ->orderBy('fecha_movimiento', 'asc')
                 ->orderBy('id', 'asc'),
-            'remates' => fn ($remates) => $remates->orderByDesc('fecha_remate'),
         ])
             ->whereNotNull('fecha_desembolso')
             ->whereDate('fecha_desembolso', '<=', $fechaCorte->toDateString())
@@ -94,14 +101,7 @@ class ReporteCreditosController extends Controller
             return Carbon::parse($credito->fecha_incobrable)->endOfDay();
         }
 
-        if ($credito->estado === 'rematado' && $credito->remates->isNotEmpty()) {
-            $fechaRemate = $credito->remates->first()?->fecha_remate;
-            if ($fechaRemate) {
-                return Carbon::parse($fechaRemate)->endOfDay();
-            }
-        }
-
-        if (in_array($credito->estado, ['vendido', 'recuperado', 'rescatado', 'anulado', 'rechazado', 'liquidado'], true)) {
+        if (in_array($credito->estado, ['vendido', 'recuperado', 'rescatado', 'anulado', 'rechazado', 'liquidado', 'rematado'], true)) {
             return $credito->updated_at ? Carbon::parse($credito->updated_at)->endOfDay() : null;
         }
 
@@ -166,16 +166,30 @@ class ReporteCreditosController extends Controller
 
             $montoOtorgado = (float) ($credito->monto_desembolsado ?: $credito->monto_aprobado ?: $credito->monto_solicitado ?: 0);
 
+            // Recuperación de capital por medio de ventas de prendas del crédito
+            $recuperadoVentasDetalles = (float) $credito->prendas->sum(function ($prenda) {
+                return $prenda->ventaDetalles->sum(fn ($d) => (float) ($d->total ?? 0));
+            });
+            $recuperadoVentasDirectas = (float) $credito->prendas->sum(function ($prenda) {
+                if ($prenda->venta && $prenda->ventaDetalles->isEmpty()) {
+                    return (float) ($prenda->venta->precio_final ?: $prenda->venta->total_final ?: 0);
+                }
+                return 0;
+            });
+            $recuperadoVentas = round($recuperadoVentasDetalles + $recuperadoVentasDirectas, 2);
+
             $capitalCobrado = (float) $credito->movimientos->sum(fn ($mov) => (float) ($mov->capital ?? 0));
             $interesCobrado = (float) $credito->movimientos->sum(fn ($mov) => (float) ($mov->interes ?? 0));
             $moraCobrada = (float) $credito->movimientos->sum(fn ($mov) => (float) ($mov->mora ?? 0));
             $otrosCobrados = (float) $credito->movimientos->sum(fn ($mov) => (float) ($mov->otros_cargos ?? 0));
-            $totalCobrado = (float) $credito->movimientos->sum(fn ($mov) => (float) ($mov->monto_total ?? 0));
+            $totalCobradoMovimientos = (float) $credito->movimientos->sum(fn ($mov) => (float) ($mov->monto_total ?? 0));
 
-            $capitalPendiente = round(max(0, $montoOtorgado - $capitalCobrado), 2);
+            // El capital pendiente descuenta tanto los abonos de clientes como las ventas de prendas en garantía
+            $capitalPendiente = round(max(0, $montoOtorgado - $capitalCobrado - $recuperadoVentas), 2);
             $interesGenerado = round(max(0, $this->calcularInteresGenerado($credito, $fechaCorte, $interesCobrado)), 2);
             $interesCobrado = round(max(0, $interesCobrado), 2);
             $interesPendiente = round(max(0, $interesGenerado - $interesCobrado), 2);
+            $totalCobrado = round(max(0, $totalCobradoMovimientos + $recuperadoVentas), 2);
 
             if ($capitalPendiente <= 0) {
                 continue;
@@ -198,13 +212,14 @@ class ReporteCreditosController extends Controller
                 'articulos' => $descripcionPrendas ?: '-',
                 'monto_otorgado' => round($montoOtorgado, 2),
                 'capital_cobrado' => round($capitalCobrado, 2),
+                'recuperado_ventas' => $recuperadoVentas,
                 'capital_pendiente' => $capitalPendiente,
                 'interes_generado' => $interesGenerado,
                 'interes_cobrado' => $interesCobrado,
                 'interes_pendiente' => $interesPendiente,
                 'mora_cobrada' => round(max(0, $moraCobrada), 2),
                 'otros_cobrados' => round(max(0, $otrosCobrados), 2),
-                'total_cobrado' => round(max(0, $totalCobrado), 2),
+                'total_cobrado' => $totalCobrado,
             ];
         }
 
@@ -217,6 +232,7 @@ class ReporteCreditosController extends Controller
             'total_creditos' => count($items),
             'total_otorgado' => round(array_sum(array_column($items, 'monto_otorgado')), 2),
             'capital_cobrado' => round(array_sum(array_column($items, 'capital_cobrado')), 2),
+            'recuperado_ventas' => round(array_sum(array_column($items, 'recuperado_ventas')), 2),
             'capital_pendiente' => round(array_sum(array_column($items, 'capital_pendiente')), 2),
             'interes_generado' => round(array_sum(array_column($items, 'interes_generado')), 2),
             'interes_cobrado' => round(array_sum(array_column($items, 'interes_cobrado')), 2),
@@ -273,56 +289,15 @@ class ReporteCreditosController extends Controller
         $fechaCorte = $this->resolveFechaCorte($request);
         $creditos = $this->buildQuery($request, $fechaCorte)->get();
         $items = $this->compilarCreditos($creditos, $fechaCorte);
+        $estadisticas = $this->calcularEstadisticas($items);
 
-        $headers = [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="reporte-creditos-vigentes-' . $fechaCorte->format('Y-m-d') . '.csv"',
-        ];
+        $usuario = Auth::user()?->name ?? 'Sistema';
+        $fileName = 'Reporte_Creditos_Vigentes_' . $fechaCorte->format('Y-m-d') . '.xlsx';
 
-        $callback = function () use ($items) {
-            $handle = fopen('php://output', 'w');
-
-            fprintf($handle, chr(0xEF) . chr(0xBB) . chr(0xBF));
-
-            fputcsv($handle, [
-                'No. Crédito',
-                'Cliente',
-                'Sucursal',
-                'Estado al corte',
-                'Fecha desembolso',
-                'Fecha vencimiento',
-                'Artículos',
-                'Monto otorgado',
-                'Capital cobrado',
-                'Capital pendiente',
-                'Interés generado',
-                'Interés cobrado',
-                'Interés pendiente',
-                'Total cobrado',
-            ]);
-
-            foreach ($items as $item) {
-                fputcsv($handle, [
-                    $item['numero_credito'],
-                    $item['cliente'],
-                    $item['sucursal'],
-                    ucfirst(str_replace('_', ' ', $item['estado_corte'])),
-                    $item['fecha_desembolso'],
-                    $item['fecha_vencimiento'],
-                    $item['articulos'],
-                    number_format($item['monto_otorgado'], 2, '.', ''),
-                    number_format($item['capital_cobrado'], 2, '.', ''),
-                    number_format($item['capital_pendiente'], 2, '.', ''),
-                    number_format($item['interes_generado'], 2, '.', ''),
-                    number_format($item['interes_cobrado'], 2, '.', ''),
-                    number_format($item['interes_pendiente'], 2, '.', ''),
-                    number_format($item['total_cobrado'], 2, '.', ''),
-                ]);
-            }
-
-            fclose($handle);
-        };
-
-        return response()->stream($callback, 200, $headers);
+        return Excel::download(
+            new CreditosVigentesExport($items, $estadisticas, $fechaCorte->format('d/m/Y'), $usuario),
+            $fileName,
+            \Maatwebsite\Excel\Excel::XLSX
+        );
     }
 }

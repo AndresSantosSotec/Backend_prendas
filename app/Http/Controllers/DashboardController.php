@@ -26,7 +26,10 @@ class DashboardController extends Controller
             'creditos_vencidos' => 0,
             'total_prestado' => 0,
             'total_saldo' => 0,
+            'recuperado_cobros' => 0,
+            'recuperado_ventas' => 0,
             'total_recuperado' => 0,
+            'total_ventas_realizadas' => 0,
             'creditos_por_estado' => [],
             'ventas_mes_actual' => 0,
             'prendas_en_inventario' => 0,
@@ -88,13 +91,13 @@ class DashboardController extends Controller
             ])->sum('monto_desembolsado');
 
             // Saldo pendiente total (capital + intereses + mora)
-            $totalCapitalPendiente = CreditoPrendario::whereIn('estado', [
+            $totalCapitalPendiente = (float) CreditoPrendario::whereIn('estado', [
                 'vigente',
                 'en_mora',
                 'vencido'
             ])->sum('capital_pendiente');
 
-            $totalInteresPendiente = CreditoPrendario::whereIn('estado', [
+            $totalInteresPendiente = (float) CreditoPrendario::whereIn('estado', [
                 'vigente',
                 'en_mora',
                 'vencido'
@@ -102,7 +105,7 @@ class DashboardController extends Controller
                 return $credito->interes_generado - $credito->interes_pagado;
             });
 
-            $totalMoraPendiente = CreditoPrendario::whereIn('estado', [
+            $totalMoraPendiente = (float) CreditoPrendario::whereIn('estado', [
                 'vigente',
                 'en_mora',
                 'vencido'
@@ -110,7 +113,51 @@ class DashboardController extends Controller
                 return $credito->mora_generada - $credito->mora_pagada;
             });
 
-            $totalSaldo = $totalCapitalPendiente + $totalInteresPendiente + $totalMoraPendiente;
+            // Recuperaciones operacionales: prendas de crédito vendidas (pagadas, completadas o en plan de pagos)
+            // Se incluye 'plan_pagos' porque una venta en plan_pagos también recupera el crédito original
+            $estadosVentaRecuperacion = ['pagada', 'completada', 'plan_pagos'];
+
+            $recuperadoVentasDetalles = (float) DB::table('venta_detalles')
+                ->join('prendas', 'venta_detalles.prenda_id', '=', 'prendas.id')
+                ->join('ventas', 'venta_detalles.venta_id', '=', 'ventas.id')
+                ->whereNotNull('prendas.credito_prendario_id')
+                ->whereIn('ventas.estado', $estadosVentaRecuperacion)
+                ->whereNull('venta_detalles.deleted_at')
+                ->whereNull('ventas.deleted_at')
+                ->sum('venta_detalles.total');
+
+            $recuperadoVentasDirectas = (float) Venta::whereNotNull('credito_prendario_id')
+                ->whereDoesntHave('detalles')
+                ->whereIn('estado', $estadosVentaRecuperacion)
+                ->sum('total_final');
+
+            $recuperadoVentas = (float) ($recuperadoVentasDetalles + $recuperadoVentasDirectas);
+
+            // Total de ventas realizadas (TODAS las ventas de prendas, con o sin crédito vinculado)
+            // Incluye ventas al contado, a plan de pagos, etc.
+            $totalVentasRealizadas = (float) DB::table('venta_detalles')
+                ->join('ventas', 'venta_detalles.venta_id', '=', 'ventas.id')
+                ->whereIn('ventas.estado', $estadosVentaRecuperacion)
+                ->whereNull('venta_detalles.deleted_at')
+                ->whereNull('ventas.deleted_at')
+                ->sum('venta_detalles.total');
+
+            // Fallback por si no hay detalles: usar total_final de la venta directamente
+            if ($totalVentasRealizadas == 0) {
+                $totalVentasRealizadas = (float) Venta::whereIn('estado', $estadosVentaRecuperacion)
+                    ->whereNull('deleted_at')
+                    ->sum('total_final');
+            }
+
+            // Recuperación regular por pagos de clientes
+            $recuperadoCobros = (float) max(0, $totalPrestado - $totalCapitalPendiente);
+
+            // Total recuperado (cobros + ventas operacionales)
+            $totalRecuperado = (float) ($recuperadoCobros + $recuperadoVentas);
+
+            // Saldo pendiente restando lo recuperado por ventas del capital adeudado
+            $capitalPendienteAjustado = max(0, $totalCapitalPendiente - $recuperadoVentas);
+            $totalSaldo = (float) ($capitalPendienteAjustado + $totalInteresPendiente + $totalMoraPendiente);
 
             // Estadísticas adicionales
             $creditosPorEstado = CreditoPrendario::select('estado', DB::raw('count(*) as total'))
@@ -145,7 +192,12 @@ class DashboardController extends Controller
                     'creditos_vencidos' => $creditosVencidos,
                     'total_prestado' => (float) $totalPrestado,
                     'total_saldo' => (float) $totalSaldo,
-                    'total_recuperado' => (float) ($totalPrestado - $totalSaldo),
+                    'recuperado_cobros' => (float) $recuperadoCobros,
+                    'recuperado_ventas' => (float) $recuperadoVentas,
+                    'total_recuperado' => (float) $totalRecuperado,
+
+                    // Ventas realizadas (monto total de prendas vendidas, independiente del crédito)
+                    'total_ventas_realizadas' => (float) $totalVentasRealizadas,
 
                     // Estadísticas adicionales
                     'creditos_por_estado' => $creditosPorEstado,

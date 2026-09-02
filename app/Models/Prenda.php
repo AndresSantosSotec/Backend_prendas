@@ -120,9 +120,15 @@ class Prenda extends Model
         return $this->hasOne(Venta::class, 'prenda_id')->latest();
     }
 
+    public function ventaDetalles()
+    {
+        return $this->hasMany(VentaDetalle::class, 'prenda_id');
+    }
+
     public function ventas()
     {
-        return $this->belongsToMany(Venta::class, 'venta_detalles', 'prenda_id', 'venta_id');
+        return $this->belongsToMany(Venta::class, 'venta_detalles', 'prenda_id', 'venta_id')
+            ->withPivot(['total', 'subtotal', 'precio_unitario', 'descuento']);
     }
 
     /**

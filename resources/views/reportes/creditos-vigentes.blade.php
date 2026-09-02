@@ -32,16 +32,17 @@
 
     <table class="stats-table">
         <tr>
-            <td style="width:25%; padding:4px;"><div class="stat-box"><div class="stat-label">Créditos Vigentes</div><div class="stat-value">{{ $estadisticas['total_creditos'] }}</div></div></td>
-            <td style="width:25%; padding:4px;"><div class="stat-box"><div class="stat-label">Total Otorgado</div><div class="stat-value">Q{{ number_format($estadisticas['total_otorgado'], 2) }}</div></div></td>
-            <td style="width:25%; padding:4px;"><div class="stat-box"><div class="stat-label">Capital Cobrado</div><div class="stat-value">Q{{ number_format($estadisticas['capital_cobrado'], 2) }}</div></div></td>
-            <td style="width:25%; padding:4px;"><div class="stat-box"><div class="stat-label">Capital Pendiente</div><div class="stat-value">Q{{ number_format($estadisticas['capital_pendiente'], 2) }}</div></div></td>
+            <td style="width:20%; padding:3px;"><div class="stat-box"><div class="stat-label">Créditos Vigentes</div><div class="stat-value">{{ $estadisticas['total_creditos'] }}</div></div></td>
+            <td style="width:20%; padding:3px;"><div class="stat-box"><div class="stat-label">Total Otorgado</div><div class="stat-value">Q{{ number_format($estadisticas['total_otorgado'], 2) }}</div></div></td>
+            <td style="width:20%; padding:3px;"><div class="stat-box"><div class="stat-label">Capital Cobrado</div><div class="stat-value">Q{{ number_format($estadisticas['capital_cobrado'], 2) }}</div></div></td>
+            <td style="width:20%; padding:3px;"><div class="stat-box"><div class="stat-label">Recup. Ventas (Op.)</div><div class="stat-value" style="color: #15803d;">Q{{ number_format($estadisticas['recuperado_ventas'] ?? 0, 2) }}</div></div></td>
+            <td style="width:20%; padding:3px;"><div class="stat-box"><div class="stat-label">Capital Pendiente</div><div class="stat-value" style="color: #b91c1c;">Q{{ number_format($estadisticas['capital_pendiente'], 2) }}</div></div></td>
         </tr>
         <tr>
-            <td style="width:25%; padding:4px;"><div class="stat-box"><div class="stat-label">Interés Generado</div><div class="stat-value">Q{{ number_format($estadisticas['interes_generado'], 2) }}</div></div></td>
-            <td style="width:25%; padding:4px;"><div class="stat-box"><div class="stat-label">Interés Cobrado</div><div class="stat-value">Q{{ number_format($estadisticas['interes_cobrado'], 2) }}</div></div></td>
-            <td style="width:25%; padding:4px;"><div class="stat-box"><div class="stat-label">Interés Pendiente</div><div class="stat-value">Q{{ number_format($estadisticas['interes_pendiente'], 2) }}</div></div></td>
-            <td style="width:25%; padding:4px;"><div class="stat-box"><div class="stat-label">Total Cobrado</div><div class="stat-value">Q{{ number_format($estadisticas['total_cobrado'], 2) }}</div></div></td>
+            <td style="width:25%; padding:3px;"><div class="stat-box"><div class="stat-label">Interés Generado</div><div class="stat-value">Q{{ number_format($estadisticas['interes_generado'], 2) }}</div></div></td>
+            <td style="width:25%; padding:3px;"><div class="stat-box"><div class="stat-label">Interés Cobrado</div><div class="stat-value">Q{{ number_format($estadisticas['interes_cobrado'], 2) }}</div></div></td>
+            <td style="width:25%; padding:3px;"><div class="stat-box"><div class="stat-label">Interés Pendiente</div><div class="stat-value">Q{{ number_format($estadisticas['interes_pendiente'], 2) }}</div></div></td>
+            <td style="width:25%; padding:3px;" colspan="2"><div class="stat-box"><div class="stat-label">Total Cobrado / Recuperado</div><div class="stat-value" style="color: #1e40af;">Q{{ number_format($estadisticas['total_cobrado'], 2) }}</div></div></td>
         </tr>
     </table>
 
@@ -57,6 +58,7 @@
                 <th>Artículos</th>
                 <th class="text-right">Otorgado</th>
                 <th class="text-right">Cap. Cobrado</th>
+                <th class="text-right">Recup. Ventas</th>
                 <th class="text-right">Cap. Pendiente</th>
                 <th class="text-right">Int. Generado</th>
                 <th class="text-right">Int. Cobrado</th>
@@ -67,14 +69,15 @@
             @forelse($creditos as $credito)
                 <tr>
                     <td>{{ $credito['numero_credito'] }}</td>
-                    <td>{{ Str::limit($credito['cliente'], 22) }}</td>
-                    <td>{{ Str::limit($credito['sucursal'], 16) }}</td>
+                    <td>{{ Str::limit($credito['cliente'], 20) }}</td>
+                    <td>{{ Str::limit($credito['sucursal'], 14) }}</td>
                     <td>{{ strtoupper(str_replace('_', ' ', $credito['estado_corte'])) }}</td>
                     <td>{{ $credito['fecha_desembolso'] }}</td>
                     <td>{{ $credito['fecha_vencimiento'] }}</td>
-                    <td>{{ Str::limit($credito['articulos'], 26) }}</td>
+                    <td>{{ Str::limit($credito['articulos'], 22) }}</td>
                     <td class="text-right">Q{{ number_format($credito['monto_otorgado'], 2) }}</td>
                     <td class="text-right">Q{{ number_format($credito['capital_cobrado'], 2) }}</td>
+                    <td class="text-right" style="color:#15803d;">Q{{ number_format($credito['recuperado_ventas'] ?? 0, 2) }}</td>
                     <td class="text-right">Q{{ number_format($credito['capital_pendiente'], 2) }}</td>
                     <td class="text-right">Q{{ number_format($credito['interes_generado'], 2) }}</td>
                     <td class="text-right">Q{{ number_format($credito['interes_cobrado'], 2) }}</td>
@@ -82,7 +85,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="13" style="text-align:center; padding:20px; color:#666;">No hay créditos vigentes para la fecha de corte seleccionada</td>
+                    <td colspan="14" style="text-align:center; padding:20px; color:#666;">No hay créditos vigentes para la fecha de corte seleccionada</td>
                 </tr>
             @endforelse
         </tbody>

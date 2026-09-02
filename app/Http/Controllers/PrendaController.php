@@ -58,6 +58,8 @@ class PrendaController extends Controller
                                 $ventaQuery->where('estado', 'plan_pagos');
                             });
                     });
+                } elseif ($request->estado === 'disponibles') {
+                    $query->whereIn('estado', ['en_custodia', 'en_venta']);
                 } elseif (in_array($request->estado, ['vendida', 'vendido'])) {
                     $query->whereIn('estado', ['vendida', 'vendido']);
                 } else {
@@ -164,6 +166,8 @@ class PrendaController extends Controller
                             $ventaQuery->where('estado', 'plan_pagos');
                         });
                 });
+            } elseif ($request->estado === 'disponibles') {
+                $query->whereIn('estado', ['en_custodia', 'en_venta']);
             } elseif (in_array($request->estado, ['vendida', 'vendido'])) {
                 $query->whereIn('estado', ['vendida', 'vendido']);
             } else {

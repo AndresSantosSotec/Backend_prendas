@@ -289,14 +289,6 @@ Route::prefix('v1')->group(function () {
             Route::post('/creditos-prendarios/{credito_id}/refrendos/calcular', [\App\Http\Controllers\RefrendoController::class, 'calcular']);
             Route::post('/creditos-prendarios/{credito_id}/refrendos', [\App\Http\Controllers\RefrendoController::class, 'store']);
 
-            // ========== REMATES (Sistema de Remates de Contratos Vencidos) ==========
-            Route::get('/remates', [\App\Http\Controllers\RemateController::class, 'index']);
-            Route::get('/remates/candidatos', [\App\Http\Controllers\RemateController::class, 'candidatos']);
-            Route::get('/remates/estadisticas', [\App\Http\Controllers\RemateController::class, 'estadisticas']);
-            Route::post('/remates', [\App\Http\Controllers\RemateController::class, 'store']);
-            Route::get('/remates/{id}', [\App\Http\Controllers\RemateController::class, 'show']);
-            Route::post('/remates/{id}/cancelar', [\App\Http\Controllers\RemateController::class, 'cancelar']);
-
             // ========== TRANSFERENCIAS INTER-SUCURSALES ==========
             Route::get('/transferencias-prendas', [\App\Http\Controllers\TransferenciaPrendaController::class, 'index']);
             Route::get('/transferencias-prendas/estadisticas', [\App\Http\Controllers\TransferenciaPrendaController::class, 'estadisticas']);

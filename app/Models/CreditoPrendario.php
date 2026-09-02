@@ -200,14 +200,6 @@ class CreditoPrendario extends Model
     }
 
     /**
-     * Relación: Remates del crédito
-     */
-    public function remates()
-    {
-        return $this->hasMany(\App\Models\Remate::class, 'credito_id')->orderByDesc('fecha_remate');
-    }
-
-    /**
      * Relación muchos a muchos con gastos
      * Los gastos son cargos adicionales que NO generan interés
      */
