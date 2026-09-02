@@ -504,6 +504,9 @@ Route::prefix('v1')->group(function () {
 
         // ==================== CONTABILIDAD ====================
         Route::prefix('contabilidad')->group(function () {
+            // Estado y diagnóstico de contabilidad
+            Route::get('/estado-sistema', [ContabilidadController::class, 'estadoSistema']);
+
             // Dashboard contable
             Route::get('/dashboard', [ContabilidadController::class, 'dashboard']);
 

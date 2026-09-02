@@ -1013,4 +1013,38 @@ class ContabilidadController extends Controller
             ]
         ]);
     }
+
+    /**
+     * Diagnostic endpoint para verificar la contabilidad en servidores de desarrollo y producción
+     */
+    public function estadoSistema(): JsonResponse
+    {
+        $config = [
+            'auto_asientos' => (bool) config('contabilidad.auto_asientos', false),
+            'auto_desembolso' => (bool) config('contabilidad.auto_asientos_por_operacion.desembolso_credito', false),
+            'auto_pago' => (bool) config('contabilidad.auto_asientos_por_operacion.pago_credito', false),
+            'auto_venta' => (bool) config('contabilidad.auto_asientos_por_operacion.venta_prenda', false),
+            'requiere_aprobacion' => (bool) config('contabilidad.requiere_aprobacion', false),
+            'moneda_defecto' => config('contabilidad.moneda_defecto', 'GTQ'),
+        ];
+
+        $cuentasCount = CtbNomenclatura::count();
+        $polizasCount = CtbTipoPoliza::count();
+        $parametrizacionesCount = \App\Models\Contabilidad\CtbParametrizacionCuenta::count();
+        $totalAsientos = CtbDiario::count();
+        $ultimosAsientos = CtbDiario::latest()->limit(5)->get();
+
+        return response()->json([
+            'success' => true,
+            'contabilidad_activa' => $config['auto_asientos'],
+            'configuracion' => $config,
+            'resumen_base_datos' => [
+                'total_cuentas_nomenclatura' => $cuentasCount,
+                'total_tipos_poliza' => $polizasCount,
+                'total_parametrizaciones' => $parametrizacionesCount,
+                'total_asientos_generados' => $totalAsientos,
+            ],
+            'ultimos_asientos' => $ultimosAsientos,
+        ]);
+    }
 }
