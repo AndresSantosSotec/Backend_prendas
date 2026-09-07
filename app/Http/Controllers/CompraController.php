@@ -88,8 +88,8 @@ class CompraController extends Controller
                     'usuario_id' => Auth::id(),
                     'monto' => $compra->monto_pagado,
                     'compra_id' => $compra->id,
-                    'numero_documento' => $compra->numero_compra,
-                    'glosa' => "Compra directa #{$compra->numero_compra} - {$compra->descripcion}",
+                    'numero_documento' => $compra->codigo_compra,
+                    'glosa' => "Compra directa #{$compra->codigo_compra} - {$compra->descripcion}",
                     'fecha_documento' => $compra->fecha_compra,
                 ]);
             } catch (\Exception $contError) {
@@ -106,7 +106,7 @@ class CompraController extends Controller
             Log::error('Error al registrar compra directa: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Error al procesar la compra',
+                'message' => $e->getMessage() ?: 'Error al procesar la compra',
                 'error' => config('app.debug') ? $e->getMessage() : null
             ], 400);
         }

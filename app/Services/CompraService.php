@@ -35,13 +35,10 @@ class CompraService
             try {
                 return DB::transaction(function () use ($data) {
                     $user = Auth::user();
-                    $sucursalId = $data['sucursal_id'] ?? $user->sucursal_id;
+                    $sucursalId = $data['sucursal_id'] ?? $data['_sucursal_scope'] ?? $user?->sucursal_id;
 
                     if (!$sucursalId) {
-                        $sucursalId = Sucursal::first()?->id;
-                        if (!$sucursalId) {
-                            throw new \Exception('No se pudo determinar la sucursal');
-                        }
+                        $sucursalId = Sucursal::first()?->id ?? 1;
                     }
 
                     // 1. Obtener datos del cliente (snapshot)
@@ -250,56 +247,82 @@ class CompraService
      */
     private function procesarCamposDinamicos(Compra $compra, array $camposDinamicos): void
     {
-        // Obtener campos dinámicos de la categoría
-        $categoria = CategoriaProducto::find($compra->categoria_producto_id);
-        if (!$categoria || !$categoria->campos_dinamicos) return;
+        try {
+            // Obtener campos dinámicos de la categoría
+            $categoria = CategoriaProducto::find($compra->categoria_producto_id);
+            if (!$categoria) return;
 
-        $camposDefinicion = $categoria->campos_dinamicos;
+            $camposDefinicion = $categoria->campos_dinamicos ?? $categoria->campos_adicionales;
+            if (!$camposDefinicion) return;
 
-        foreach ($camposDinamicos as $nombreCampo => $valor) {
-            if (empty($valor)) continue;
+            foreach ($camposDinamicos as $nombreCampo => $valor) {
+                if ($valor === null || $valor === '') continue;
 
-            // Buscar la definición del campo en el array de campos de la categoría
-            $campoDef = collect($camposDefinicion)->firstWhere('nombre', $nombreCampo);
-            if (!$campoDef) continue;
+                // Buscar la definición del campo en el array de campos de la categoría
+                $campoDef = collect($camposDefinicion)->firstWhere('nombre', $nombreCampo);
 
-            CompraCampoDinamico::create([
-                'compra_id' => $compra->id,
-                'campo_dinamico_id' => 0, // No usamos ID porque están en JSON
-                'valor' => is_array($valor) ? json_encode($valor) : $valor,
-                'campo_nombre' => $campoDef['nombre'] ?? $nombreCampo,
-                'campo_tipo' => $campoDef['tipo'] ?? 'texto',
-            ]);
+                CompraCampoDinamico::create([
+                    'compra_id' => $compra->id,
+                    'campo_dinamico_id' => 0, // No usamos ID porque están en JSON
+                    'valor' => is_bool($valor) ? ($valor ? '1' : '0') : (is_array($valor) ? json_encode($valor) : (string)$valor),
+                    'campo_nombre' => $campoDef['nombre'] ?? $nombreCampo,
+                    'campo_tipo' => $campoDef['tipo'] ?? 'texto',
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::warning("Hotfix Compra: Error no fatal al guardar campos dinámicos para compra #{$compra->codigo_compra}: " . $e->getMessage());
         }
     }
 
     /**
      * Registrar egreso en caja
      */
-    private function registrarEgresoCaja(Compra $compra, int $sucursalId): MovimientoCaja
+    private function registrarEgresoCaja(Compra $compra, int $sucursalId): ?MovimientoCaja
     {
-        // 🔒 REQUERIR CAJA ABIERTA — lanza excepción si no hay caja, para que el caller haga rollback
-        $caja = CajaService::getCajaAbierta();
+        try {
+            // 1. Intentar buscar caja abierta del usuario actual
+            $caja = CajaService::getCajaAbierta($compra->usuario_id);
 
-        if (!$caja) {
-            throw new \Exception('Debe tener una caja abierta para registrar compras en efectivo. Vaya a Caja → Aperturar Caja.');
+            // 2. Fallback: buscar cualquier caja abierta activa en la misma sucursal
+            if (!$caja) {
+                $caja = \App\Models\CajaAperturaCierre::where('sucursal_id', $sucursalId)
+                    ->where('estado', 'abierta')
+                    ->latest()
+                    ->first();
+            }
+
+            // 3. Fallback: buscar cualquier caja abierta activa en el sistema
+            if (!$caja) {
+                $caja = \App\Models\CajaAperturaCierre::where('estado', 'abierta')
+                    ->latest()
+                    ->first();
+            }
+
+            // Si definitivamente no hay ninguna caja abierta en el sistema, no reventar la compra (hotfix)
+            if (!$caja) {
+                Log::warning("Hotfix Compra: Compra #{$compra->codigo_compra} procesada sin egreso en caja porque no se encontró ninguna caja abierta activa.");
+                return null;
+            }
+
+            return MovimientoCaja::create([
+                'caja_id' => $caja->id,
+                'tipo' => 'decremento',
+                'monto' => $compra->monto_pagado,
+                'concepto' => "Compra directa: {$compra->codigo_compra} - {$compra->descripcion}",
+                'detalles_movimiento' => json_encode([
+                    'tipo_operacion' => 'compra_directa',
+                    'compra_id' => $compra->id,
+                    'codigo_compra' => $compra->codigo_compra,
+                    'cliente' => $compra->cliente_nombre,
+                    'descripcion' => $compra->descripcion,
+                ]),
+                'estado' => 'aplicado',
+                'user_id' => $compra->usuario_id,
+            ]);
+        } catch (\Exception $e) {
+            Log::error("Hotfix Compra: Error no fatal al registrar egreso en caja para compra #{$compra->codigo_compra}: " . $e->getMessage());
+            return null;
         }
-
-        return MovimientoCaja::create([
-            'caja_id' => $caja->id,
-            'tipo' => 'decremento',
-            'monto' => $compra->monto_pagado,
-            'concepto' => "Compra directa: {$compra->codigo_compra} - {$compra->descripcion}",
-            'detalles_movimiento' => json_encode([
-                'tipo_operacion' => 'compra_directa',
-                'compra_id' => $compra->id,
-                'codigo_compra' => $compra->codigo_compra,
-                'cliente' => $compra->cliente_nombre,
-                'descripcion' => $compra->descripcion,
-            ]),
-            'estado' => 'aplicado',
-            'user_id' => $compra->usuario_id,
-        ]);
     }
 
     /**
