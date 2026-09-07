@@ -120,6 +120,17 @@ class VentaMultiPrendaService
 
             $prendas = $validacion['prendas'];
 
+            // 1.1 HOTFIX: Liberar prenda_id de ventas canceladas o soft-deleted para evitar colisión con 'unique_prenda_venta'
+            \App\Models\VentaDetalle::withTrashed()
+                ->whereIn('prenda_id', $prendasIds)
+                ->where(function ($query) {
+                    $query->whereNotNull('deleted_at')
+                          ->orWhereHas('venta', function ($q) {
+                              $q->where('estado', 'cancelada');
+                          });
+                })
+                ->update(['prenda_id' => null]);
+
             // 2. Recalcular totales SERVER-SIDE (no confiar en cliente)
             // Incluir descuento_general enviado desde el frontend para asegurar total_final correcto
             $descuentoGeneral = (float) ($data['descuento_general'] ?? 0);
@@ -606,7 +617,7 @@ class VentaMultiPrendaService
                 }
             }
 
-            // Devolver prendas a estado en_venta
+            // Devolver prendas a estado en_venta y liberar prenda_id para permitir reventa
             foreach ($venta->detalles as $detalle) {
                 if ($detalle->prenda) {
                     $detalle->prenda->update([
@@ -614,6 +625,7 @@ class VentaMultiPrendaService
                         'fecha_venta' => null,
                     ]);
                 }
+                $detalle->update(['prenda_id' => null]);
             }
 
             // Cancelar el crédito de venta asociado si existe
