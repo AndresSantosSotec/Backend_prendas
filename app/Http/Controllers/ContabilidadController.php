@@ -767,7 +767,7 @@ class ContabilidadController extends Controller
         $utilidadBruta = $totalIngresos - $totalCostos;
         $utilidadNeta  = $utilidadBruta - $totalGastos;
 
-        $pdf = Pdf::loadView('reportes.contabilidad.estado-resultados', [
+        $datosPlantilla = \App\Services\PdfDocumentoService::obtenerDatosPlantilla('estado_resultados', $sucursalId, [
             'ingresos'      => $ingresos,
             'costos'        => $costos,
             'gastos'        => $gastos,
@@ -782,7 +782,10 @@ class ContabilidadController extends Controller
             'fechaFin'          => $fechaFin,
             'generado_por'      => Auth::user()->name ?? 'Sistema',
             'fecha_generacion'  => now()->format('d/m/Y H:i'),
-        ])->setPaper('letter', 'portrait');
+        ]);
+
+        $vista = \App\Services\PdfDocumentoService::resolverVista('estado_resultados', 'reportes.contabilidad.estado-resultados', $sucursalId);
+        $pdf = Pdf::loadView($vista, $datosPlantilla)->setPaper('letter', 'portrait');
 
         return $pdf->download('estado-resultados-' . $fechaFin . '.pdf');
     }
@@ -939,7 +942,7 @@ class ContabilidadController extends Controller
         $totalPasivoPatrimonio = $totalPasivos + $totalPatrimonio;
         $diferencia            = $totalActivos - $totalPasivoPatrimonio;
 
-        $pdf = Pdf::loadView('reportes.contabilidad.balance-general', [
+        $datosPlantilla = \App\Services\PdfDocumentoService::obtenerDatosPlantilla('balance_general', $sucursalId, [
             'activos'              => $activos,
             'pasivos'              => $pasivos,
             'patrimonio'           => $patrimonio,
@@ -954,7 +957,10 @@ class ContabilidadController extends Controller
             'fechaCorte'        => $fechaCorte,
             'generado_por'      => Auth::user()->name ?? 'Sistema',
             'fecha_generacion'  => now()->format('d/m/Y H:i'),
-        ])->setPaper('letter', 'portrait');
+        ]);
+
+        $vista = \App\Services\PdfDocumentoService::resolverVista('balance_general', 'reportes.contabilidad.balance-general', $sucursalId);
+        $pdf = Pdf::loadView($vista, $datosPlantilla)->setPaper('letter', 'portrait');
 
         return $pdf->download('balance-general-' . $fechaCorte . '.pdf');
     }

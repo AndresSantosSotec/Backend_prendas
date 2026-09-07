@@ -232,10 +232,12 @@ class ReciboController extends Controller
             return response()->json(['error' => 'No tienes permisos para ver este recibo'], 403);
         }
 
-        $pdf = Pdf::loadView('pdf.recibo', [
+        $datosPlantilla = \App\Services\PdfDocumentoService::obtenerDatosPlantilla('recibo_pago', $recibo->sucursal_id, [
             'recibo' => $recibo
         ]);
 
+        $vista = \App\Services\PdfDocumentoService::resolverVista('recibo_pago', 'creditos.recibo', $recibo->sucursal_id);
+        $pdf = Pdf::loadView($vista, $datosPlantilla);
         $pdf->setPaper('letter', 'portrait');
 
         return $pdf->stream("recibo-{$recibo->numero_recibo}.pdf");

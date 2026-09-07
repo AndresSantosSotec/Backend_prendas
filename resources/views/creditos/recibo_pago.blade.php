@@ -131,15 +131,17 @@
     <table width="100%">
         <tr>
             <td width="25%" style="text-align: left; vertical-align: middle;">
-                <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                @if(!empty($logoBase64))
+                <img src="{{ $logoBase64 }}" alt="Logo" style="max-height: 65px; max-width: 160px; object-fit: contain;">
+                @endif
             </td>
             <td width="50%" style="text-align: center; vertical-align: middle;">
-                <div class="brand-title">{{ $sucursal->nombre ?? config('app.name', 'Avanza') }}</div>
-                @if(!empty($sucursal->direccion))
-                <div class="brand-sub">{{ $sucursal->direccion }}</div>
+                <div class="brand-title">{{ $empresa['nombre'] ?? ($sucursal->nombre ?? config('app.name', 'Microsystem Plus')) }}</div>
+                @if(!empty($empresa['direccion']) || !empty($sucursal->direccion))
+                <div class="brand-sub">{{ $empresa['direccion'] ?? $sucursal->direccion }}</div>
                 @endif
-                @if(!empty($sucursal->telefono))
-                <div class="brand-sub">Tel: {{ $sucursal->telefono }}</div>
+                @if(!empty($empresa['telefono']) || !empty($sucursal->telefono))
+                <div class="brand-sub">Tel: {{ $empresa['telefono'] ?? $sucursal->telefono }}</div>
                 @endif
             </td>
             <td width="25%"></td>
@@ -147,7 +149,7 @@
     </table>
 </div>
 
-<div class="doc-title">Recibo de Pago</div>
+<div class="doc-title">{{ $tituloDocumento ?? 'Recibo de Pago' }}</div>
 
 {{-- BADGE TIPO DE OPERACIÓN --}}
 <div style="text-align:center">

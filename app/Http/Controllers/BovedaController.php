@@ -347,6 +347,25 @@ class BovedaController extends Controller
             // Si está aprobado, actualizar saldo de bóveda origen
             if ($estado === 'aprobado') {
                 $boveda->actualizarSaldo();
+
+                // Registrar asiento contable si el movimiento fue aprobado
+                try {
+                    $contabilidadService = app(\App\Services\ContabilidadAutomaticaService::class);
+                    $tipoOp = $request->tipo_movimiento === 'entrada' ? 'boveda_deposito' : ($request->tipo_movimiento === 'salida' ? 'boveda_retiro' : null);
+                    if ($tipoOp) {
+                        $contabilidadService->registrarAsiento($tipoOp, [
+                            'sucursal_id' => $boveda->sucursal_id,
+                            'usuario_id' => $user->id,
+                            'boveda_movimiento_id' => $movimiento->id,
+                            'monto' => $movimiento->monto,
+                            'numero_documento' => 'BOV-' . $movimiento->id,
+                            'glosa' => $movimiento->concepto ?? "Movimiento de bóveda {$movimiento->tipo_movimiento}",
+                            'fecha_documento' => now(),
+                        ]);
+                    }
+                } catch (\Exception $contError) {
+                    \Illuminate\Support\Facades\Log::warning('Error al registrar asiento contable para bóveda: ' . $contError->getMessage());
+                }
             }
 
             DB::commit();

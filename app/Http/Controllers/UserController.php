@@ -93,7 +93,8 @@ class UserController extends Controller
                 SUM(CASE WHEN rol = "cajero" THEN 1 ELSE 0 END) as cajero,
                 SUM(CASE WHEN rol = "tasador" THEN 1 ELSE 0 END) as tasador,
                 SUM(CASE WHEN rol = "vendedor" THEN 1 ELSE 0 END) as vendedor,
-                SUM(CASE WHEN rol = "supervisor" THEN 1 ELSE 0 END) as supervisor
+                SUM(CASE WHEN rol = "supervisor" THEN 1 ELSE 0 END) as supervisor,
+                SUM(CASE WHEN rol = "contador" THEN 1 ELSE 0 END) as contador
             ')->first();
 
             $stats = [
@@ -106,6 +107,7 @@ class UserController extends Controller
                     'tasador' => (int) $statsRaw->tasador,
                     'vendedor' => (int) $statsRaw->vendedor,
                     'supervisor' => (int) $statsRaw->supervisor,
+                    'contador' => (int) $statsRaw->contador,
                 ],
             ];
         }
@@ -169,7 +171,7 @@ class UserController extends Controller
         }
 
         // Determinar si el rol permite sucursal_id null
-        $rolPermiteSinSucursal = in_array($request->rol, ['superadmin', 'administrador']);
+        $rolPermiteSinSucursal = in_array($request->rol, ['superadmin', 'administrador', 'contador']);
         $sucursalRule = $rolPermiteSinSucursal ? 'nullable|exists:sucursales,id' : 'required|exists:sucursales,id';
 
         $validator = Validator::make($request->all(), [
@@ -177,7 +179,7 @@ class UserController extends Controller
             'username' => 'required|string|max:255|unique:users,username|regex:/^[a-zA-Z0-9_]+$/',
             'email' => 'required|email|max:255|unique:users,email',
             'password' => AuthSecurityService::getPasswordValidationRules(),
-            'rol' => 'required|in:superadmin,administrador,cajero,tasador,supervisor,vendedor',
+            'rol' => 'required|in:superadmin,administrador,cajero,tasador,supervisor,vendedor,contador',
             'activo' => 'nullable|boolean',
             'sucursal_id' => $sucursalRule,
         ], array_merge(
@@ -265,7 +267,7 @@ class UserController extends Controller
             'username' => ['sometimes', 'required', 'string', 'max:255', Rule::unique('users')->ignore($user->id)],
             'email' => ['sometimes', 'required', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
             'password' => 'nullable|string|min:6',
-            'rol' => 'sometimes|required|in:superadmin,administrador,cajero,tasador,supervisor,vendedor',
+            'rol' => 'sometimes|required|in:superadmin,administrador,cajero,tasador,supervisor,vendedor,contador',
             'activo' => 'nullable|boolean',
             'sucursal_id' => 'nullable|exists:sucursales,id',
         ]);

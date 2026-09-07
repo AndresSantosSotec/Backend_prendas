@@ -157,9 +157,18 @@ class CompraService
         $prefix = 'CMP-' . str_pad($sucursalId, 3, '0', STR_PAD_LEFT);
 
         // Obtener el número más alto ya utilizado para este prefijo
-        $ultimo = Compra::withTrashed()->where('codigo_compra', 'like', $prefix . '-%')
-            ->selectRaw('MAX(CAST(SUBSTRING_INDEX(codigo_compra, "-", -1) AS UNSIGNED)) as max_num')
-            ->value('max_num');
+        $driver = DB::connection()->getDriverName();
+        if ($driver === 'sqlite') {
+            $ultimo = Compra::withTrashed()
+                ->where('codigo_compra', 'like', $prefix . '-%')
+                ->pluck('codigo_compra')
+                ->map(fn($c) => (int) substr(strrchr($c, "-"), 1))
+                ->max();
+        } else {
+            $ultimo = Compra::withTrashed()->where('codigo_compra', 'like', $prefix . '-%')
+                ->selectRaw('MAX(CAST(SUBSTRING_INDEX(codigo_compra, "-", -1) AS UNSIGNED)) as max_num')
+                ->value('max_num');
+        }
 
         $count = ($ultimo ?? 0) + 1;
 
@@ -181,9 +190,18 @@ class CompraService
         $prefix = 'PRD-CMP-' . str_pad($categoriaId, 2, '0', STR_PAD_LEFT);
 
         // Obtener el número más alto ya utilizado para este prefijo
-        $ultimo = Prenda::withTrashed()->where('codigo_prenda', 'like', $prefix . '-%')
-            ->selectRaw('MAX(CAST(SUBSTRING_INDEX(codigo_prenda, "-", -1) AS UNSIGNED)) as max_num')
-            ->value('max_num');
+        $driver = DB::connection()->getDriverName();
+        if ($driver === 'sqlite') {
+            $ultimo = Prenda::withTrashed()
+                ->where('codigo_prenda', 'like', $prefix . '-%')
+                ->pluck('codigo_prenda')
+                ->map(fn($c) => (int) substr(strrchr($c, "-"), 1))
+                ->max();
+        } else {
+            $ultimo = Prenda::withTrashed()->where('codigo_prenda', 'like', $prefix . '-%')
+                ->selectRaw('MAX(CAST(SUBSTRING_INDEX(codigo_prenda, "-", -1) AS UNSIGNED)) as max_num')
+                ->value('max_num');
+        }
 
         $count = ($ultimo ?? 0) + 1;
 

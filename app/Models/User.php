@@ -225,6 +225,7 @@ class User extends Authenticatable
                 'gerente', 'manager' => 'gerente',
                 'cajero', 'cashier' => 'cajero',
                 'vendedor', 'seller' => 'vendedor',
+                'contador', 'accountant' => 'contador',
                 default => strtolower($role)
             };
         }, $roles);

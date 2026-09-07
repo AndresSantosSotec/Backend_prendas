@@ -29,6 +29,7 @@ use App\Http\Controllers\ParametrizacionCuentasController;
 use App\Http\Controllers\NomenclaturaController;
 use App\Http\Controllers\DiarioContableController;
 use App\Http\Controllers\ConfiguracionSistemaController;
+use App\Http\Controllers\DocumentoConfiguracionController;
 use Illuminate\Support\Facades\DB;
 
 /*
@@ -266,6 +267,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/creditos-prendarios', [CreditoPrendarioController::class, 'store']);
             Route::put('/creditos-prendarios/{id}', [CreditoPrendarioController::class, 'update']);
             Route::patch('/creditos-prendarios/{id}', [CreditoPrendarioController::class, 'update']);
+            Route::post('/creditos-prendarios/{id}/desembolsar', [CreditoPrendarioController::class, 'desembolsar']);
             Route::post('/credigos-prendarios/{id}/desembolsar', [CreditoPrendarioController::class, 'desembolsar']);
             Route::post('/creditos-prendarios/{id}/pagar', [CreditoPrendarioController::class, 'pagar']);
             Route::post('/creditos-prendarios/{id}/aprobar', [CreditoPrendarioController::class, 'aprobar']);
@@ -474,6 +476,13 @@ Route::prefix('v1')->group(function () {
             Route::get('/configuraciones-sistema/{clave}', [ConfiguracionSistemaController::class, 'show']);
             Route::put('/configuraciones-sistema', [ConfiguracionSistemaController::class, 'update']);
 
+            // ========== PLANTILLAS DE DOCUMENTOS Y LOGO (TB_DOCS) ==========
+            Route::get('/configuracion/documentos', [DocumentoConfiguracionController::class, 'index']);
+            Route::post('/configuracion/documentos', [DocumentoConfiguracionController::class, 'store']);
+            Route::put('/configuracion/documentos/{id}', [DocumentoConfiguracionController::class, 'updateDocumento']);
+            Route::post('/configuracion/logo', [DocumentoConfiguracionController::class, 'subirLogo']);
+            Route::post('/configuracion/empresa', [DocumentoConfiguracionController::class, 'updateEmpresa']);
+
         }); // FIN DEL GRUPO DE RUTAS CON SCOPE DE SUCURSAL
     });
 
@@ -521,7 +530,12 @@ Route::prefix('v1')->group(function () {
 
             // Libro Diario (Asientos)
             Route::get('/diario', [ContabilidadController::class, 'diario']);
-            Route::get('/diario/{id}', [ContabilidadController::class, 'verAsiento']);
+            Route::post('/diario', [DiarioContableController::class, 'store']);
+            Route::get('/diario/{id}', [DiarioContableController::class, 'show']);
+            Route::get('/diario/{id}/pdf', [DiarioContableController::class, 'descargarPdf']);
+            Route::put('/diario/{id}', [DiarioContableController::class, 'update']);
+            Route::delete('/diario/{id}', [DiarioContableController::class, 'destroy']);
+            Route::post('/diario/{id}/anular', [DiarioContableController::class, 'anular']);
 
             // Balance de comprobación
             Route::get('/balance-comprobacion', [ContabilidadController::class, 'balanceComprobacion']);
@@ -557,7 +571,11 @@ Route::prefix('v1')->group(function () {
             // ========== ASIENTOS CONTABLES ==========
             Route::prefix('asientos')->group(function () {
                 Route::get('/', [DiarioContableController::class, 'index']);
+                Route::post('/', [DiarioContableController::class, 'store']);
                 Route::get('/{id}', [DiarioContableController::class, 'show']);
+                Route::get('/{id}/pdf', [DiarioContableController::class, 'descargarPdf']);
+                Route::put('/{id}', [DiarioContableController::class, 'update']);
+                Route::delete('/{id}', [DiarioContableController::class, 'destroy']);
                 Route::post('/{id}/anular', [DiarioContableController::class, 'anular']);
                 Route::post('/manual', [DiarioContableController::class, 'registrarManual']);
                 Route::get('/estadisticas', [DiarioContableController::class, 'estadisticas']);

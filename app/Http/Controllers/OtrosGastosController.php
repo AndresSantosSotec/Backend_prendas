@@ -264,6 +264,26 @@ class OtrosGastosController extends Controller
                 'estado'             => 'aplicado',
             ]);
 
+            // Registrar asiento contable automático
+            try {
+                $contabilidadService = app(\App\Services\ContabilidadAutomaticaService::class);
+                $tipoOp = $tipo->tipo === 'ingreso' ? 'otro_ingreso' : 'otro_gasto';
+                $contabilidadService->registrarAsiento($tipoOp, [
+                    'sucursal_id' => $sucursalId,
+                    'usuario_id' => $user->id,
+                    'caja_id' => $cajaAbierta?->id,
+                    'otro_gasto_id' => $registro->id,
+                    'monto' => $registro->monto,
+                    'concepto' => $registro->concepto,
+                    'numero_documento' => $registro->numero_recibo ?? ('OG-' . $registro->id),
+                    'glosa' => ($tipo->tipo === 'ingreso' ? 'Ingreso: ' : 'Gasto: ') . $registro->concepto,
+                    'fecha_documento' => $registro->fecha,
+                    'forma_pago' => $registro->forma_pago ?? 'efectivo',
+                ]);
+            } catch (\Exception $contError) {
+                Log::warning('Error al registrar asiento contable para otro gasto: ' . $contError->getMessage());
+            }
+
             DB::commit();
 
             $registro->load(['tipo_gasto', 'user']);

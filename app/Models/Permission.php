@@ -67,7 +67,7 @@ class Permission extends Model
         'auditoria' => ['ver', 'exportar'], // Solo para superadmin
         'boveda' => ['ver', 'crear', 'editar', 'eliminar', 'movimientos', 'aprobar', 'reportes'],
         'migracion' => ['ver', 'importar', 'descargar_plantilla'],
-        'contabilidad' => ['ver', 'configurar', 'asientos', 'reportes'],
+        'contabilidad' => ['ver', 'configurar', 'asientos', 'reportes', 'crear_partida', 'editar_partida', 'eliminar_partida'],
         'cobros' => ['realizar', 'ver', 'imprimir_recibo'],
         'recibos' => ['ver', 'crear', 'imprimir', 'anular'],
         'historial' => ['ver'],
@@ -83,6 +83,20 @@ class Permission extends Model
     public static array $permisosPorRol = [
         'superadmin' => '*', // Todos los permisos, acceso a auditoría y cambio de sucursales
         'administrador' => '*', // Todos los permisos excepto auditoría
+        'contador' => [
+            'dashboard' => ['ver'],
+            'contabilidad' => ['ver', 'configurar', 'asientos', 'reportes', 'crear_partida', 'editar_partida', 'eliminar_partida'],
+            'reportes' => ['generar', 'exportar'],
+            'creditos' => ['ver'],
+            'ventas' => ['ver'],
+            'compras' => ['ver'],
+            'caja' => ['ver_movimientos'],
+            'boveda' => ['ver', 'reportes'],
+            'gastos' => ['ver'],
+            'otros_gastos' => ['ver'],
+            'recibos' => ['ver'],
+            'historial' => ['ver'],
+        ],
         'cajero' => [
             'dashboard' => ['ver'],
             'clientes' => ['ver', 'crear'],

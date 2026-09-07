@@ -1929,6 +1929,8 @@ class CreditoPrendarioController extends Controller
                     'sucursal_id' => $credito->sucursal_id,
                     'usuario_id' => Auth::id(),
                     'monto' => $credito->monto_aprobado,
+                    'monto_capital' => $credito->monto_aprobado,
+                    'monto_desembolsado' => $credito->monto_aprobado,
                     'credito_prendario_id' => $credito->id,
                     'movimiento_credito_id' => $movimiento->id,
                     'numero_documento' => $movimiento->numero_movimiento,

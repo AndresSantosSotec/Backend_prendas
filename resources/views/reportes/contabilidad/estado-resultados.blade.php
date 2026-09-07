@@ -92,18 +92,19 @@
         <table width="100%">
             <tr>
                 <td width="25%" style="text-align: left; vertical-align: middle;">
-                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                    @if(!empty($logoBase64))
+                    <img src="{{ $logoBase64 }}" alt="Logo" style="max-height: 65px; max-width: 160px; object-fit: contain;">
+                    @endif
                 </td>
                 <td width="50%" style="text-align: center; vertical-align: middle;">
-                    <h1>ESTADO DE RESULTADOS</h1>
-    <h2>Del {{ \Carbon\Carbon::parse($fechaInicio)->format('d/m/Y') }} al {{ \Carbon\Carbon::parse($fechaFin)->format('d/m/Y') }}</h2>
-    <div class="periodo">Período Fiscal
+                    <h1>{{ $empresa['nombre'] ?? 'Microsystem Plus' }}</h1>
+                    <h2>{{ $tituloDocumento ?? 'ESTADO DE RESULTADOS' }}</h2>
+                    <div class="periodo">Del {{ \Carbon\Carbon::parse($fechaInicio)->format('d/m/Y') }} al {{ \Carbon\Carbon::parse($fechaFin)->format('d/m/Y') }}</div>
                 </td>
                 <td width="25%"></td>
             </tr>
         </table>
     </div>
-</div>
 
 <div class="meta-info">
     <span>Generado por: <strong>{{ $generado_por }}</strong></span>
@@ -222,9 +223,28 @@
                 style="border-top:2px solid #333;padding-top:8px;font-size:13px">
                 {{ $totales['utilidad_neta'] >= 0 ? '' : '(' }}{{ number_format(abs($totales['utilidad_neta']), 2) }}{{ $totales['utilidad_neta'] >= 0 ? '' : ')' }}
             </td>
-        </tr>
-    </table>
 </div>
+
+{{-- CERTIFICACIÓN Y FIRMAS --}}
+@if(!empty($mostrarFirmas))
+<div style="margin-top: 25px; font-size: 9px; text-align: justify; line-height: 1.5; color: #111;">
+    EL INFRASCRITO PERITO CONTADOR {{ strtoupper($peritoContadorNombre ?? 'ROSAURA MARISOL MENDOZA YOJCOM') }} CON NÚMERO DE REGISTRO {{ $peritoContadorRegistro ?? '115855092' }} AUTORIZADO POR LA SUPERINTENDENCIA DE ADMINISTRACIÓN TRIBUTARIA (SAT), CERTIFICA: QUE EL RESULTADO DE LAS OPERACIONES DE LA ENTIDAD {{ strtoupper($empresa['nombre'] ?? 'MICROSYSTEM PLUS') }} CORRESPONDIENTE AL PERÍODO DEL {{ \Carbon\Carbon::parse($fechaInicio)->format('d/m/Y') }} AL {{ \Carbon\Carbon::parse($fechaFin)->format('d/m/Y') }}, ASCIENDE A: Q. {{ number_format(abs($totales['utilidad_neta']), 2) }} {{ $totales['utilidad_neta'] >= 0 ? '(UTILIDAD NETA)' : '(DÉFICIT / PÉRDIDA)' }}.
+</div>
+
+<table width="100%" style="margin-top: 45px; font-size: 10px; text-align: center;">
+    <tr>
+        <td width="45%" style="border-top: 1px solid #000; padding-top: 5px;">
+            <strong>{{ $firmante1Nombre ?? 'ROSAURA MARISOL MENDOZA YOJCOM' }}</strong><br>
+            <span>{{ $firmante1Titulo ?? 'PERITO CONTADOR' }}</span>
+        </td>
+        <td width="10%"></td>
+        <td width="45%" style="border-top: 1px solid #000; padding-top: 5px;">
+            <strong>{{ $firmante2Nombre ?? 'REPRESENTANTE LEGAL' }}</strong><br>
+            <span>{{ $firmante2Titulo ?? 'REPRESENTANTE LEGAL' }}</span>
+        </td>
+    </tr>
+</table>
+@endif
 
 <div class="footer">
     Documento generado automáticamente — {{ $fecha_generacion }}

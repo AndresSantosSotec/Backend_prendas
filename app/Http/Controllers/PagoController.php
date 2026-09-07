@@ -108,9 +108,16 @@ class PagoController extends Controller
             $prendas  = $credito->prendas;
             $sucursal = $credito->sucursal;
 
-            $pdf = Pdf::loadView('creditos.recibo_pago', compact(
-                'credito', 'movimiento', 'cliente', 'prendas', 'sucursal'
-            ));
+            $datosPlantilla = \App\Services\PdfDocumentoService::obtenerDatosPlantilla('recibo_pago', $sucursal?->id, [
+                'credito'    => $credito,
+                'movimiento' => $movimiento,
+                'cliente'    => $cliente,
+                'prendas'    => $prendas,
+                'sucursal'   => $sucursal,
+            ]);
+
+            $vista = \App\Services\PdfDocumentoService::resolverVista('recibo_pago', 'creditos.recibo_pago', $sucursal?->id);
+            $pdf = Pdf::loadView($vista, $datosPlantilla);
             $pdf->setPaper('letter', 'portrait');
 
             $filename = 'Recibo_Pago_' . ($movimiento->numero_movimiento ?? $movimientoId) . '.pdf';

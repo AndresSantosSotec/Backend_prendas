@@ -22,6 +22,27 @@ class ContabilidadService
         try {
             DB::beginTransaction();
 
+            // Evitar duplicidad si ya existe un asiento contable activo para este origen
+            if ($origen instanceof CreditoMovimiento) {
+                $existente = CtbDiario::where('movimiento_credito_id', $origen->id)->where('estado', '!=', 'anulado')->first();
+                if ($existente) {
+                    DB::commit();
+                    return $existente;
+                }
+            } elseif ($origen instanceof Venta) {
+                $existente = CtbDiario::where('venta_id', $origen->id)->where('estado', '!=', 'anulado')->first();
+                if ($existente) {
+                    DB::commit();
+                    return $existente;
+                }
+            } elseif ($origen instanceof Compra) {
+                $existente = CtbDiario::where('compra_id', $origen->id)->where('estado', '!=', 'anulado')->first();
+                if ($existente) {
+                    DB::commit();
+                    return $existente;
+                }
+            }
+
             $asiento = match ($tipoOperacion) {
                 'desembolso_credito' => $this->generarAsientoDesembolso($origen),
                 'pago_credito' => $this->generarAsientoPago($origen),
