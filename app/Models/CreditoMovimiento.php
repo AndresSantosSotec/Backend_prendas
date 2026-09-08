@@ -173,7 +173,7 @@ class CreditoMovimiento extends Model
 
     public function scopePagos($query)
     {
-npm        return $query->whereIn('tipo_movimiento', ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado', 'renovacion', 'pago_interes', 'renovacion_interes', 'refrendo']);
+        return $query->whereIn('tipo_movimiento', ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado', 'renovacion', 'pago_interes', 'renovacion_interes', 'refrendo']);
     }
 
     public function scopeDesembolsos($query)
