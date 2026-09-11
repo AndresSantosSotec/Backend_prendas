@@ -30,6 +30,7 @@ use App\Http\Controllers\NomenclaturaController;
 use App\Http\Controllers\DiarioContableController;
 use App\Http\Controllers\ConfiguracionSistemaController;
 use App\Http\Controllers\DocumentoConfiguracionController;
+use App\Http\Controllers\CumplimientoController;
 use Illuminate\Support\Facades\DB;
 
 /*
@@ -392,6 +393,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/compras/{id}/cancelar', [CompraController::class, 'cancel']);
             Route::get('/compras/{id}/recibo-pdf', [CompraController::class, 'generarReciboPDF']);
             Route::get('/compras/{id}/contrato-pdf', [CompraController::class, 'generarContratoPDF']);
+            Route::post('/compras/{id}/sincronizar-caja', [CompraController::class, 'sincronizarCaja']);
 
             // Reportes de Compras
             Route::get('/reportes/compras/pdf', [ReporteComprasController::class, 'generarPDF']);
@@ -589,6 +591,17 @@ Route::prefix('v1')->group(function () {
                 Route::put('/{id}', [\App\Http\Controllers\ParametrizacionMoraController::class, 'update']);
                 Route::delete('/{id}', [\App\Http\Controllers\ParametrizacionMoraController::class, 'destroy']);
             });
+        });
+
+        // ========== CUMPLIMIENTO REGULATORIO (IVE) ==========
+        Route::prefix('cumplimiento')->group(function () {
+            Route::get('/resumen', [CumplimientoController::class, 'resumen']);
+            Route::get('/configuracion', [CumplimientoController::class, 'configuracion']);
+            Route::get('/reportes/rte', [CumplimientoController::class, 'reporteRTE']);
+            Route::get('/reportes/alertas', [CumplimientoController::class, 'alertas']);
+            Route::get('/reportes/kyc-clientes', [CumplimientoController::class, 'kycClientes']);
+            Route::get('/reportes/consolidado-mensual', [CumplimientoController::class, 'consolidadoMensual']);
+            Route::get('/exportar/{tipo}', [CumplimientoController::class, 'exportar']);
         });
 
         // ========== MIGRACIONES (SOLO SUPERADMIN) ==========

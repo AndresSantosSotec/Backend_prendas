@@ -1259,6 +1259,7 @@ class CreditoPrendarioController extends Controller
                 'nombres' => $credito->cliente->nombres,
                 'apellidos' => $credito->cliente->apellidos,
                 'dpi' => $credito->cliente->dpi,
+                'telefono' => $credito->cliente->telefono,
             ] : null,
             'sucursal' => $credito->sucursal ? [
                 'id' => (string) $credito->sucursal->id,

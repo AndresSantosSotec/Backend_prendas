@@ -351,6 +351,10 @@ class ContabilidadService
             throw new \Exception('No se encontró el tipo de póliza PC o PE para compras');
         }
 
+        $codigoCompra = $compra->codigo_compra ?? $compra->numero_compra ?? "COMPRA-{$compra->id}";
+        $montoCompra = (float) ($compra->monto_pagado ?? $compra->total ?? 0);
+        $formaPago = $compra->metodo_pago ?? $compra->forma_pago ?? 'efectivo';
+
         // Crear el asiento
         $diario = CtbDiario::create([
             'numero_comprobante' => CtbDiario::generarNumeroComprobante($tipoPoliza->codigo, $compra->sucursal_id),
@@ -358,8 +362,8 @@ class ContabilidadService
             'moneda_id' => $compra->moneda_id ?? 1,
             'tipo_origen' => 'compra',
             'compra_id' => $compra->id,
-            'numero_documento' => $compra->numero_compra ?? "COMPRA-{$compra->id}",
-            'glosa' => "Compra directa - " . ($compra->descripcion ?? "Documento {$compra->numero_compra}"),
+            'numero_documento' => $codigoCompra,
+            'glosa' => "Compra directa - " . ($compra->descripcion ?? "Documento {$codigoCompra}"),
             'fecha_documento' => $compra->fecha_compra ?? now(),
             'fecha_contabilizacion' => now()->toDateString(),
             'sucursal_id' => $compra->sucursal_id,
@@ -373,22 +377,22 @@ class ContabilidadService
         CtbMovimiento::create([
             'diario_id' => $diario->id,
             'cuenta_contable_id' => $cuentaInventario->id,
-            'debe' => $compra->total,
+            'debe' => $montoCompra,
             'haber' => 0,
             'numero_comprobante' => $diario->numero_comprobante,
-            'detalle' => "Entrada inventario compra {$compra->numero_compra}",
+            'detalle' => "Entrada inventario compra {$codigoCompra}",
             'cliente_id' => $compra->cliente_id ?? null,
         ]);
 
         // HABER: Caja o Banco según forma de pago
-        $cuentaEgreso = $this->determinarCuentaEgreso($compra->forma_pago ?? 'efectivo');
+        $cuentaEgreso = $this->determinarCuentaEgreso($formaPago);
         CtbMovimiento::create([
             'diario_id' => $diario->id,
             'cuenta_contable_id' => $cuentaEgreso->id,
             'debe' => 0,
-            'haber' => $compra->total,
+            'haber' => $montoCompra,
             'numero_comprobante' => $diario->numero_comprobante,
-            'detalle' => "Pago compra {$compra->numero_compra} - " . ($compra->forma_pago ?? 'efectivo'),
+            'detalle' => "Pago compra {$codigoCompra} - {$formaPago}",
         ]);
 
         return $diario;

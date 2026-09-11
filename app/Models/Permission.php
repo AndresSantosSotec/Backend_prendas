@@ -35,6 +35,8 @@ class Permission extends Model
                 $descripcion = match ("{$modulo}.{$accion}") {
                     'creditos.editar_tasa_interes' => 'Permite modificar la tasa de interés % al configurar créditos prendarios',
                     'creditos.editar_mora' => 'Permite modificar tasa de mora, tipo y monto fijo al configurar créditos prendarios',
+                    'cumplimiento.ver' => 'Ver reportes analíticos de cumplimiento regulatorio e IVE',
+                    'cumplimiento.exportar' => 'Exportar reportes de cumplimiento regulatorio e IVE en Excel/CSV',
                     default => ucfirst(str_replace('_', ' ', (string) $accion)).' en '.ucfirst(str_replace('_', ' ', (string) $modulo)),
                 };
 
@@ -68,6 +70,7 @@ class Permission extends Model
         'boveda' => ['ver', 'crear', 'editar', 'eliminar', 'movimientos', 'aprobar', 'reportes'],
         'migracion' => ['ver', 'importar', 'descargar_plantilla'],
         'contabilidad' => ['ver', 'configurar', 'asientos', 'reportes', 'crear_partida', 'editar_partida', 'eliminar_partida'],
+        'cumplimiento' => ['ver', 'exportar'],
         'cobros' => ['realizar', 'ver', 'imprimir_recibo'],
         'recibos' => ['ver', 'crear', 'imprimir', 'anular'],
         'historial' => ['ver'],
@@ -86,6 +89,7 @@ class Permission extends Model
         'contador' => [
             'dashboard' => ['ver'],
             'contabilidad' => ['ver', 'configurar', 'asientos', 'reportes', 'crear_partida', 'editar_partida', 'eliminar_partida'],
+            'cumplimiento' => ['ver', 'exportar'],
             'reportes' => ['generar', 'exportar'],
             'creditos' => ['ver'],
             'ventas' => ['ver'],

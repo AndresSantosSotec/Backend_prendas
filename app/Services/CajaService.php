@@ -10,27 +10,80 @@ use Illuminate\Support\Facades\Log;
 class CajaService
 {
     /**
-     * Obtener la caja abierta del usuario actual
+     * Obtener la caja abierta del usuario actual o de la sucursal indicada
      */
-    public static function getCajaAbierta(?int $userId = null): ?CajaAperturaCierre
+    public static function getCajaAbierta(?int $userId = null, ?int $sucursalId = null): ?CajaAperturaCierre
     {
         $userId = $userId ?? Auth::id();
 
-        if (!$userId) {
-            return null;
+        // 1. Buscar caja abierta del usuario específico (ordenada por la más reciente)
+        if ($userId) {
+            $caja = CajaAperturaCierre::where('user_id', $userId)
+                ->where('estado', 'abierta')
+                ->whereNull('fecha_cierre')
+                ->orderBy('fecha_apertura', 'desc')
+                ->orderBy('id', 'desc')
+                ->first();
+
+            if ($caja) {
+                return $caja;
+            }
+
+            // Fallback usuario sin verificar fecha_cierre por posibles inconsistencias
+            $caja = CajaAperturaCierre::where('user_id', $userId)
+                ->where('estado', 'abierta')
+                ->orderBy('fecha_apertura', 'desc')
+                ->orderBy('id', 'desc')
+                ->first();
+
+            if ($caja) {
+                return $caja;
+            }
         }
 
-        return CajaAperturaCierre::where('user_id', $userId)
-            ->where('estado', 'abierta')
-            ->first();
+        // 2. Si no hay caja del usuario, buscar cualquier caja abierta en la sucursal
+        $sucursalId = $sucursalId ?? Auth::user()?->sucursal_id ?? request()->get('_sucursal_scope');
+        if ($sucursalId) {
+            $cajaSucursal = CajaAperturaCierre::where('sucursal_id', $sucursalId)
+                ->where('estado', 'abierta')
+                ->whereNull('fecha_cierre')
+                ->orderBy('fecha_apertura', 'desc')
+                ->orderBy('id', 'desc')
+                ->first();
+
+            if ($cajaSucursal) {
+                return $cajaSucursal;
+            }
+
+            $cajaSucursal = CajaAperturaCierre::where('sucursal_id', $sucursalId)
+                ->where('estado', 'abierta')
+                ->orderBy('fecha_apertura', 'desc')
+                ->orderBy('id', 'desc')
+                ->first();
+
+            if ($cajaSucursal) {
+                return $cajaSucursal;
+            }
+        }
+
+        // 3. Fallback general: la última caja abierta activa en el sistema
+        return CajaAperturaCierre::where('estado', 'abierta')
+            ->whereNull('fecha_cierre')
+            ->orderBy('fecha_apertura', 'desc')
+            ->orderBy('id', 'desc')
+            ->first()
+            ?? CajaAperturaCierre::where('estado', 'abierta')
+                ->orderBy('fecha_apertura', 'desc')
+                ->orderBy('id', 'desc')
+                ->first();
     }
 
     /**
-     * Verificar si el usuario tiene caja abierta
+     * Verificar si el usuario o la sucursal tiene caja abierta
      */
-    public static function tieneCajaAbierta(?int $userId = null): bool
+    public static function tieneCajaAbierta(?int $userId = null, ?int $sucursalId = null): bool
     {
-        return self::getCajaAbierta($userId) !== null;
+        return self::getCajaAbierta($userId, $sucursalId) !== null;
     }
 
     /**
@@ -40,12 +93,13 @@ class CajaService
         float $monto,
         string $concepto,
         ?array $detalles = null,
-        ?int $userId = null
+        ?int $userId = null,
+        ?int $sucursalId = null
     ): ?MovimientoCaja {
-        $caja = self::getCajaAbierta($userId);
+        $caja = self::getCajaAbierta($userId, $sucursalId);
 
         if (!$caja) {
-            Log::warning("Intento de registrar ingreso sin caja abierta. Usuario: " . ($userId ?? Auth::id()));
+            Log::warning("Intento de registrar ingreso sin caja abierta. Usuario: " . ($userId ?? Auth::id()) . " Sucursal: {$sucursalId}");
             return null;
         }
 
@@ -53,26 +107,27 @@ class CajaService
             'caja_id' => $caja->id,
             'tipo' => 'ingreso_pago',
             'monto' => abs($monto),
-            'concepto' => $concepto,
+            'concepto' => mb_substr($concepto, 0, 250),
             'detalles_movimiento' => $detalles,
             'estado' => 'aplicado',
-            'user_id' => $userId ?? Auth::id(),
+            'user_id' => $userId ?? Auth::id() ?? $caja->user_id,
         ]);
     }
 
     /**
-     * Registrar un egreso de caja (desembolso, devolución, etc.)
+     * Registrar un egreso de caja (desembolso, devolución, compra, etc.)
      */
     public static function registrarEgreso(
         float $monto,
         string $concepto,
         ?array $detalles = null,
-        ?int $userId = null
+        ?int $userId = null,
+        ?int $sucursalId = null
     ): ?MovimientoCaja {
-        $caja = self::getCajaAbierta($userId);
+        $caja = self::getCajaAbierta($userId, $sucursalId);
 
         if (!$caja) {
-            Log::warning("Intento de registrar egreso sin caja abierta. Usuario: " . ($userId ?? Auth::id()));
+            Log::warning("Intento de registrar egreso sin caja abierta. Usuario: " . ($userId ?? Auth::id()) . " Sucursal: {$sucursalId}");
             return null;
         }
 
@@ -80,10 +135,10 @@ class CajaService
             'caja_id' => $caja->id,
             'tipo' => 'egreso_desembolso',
             'monto' => abs($monto),
-            'concepto' => $concepto,
+            'concepto' => mb_substr($concepto, 0, 250),
             'detalles_movimiento' => $detalles,
             'estado' => 'aplicado',
-            'user_id' => $userId ?? Auth::id(),
+            'user_id' => $userId ?? Auth::id() ?? $caja->user_id,
         ]);
     }
 
