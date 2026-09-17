@@ -1811,6 +1811,8 @@ class CreditoPrendarioController extends Controller
      */
     public function desembolsar(Request $request, string $id): JsonResponse
     {
+        $dolar_val=7.8;
+
         $validator = Validator::make($request->all(), [
             'forma_desembolso' => 'required|in:efectivo,transferencia,cheque,deposito_bancario',
             'referencia_desembolso' => 'nullable|string|max:100',

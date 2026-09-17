@@ -91,6 +91,11 @@ use Illuminate\Support\Facades\DB;
             ]);
         }
     });
+    // Route::get('/clientes/activos', [ClienteController::class, 'activos']);
+    // Route::post('/clientes', [ClienteController::class, 'store']);
+    Route::get('/clientes/consulta-nit/{nit}', [ClienteController::class, 'consultaNit']);
+    // Route::get('/clientes/reporte', [ClienteController::class, 'reporte']);
+    
 
 Route::prefix('v1')->group(function () {
     // 🔒 Rutas públicas de autenticación con rate limiting estricto

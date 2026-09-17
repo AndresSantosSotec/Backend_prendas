@@ -12,39 +12,13 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Primero eliminar cualquier foreign key que use este índice
+        // La FK de user_id necesita un índice independiente antes de quitar el índice compuesto.
         Schema::table('caja_apertura_cierres', function (Blueprint $table) {
-            // Desactivar verificación de claves foráneas temporalmente
-            if (DB::getDriverName() === 'sqlite') {
-                DB::statement('PRAGMA foreign_keys = OFF');
-            } else {
-                DB::statement('SET FOREIGN_KEY_CHECKS=0');
-            }
+            $table->index('user_id', 'caja_apertura_cierres_user_id_index');
         });
 
-        // Intentar eliminar el índice único
-        try {
-            Schema::table('caja_apertura_cierres', function (Blueprint $table) {
-                $table->dropUnique('caja_apertura_cierres_user_id_fecha_apertura_unique');
-            });
-        } catch (\Exception $e) {
-            // Si falla, intentar con SQL directo
-            if (DB::getDriverName() === 'sqlite') {
-                try {
-                    DB::statement('DROP INDEX caja_apertura_cierres_user_id_fecha_apertura_unique');
-                } catch (\Exception $ex) {}
-            } else {
-                DB::statement('ALTER TABLE caja_apertura_cierres DROP INDEX caja_apertura_cierres_user_id_fecha_apertura_unique');
-            }
-        }
-
-        // Reactivar verificación de claves foráneas
         Schema::table('caja_apertura_cierres', function (Blueprint $table) {
-            if (DB::getDriverName() === 'sqlite') {
-                DB::statement('PRAGMA foreign_keys = ON');
-            } else {
-                DB::statement('SET FOREIGN_KEY_CHECKS=1');
-            }
+            $table->dropUnique('caja_apertura_cierres_user_id_fecha_apertura_unique');
         });
 
         // Crear un índice normal (no único) para mantener el rendimiento
