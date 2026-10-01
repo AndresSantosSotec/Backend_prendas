@@ -10,8 +10,6 @@
         $logoSrc = 'data:image/png;base64,' . base64_encode(file_get_contents(public_path('storage/logos/logo.png')));
     } elseif (file_exists(resource_path('logos/logo.png'))) {
         $logoSrc = 'data:image/png;base64,' . base64_encode(file_get_contents(resource_path('logos/logo.png')));
-    } elseif (file_exists(resource_path('logos/avanza_logo.png'))) {
-        $logoSrc = 'data:image/png;base64,' . base64_encode(file_get_contents(resource_path('logos/avanza_logo.png')));
     }
     $logoHeight = $height ?? '64px';
 @endphp
