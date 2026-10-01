@@ -168,11 +168,11 @@
         <table width="100%">
             <tr>
                 <td width="25%" style="text-align: left; vertical-align: middle;">
-                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                    @include('pdf.partials.logo', ['height' => '60px'])
                 </td>
                 <td width="50%" style="text-align: center; vertical-align: middle;">
                     <h1>LIBRO MAYOR</h1>
-        <h2>Avanza</h2>
+        <h2>{{ $empresa['nombre'] ?? config('app.name', 'Sistema de Gestión de Empeños') }}</h2>
         <div class="periodo">
             Del {{ \Carbon\Carbon::parse($fechaInicio)->format('d/m/Y') }} al {{ \Carbon\Carbon::parse($fechaFin)->format('d/m/Y') }}
                 </td>
@@ -277,7 +277,7 @@
     </div>
 
     <div class="footer">
-        <p>Documento generado automáticamente - Avanza</p>
+        <p>Documento generado automáticamente - {{ config('app.name', 'Sistema de Gestión de Empeños') }}</p>
         <p>D = Saldo Deudor | A = Saldo Acreedor</p>
         <p>Este documento es válido sin firma ni sello</p>
     </div>

@@ -36,11 +36,11 @@
         <table width="100%">
             <tr>
                 <td width="25%" style="text-align: left; vertical-align: middle;">
-                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                    @include('pdf.partials.logo', ['height' => '50px'])
                 </td>
                 <td width="50%" style="text-align: center; vertical-align: middle;">
                     <h1>LISTADO DE VENTAS</h1>
-        <p>Avanza - Reporte generado el {{ now()->format('d/m/Y H:i:s') }}</p>
+        <p>{{ config('app.name', 'Sistema de Gestión de Empeños') }} - Reporte generado el {{ now()->format('d/m/Y H:i:s') }}</p>
                 </td>
                 <td width="25%"></td>
             </tr>
@@ -123,7 +123,7 @@
     </div>
 
     <div class="footer">
-        Avanza - {{ now()->format('Y') }}
+        {{ config('app.name', 'Sistema de Gestión de Empeños') }} - {{ now()->format('Y') }}
     </div>
 </body>
 </html>

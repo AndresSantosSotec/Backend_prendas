@@ -100,10 +100,10 @@
         <table width="100%" style="margin-top: 5px;">
             <tr>
                 <td width="20%" style="text-align: left; vertical-align: middle; border: none;">
-                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 50px; margin-left: 10px;">
+                    @include('pdf.partials.logo', ['height' => '50px'])
                 </td>
                 <td width="60%" style="text-align: center; vertical-align: middle; border: none; line-height: 1.2;">
-                    <div style="font-size: 16px; font-weight: bold;">Avanza</div>
+                    <div style="font-size: 16px; font-weight: bold;">{{ $empresa['nombre'] ?? config('app.name', 'Sistema de Gestión de Empeños') }}</div>
                     <div style="font-size: 9px; color: #666;">Reporte de Inventario de Prendas</div>
                 </td>
                 <td width="20%" style="border: none; text-align: right; font-size: 8px; padding-right: 10px;">

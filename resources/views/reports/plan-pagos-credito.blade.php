@@ -96,11 +96,11 @@
         <table width="100%" style="margin-top: 5px;">
             <tr>
                 <td width="25%" style="text-align: left; vertical-align: middle; border: none;">
-                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 60px; margin-left: 10px;">
+                    @include('pdf.partials.logo', ['height' => '50px'])
                 </td>
                 <td width="50%" style="text-align: center; vertical-align: middle; border: none; line-height: 1.2;">
-                    <div class="brand-title" style="padding-top: 0;">{{ $venta->sucursal->nombre ?? 'AVANZA' }}</div>
-                    <div class="brand-subtitle">{{ $venta->sucursal->direccion ?? 'Sistema de Gestión de Empeños' }}</div>
+                    <div class="brand-title" style="padding-top: 0;">{{ $venta->sucursal->nombre ?? $empresa['nombre'] ?? config('app.name', 'SISTEMA DE EMPEÑOS') }}</div>
+                    <div class="brand-subtitle">{{ $venta->sucursal->direccion ?? $empresa['direccion'] ?? 'Sistema de Gestión de Empeños' }}</div>
                 </td>
                 <td width="25%" style="border: none;"></td>
             </tr>

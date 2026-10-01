@@ -600,6 +600,11 @@ class MigracionService
      */
     protected function validateRow(string $modelo, array $data, int $rowNum): array
     {
+        // Normalizar celdas vacías de Excel a null para compatibilidad con reglas nullable
+        $data = array_map(function ($val) {
+            return is_string($val) && trim($val) === '' ? null : $val;
+        }, $data);
+
         $rules = [];
 
         switch ($modelo) {
@@ -703,17 +708,19 @@ class MigracionService
         switch ($modelo) {
             case 'clientes':
                 Cliente::updateOrCreate(
-                    ['dpi' => $data['dpi']],
+                    ['dpi' => trim($data['dpi'])],
                     [
-                        'nit' => $data['nit'] ?? null,
-                        'nombres' => $data['nombres'],
-                        'apellidos' => $data['apellidos'],
-                        'telefono' => $data['telefono'] ?? null,
-                        'email' => $data['email'] ?? null,
-                        'direccion' => $data['direccion'] ?? null,
-                        'municipio' => $data['municipio'] ?? null,
-                        'estado_civil' => $data['estado_civil'] ?? 'soltero',
-                        'profesion' => $data['profesion'] ?? null,
+                        'nit' => !empty($data['nit']) ? trim($data['nit']) : null,
+                        'nombres' => trim($data['nombres']),
+                        'apellidos' => trim($data['apellidos']),
+                        'telefono' => !empty($data['telefono']) ? trim($data['telefono']) : '00000000',
+                        'email' => !empty($data['email']) ? trim($data['email']) : null,
+                        'direccion' => !empty($data['direccion']) ? trim($data['direccion']) : 'Ciudad',
+                        'municipio' => !empty($data['municipio']) ? trim($data['municipio']) : null,
+                        'estado_civil' => !empty($data['estado_civil']) ? strtolower(trim($data['estado_civil'])) : 'soltero',
+                        'profesion' => !empty($data['profesion']) ? trim($data['profesion']) : null,
+                        'fecha_nacimiento' => !empty($data['fecha_nacimiento']) ? trim($data['fecha_nacimiento']) : '1990-01-01',
+                        'genero' => !empty($data['genero']) ? trim($data['genero']) : 'otro',
                         'estado' => 'activo',
                     ]
                 );

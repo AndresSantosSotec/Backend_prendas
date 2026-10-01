@@ -99,7 +99,8 @@
 <body>
 
 <div class="header">
-    <div class="brand-title">{{ $sucursal->nombre ?? config('app.name', 'Avanza') }}</div>
+    @include('pdf.partials.logo', ['height' => '50px'])
+    <div class="brand-title">{{ $empresa['nombre'] ?? $sucursal->nombre ?? config('app.name', 'Sistema de Gestión de Empeños') }}</div>
     @if(!empty($sucursal->direccion))
     <div class="brand-sub">{{ $sucursal->direccion }}</div>
     @endif
@@ -239,7 +240,7 @@
 
 <div class="footer">
     <p>Este documento es un comprobante oficial de pago. Consérvelo para sus registros.</p>
-    <p>{{ config('app.name', 'Avanza') }} &bull; {{ \Carbon\Carbon::now()->format('d/m/Y H:i:s') }} &bull; {{ $sucursal->nombre ?? '' }}</p>
+    <p>{{ $empresa['nombre'] ?? config('app.name', 'Sistema de Gestión de Empeños') }} &bull; {{ \Carbon\Carbon::now()->format('d/m/Y H:i:s') }} &bull; {{ $sucursal->nombre ?? '' }}</p>
 </div>
 
 </body>

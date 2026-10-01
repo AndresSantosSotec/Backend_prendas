@@ -339,7 +339,7 @@
 {{-- PIE --}}
 <div class="footer">
     <p>Este documento es un comprobante oficial de pago. Consérvelo para sus registros.</p>
-    <p>{{ config('app.name', 'Avanza') }} &bull; {{ \Carbon\Carbon::now()->format('d/m/Y H:i:s') }} &bull; {{ $sucursal->nombre ?? '' }}</p>
+    <p>{{ $empresa['nombre'] ?? config('app.name', 'Sistema de Gestión de Empeños') }} &bull; {{ \Carbon\Carbon::now()->format('d/m/Y H:i:s') }} &bull; {{ $sucursal->nombre ?? '' }}</p>
 </div>
 
 </body>

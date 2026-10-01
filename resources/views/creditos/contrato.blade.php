@@ -104,10 +104,10 @@
     <table width="100%" style="border-bottom: 1.5px solid #000; padding-bottom: 5px;">
         <tr>
             <td width="25%" style="text-align: left; vertical-align: middle;">
-                <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 64px;">
+                @include('pdf.partials.logo', ['height' => '60px'])
             </td>
             <td width="50%" style="text-align: center; vertical-align: middle;">
-                <div class="hdr-name">{{ $sucursal->nombre ?? 'GRUPO VALOR' }}</div>
+                <div class="hdr-name">{{ $empresa['nombre'] ?? $sucursal->nombre ?? config('app.name', 'SISTEMA DE EMPEÑOS') }}</div>
                 @if(!empty($sucursal->direccion))<div class="hdr-detail">{{ $sucursal->direccion }}</div>@endif
                 <div class="hdr-detail">
                     @if(!empty($sucursal->telefono))Tel.: {{ $sucursal->telefono }}@endif
@@ -123,16 +123,16 @@
 
 {{-- TÍTULO + DECLARACIONES --}}
 <div class="seccion-heading" style="margin-top:0; font-size: 10px; text-align: left;">
-    GRUPO VALOR, SOCIEDAD ANÓNIMA
+    {{ $empresa['razon_social'] ?? $empresa['nombre'] ?? $sucursal->nombre ?? 'LA ACREEDORA' }}
 </div>
 <div class="seccion-heading" style="margin-top:0;">
     Contrato de Adhesión de Mutuo con Garantía Prendaria que celebra
-    GRUPO VALOR, SOCIEDAD ANÓNIMA (La Acreedora),
+    {{ $empresa['razon_social'] ?? $empresa['nombre'] ?? $sucursal->nombre ?? 'LA ACREEDORA' }} (La Acreedora),
     y la Persona Física cuyo nombre aparece al anverso de este documento
     (Deudor Prendario), conforme las Declaraciones y Cláusulas siguientes:
 </div>
 <p class="parrafo" style="margin-top:2px;">
-    <strong>Declaraciones:</strong> Declara el <strong>MUTUANTE:</strong> GRUPO VALOR, SOCIEDAD ANÓNIMA, que su representada legalmente constituida conforme a las leyes de la República de Guatemala, según consta en el primer testimonio de la escritura pública número 175 de fecha 10 de octubre de 2025 y su ampliación escritura No. 180 de fecha 23 de octubre de 2025, ambas autorizadas en la ciudad de Esquipulas, departamento de Chiquimula por el Notario Fredy Osvaldo Orozco Nova e inscrita en el Registro Mercantil General de la República bajo el No. 39,329 folio 798 del Libro 27 electrónicos de Sociedades Mercantiles; b) Que su representada cuenta con las facultades necesarias para la celebración del presente contrato de mutuo con garantía prendaria en los artículos 1, 5, 6, 47 y 52 del Decreto 08-2003, Ley de Protección al Consumidor y Usuario, y por los artículos 10, 12, 13, 38, 58, 60, 65, 75 y 78 del Decreto Número 51-2007, Ley de Garantías Mobiliarias, y su reglamento.
+    <strong>Declaraciones:</strong> Declara el <strong>MUTUANTE:</strong> {{ $empresa['razon_social'] ?? $empresa['nombre'] ?? $sucursal->nombre ?? 'LA ACREEDORA' }}, legalmente constituida conforme a las leyes de la República de Guatemala, contando con las facultades necesarias para la celebración del presente contrato de mutuo con garantía prendaria de conformidad con la Ley de Protección al Consumidor y Usuario, y la Ley de Garantías Mobiliarias.
 </p>
 
 <p class="parrafo">
@@ -146,11 +146,11 @@
 {{-- CLÁUSULAS --}}
 <p class="seccion-heading">Cláusulas</p>
 
-<div class="clausula"><span class="clausula-num">Primera: Objeto (Préstamo a Mutuo).</span> El deudor por el presente acto se reconoce lino y llano deudor de GRUPO VALOR, SOCIEDAD ANÓNIMA por la cantidad y demás condiciones que se detallan en el anverso del presente documento y de conformidad con el presente contrato de mutuo mercantil, cantidad que tiene recibida en efectivo y a su entera satisfacción.</div>
+<div class="clausula"><span class="clausula-num">Primera: Objeto (Préstamo a Mutuo).</span> El deudor por el presente acto se reconoce lino y llano deudor de {{ $empresa['razon_social'] ?? $empresa['nombre'] ?? $sucursal->nombre ?? 'LA ACREEDORA' }} por la cantidad y demás condiciones que se detallan en el anverso del presente documento y de conformidad con el presente contrato de mutuo mercantil, cantidad que tiene recibida en efectivo y a su entera satisfacción.</div>
 
 <div class="clausula"><span class="clausula-num">Segunda: Condiciones.</span> El deudor se obliga a pagar la cantidad adeudada en la forma, modo, con el interés, que se detalla en el anverso, tales tasas serán devengadas inclusive en los casos en que la ACREEDORA retenga la prenda, a la que se refiere este contrato por falta de pago del mutuo y sus accesorios. Además, el pago deberá hacerse en efectivo junto con los intereses y almacenaje en el mismo establecimiento en que se suscribe este documento dentro del plazo máximo estipulado en el anverso de este documento, plazo que podrá prorrogarse por periodos iguales, previo cumplimiento de las demás condiciones establecidas en este instrumento. El deudor podrá realizar pagos parciales a cuenta del mutuo, los interés y accesorios a su cargo, los cuales devengaran interés a favor del deudor, a la misma tasa del mutuo y se aplicara a amortizar el adeudo, en el orden siguiente: Capital (Mutuo), intereses y accesorios, al momento de establecer las condiciones de pago establecidas en el anverso al realizarse la venta directa del bien. En caso de Prorroga, los pagos a cuenta y los intereses que devengan se acreditaran al pago de los intereses, y deposito, en el orden ya indicado.</div>
 
-<div class="clausula"><span class="clausula-num">Tercera: Garantía.</span> En garantía del capital, intereses, gastos y costas si llegaren a causarse, EL DEUDOR constituye a favor de GRUPO VALOR, SOCIEDAD ANÓNIMA, en calidad de PRENDA, el bien mueble usado que se describe en el anverso, en el entendido de que esta entrega del bien convierte a la ACREEDORA en propietaria de la prenda.</div>
+<div class="clausula"><span class="clausula-num">Tercera: Garantía.</span> En garantía del capital, intereses, gastos y costas si llegaren a causarse, EL DEUDOR constituye a favor de {{ $empresa['razon_social'] ?? $empresa['nombre'] ?? $sucursal->nombre ?? 'LA ACREEDORA' }}, en calidad de PRENDA, el bien mueble usado que se describe en el anverso, en el entendido de que esta entrega del bien convierte a la ACREEDORA en propietaria de la prenda.</div>
 
 <div class="clausula"><span class="clausula-num">Cuarta:</span> El valor de la prenda es el que se establece en el anverso, en virtud del avalúo practicado por LA ACREEDORA, con criterio de objetividad y equidad y la entera satisfacción de ambas partes.</div>
 
@@ -196,7 +196,7 @@
 
 {{-- CIERRE Y FIRMAS --}}
 <div class="cierre">
-    Leído lo escrito, enterados de su contenido, objeto, validez y consecuencias legales, este contrato es suscrito en duplicado, en la ciudad de {{ $sucursal->ciudad ?? 'Esquipulas' }}, en la fecha que se indica en el anverso.
+    Leído lo escrito, enterados de su contenido, objeto, validez y consecuencias legales, este contrato es suscrito en duplicado, en la ciudad de {{ $sucursal->ciudad ?? 'Guatemala' }}, en la fecha que se indica en el anverso.
 </div>
 
 <table class="firmas-tabla">
@@ -204,7 +204,7 @@
         <td class="firma-celda">
             <div class="firma-linea"></div>
             <div class="firma-nombre">"Acreedora"</div>
-            <div class="firma-rol">GRUPO VALOR, SOCIEDAD ANÓNIMA</div>
+            <div class="firma-rol">{{ $empresa['razon_social'] ?? $empresa['nombre'] ?? $sucursal->nombre ?? 'LA ACREEDORA' }}</div>
         </td>
         <td style="width:16%;"></td>
         <td class="firma-celda">

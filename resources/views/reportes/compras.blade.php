@@ -186,7 +186,7 @@
         <table width="100%">
             <tr>
                 <td width="25%" style="text-align: left; vertical-align: middle;">
-                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                    @include('pdf.partials.logo', ['height' => '60px'])
                 </td>
                 <td width="50%" style="text-align: center; vertical-align: middle;">
                     <h1>REPORTE DE COMPRAS DIRECTAS</h1>
@@ -320,7 +320,7 @@
     <!-- Footer -->
     <div class="footer">
         <p>
-            Avanza - Reporte generado por: {{ $usuario->nombre ?? 'Sistema' }}
+            {{ config('app.name', 'Sistema de Gestión de Empeños') }} - Reporte generado por: {{ $usuario->nombre ?? 'Sistema' }}
         </p>
         <p>Página {PAGE_NUM} de {PAGE_COUNT}</p>
     </div>

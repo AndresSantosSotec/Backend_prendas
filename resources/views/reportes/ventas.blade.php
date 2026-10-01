@@ -48,12 +48,7 @@
     <table class="header-table">
         <tr>
             <td width="20%" style="vertical-align: middle;">
-                @php $logoPath = resource_path('logos/avanza_logo.png'); @endphp
-                @if(file_exists($logoPath))
-                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents($logoPath)) }}" alt="Logo" style="height: 70px;">
-                @else
-                    <span style="font-size:14px; font-weight:bold;">DIGIPRENDA</span>
-                @endif
+                @include('pdf.partials.logo', ['height' => '60px'])
             </td>
             <td width="60%" style="text-align: center; vertical-align: middle;">
                 <h1>REPORTE DE VENTAS</h1>
@@ -203,7 +198,7 @@
     @endif
 
     <div class="footer">
-        Avanza &mdash; Reporte generado automaticamente &mdash; {{ $generado_en }}
+        {{ config('app.name', 'Sistema de Gestión de Empeños') }} &mdash; Reporte generado automáticamente &mdash; {{ $generado_en }}
     </div>
 
 </body>

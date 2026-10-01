@@ -237,7 +237,7 @@
     <header>
 
         <div class="header-inner">
-            <div class="brand">Avanza</div>
+            <div class="brand">{{ $empresa['nombre'] ?? config('app.name', 'SISTEMA DE EMPEÑOS') }}</div>
             <div class="doc-type">Ficha de Cliente — Documento interno</div>
         </div>
     </header>
