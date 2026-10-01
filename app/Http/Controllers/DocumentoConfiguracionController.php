@@ -52,13 +52,7 @@ class DocumentoConfiguracionController extends Controller
             'data' => [
                 'documentos' => $documentos,
                 'empresa' => $empresa,
-                'variantes_disponibles' => [
-                    'estandar' => 'Estándar Corporativo',
-                    'cemadec' => 'Formato CEMADEC (Perito Contador + Representante Legal)',
-                    'ticket_80mm' => 'Ticket Térmico (80mm / POS)',
-                    'carta_compacto' => 'Carta Compacto',
-                    'moderno' => 'Diseño Moderno',
-                ]
+                'variantes_disponibles' => \App\Documents\RendererRegistry::getVariantesCatalogo(),
             ]
         ]);
     }
@@ -247,4 +241,32 @@ class DocumentoConfiguracionController extends Controller
             'message' => 'Datos institucionales de la empresa actualizados correctamente'
         ]);
     }
+
+    /**
+     * Previsualizar un documento con datos de muestra en tiempo real
+     * GET /api/v1/configuracion/documentos/{id}/preview
+     */
+    public function preview(Request $request, int $id, \App\Documents\DocumentService $documentService)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['error' => 'No autenticado'], 401);
+        }
+
+        try {
+            $variante = $request->query('variante');
+            $result = $documentService->generarPreview($id, $variante);
+
+            return response($result->content, 200, [
+                'Content-Type' => $result->mimeType,
+                'Content-Disposition' => 'inline; filename="' . $result->filename . '"',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Error al generar la previsualización: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }
+

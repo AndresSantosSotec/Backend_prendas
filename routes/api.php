@@ -484,6 +484,7 @@ Route::prefix('v1')->group(function () {
             Route::put('/configuracion/documentos/{id}', [DocumentoConfiguracionController::class, 'updateDocumento']);
             Route::post('/configuracion/logo', [DocumentoConfiguracionController::class, 'subirLogo']);
             Route::post('/configuracion/empresa', [DocumentoConfiguracionController::class, 'updateEmpresa']);
+            Route::get('/configuracion/documentos/{id}/preview', [DocumentoConfiguracionController::class, 'preview']);
 
         }); // FIN DEL GRUPO DE RUTAS CON SCOPE DE SUCURSAL
     });

@@ -2829,12 +2829,22 @@ class CreditoPrendarioController extends Controller
                 'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
             ];
 
-            $pdf = Pdf::loadView('creditos.plan-pagos', $data);
-            $pdf->setPaper('letter', 'portrait');
+            $variante = request()->query('variante');
+            $formatId = request()->query('format_id') ? (int) request()->query('format_id') : null;
 
-            $nombreArchivo = 'Plan_Pagos_' . ($credito->codigo_credito ?? $credito->numero_credito) . '_' . date('Ymd') . '.pdf';
+            $docService = app(\App\Documents\DocumentService::class);
+            $result = $docService->generate(
+                tipoDocumento: 'plan_pagos',
+                businessData: $data,
+                formatId: $formatId,
+                sucursalId: $credito->sucursal_id,
+                varianteOverride: $variante
+            );
 
-            return $pdf->download($nombreArchivo);
+            return response($result->content, 200, [
+                'Content-Type' => $result->mimeType,
+                'Content-Disposition' => (request()->query('download') ? 'attachment' : 'inline') . '; filename="' . $result->filename . '"',
+            ]);
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             Log::error('Crédito no encontrado para plan de pagos PDF: ' . $id);
@@ -2890,12 +2900,22 @@ class CreditoPrendarioController extends Controller
                 'fechaContrato' => $fechaFormateada,
             ];
 
-            $pdf = Pdf::loadView('creditos.contrato', $data);
-            $pdf->setPaper('letter', 'portrait');
+            $variante = request()->query('variante');
+            $formatId = request()->query('format_id') ? (int) request()->query('format_id') : null;
 
-            $nombreArchivo = 'Contrato_Credito_' . ($credito->codigo_credito ?? $credito->numero_credito) . '_' . date('Ymd') . '.pdf';
+            $docService = app(\App\Documents\DocumentService::class);
+            $result = $docService->generate(
+                tipoDocumento: 'contrato_credito',
+                businessData: $data,
+                formatId: $formatId,
+                sucursalId: $credito->sucursal_id,
+                varianteOverride: $variante
+            );
 
-            return $pdf->download($nombreArchivo);
+            return response($result->content, 200, [
+                'Content-Type' => $result->mimeType,
+                'Content-Disposition' => (request()->query('download') ? 'attachment' : 'inline') . '; filename="' . $result->filename . '"',
+            ]);
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             Log::error('Crédito no encontrado para contrato PDF: ' . $id);
