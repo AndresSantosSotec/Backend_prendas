@@ -53,6 +53,7 @@ class DocumentoConfiguracionController extends Controller
                 'documentos' => $documentos,
                 'empresa' => $empresa,
                 'variantes_disponibles' => \App\Documents\RendererRegistry::getVariantesCatalogo(),
+                'logos_disponibles' => app(\App\Services\LogoResolverService::class)->getLogosDisponibles(),
             ]
         ]);
     }
@@ -267,6 +268,39 @@ class DocumentoConfiguracionController extends Controller
                 'error' => 'Error al generar la previsualización: ' . $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Seleccionar o cambiar el logo activo desde el catálogo de logos existentes
+     * POST /api/v1/configuracion/seleccionar-logo
+     */
+    public function seleccionarLogo(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+        if (!$user || !in_array($user->rol, ['superadmin', 'administrador'])) {
+            return response()->json(['error' => 'No tienes permisos para modificar el logo.'], 403);
+        }
+
+        $request->validate([
+            'logo' => 'nullable|string|max:255',
+            'documento_id' => 'nullable|integer',
+        ]);
+
+        $logo = $request->logo; // puede ser nombre de archivo ej: 'avanza_logo.png' o null para limpiar
+
+        if ($request->filled('documento_id')) {
+            $doc = TbDoc::findOrFail($request->documento_id);
+            $doc->logo_url = $logo;
+            $doc->save();
+        } else {
+            ConfiguracionSistema::establecer('empresa_logo_url', $logo, 'string');
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $logo ? "Logo '{$logo}' activado exitosamente" : 'Logo desactivado (se usará texto institucional)',
+            'logo_url' => $logo,
+        ]);
     }
 }
 

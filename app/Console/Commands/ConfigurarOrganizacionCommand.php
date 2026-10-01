@@ -23,6 +23,7 @@ class ConfigurarOrganizacionCommand extends Command
                             {--representante= : Nombre del Representante Legal}
                             {--contador= : Nombre del Perito Contador}
                             {--registro-contador= : Registro profesional del contador}
+                            {--logo= : Nombre del logo en catálogo (ej: avanza_logo.png) o ruta}
                             {--reset : Restaurar configuraciones predeterminadas en limpio}';
 
     /**
@@ -57,6 +58,23 @@ class ConfigurarOrganizacionCommand extends Command
         $contador = $this->option('contador') ?: $this->ask('Perito Contador General', ConfiguracionSistema::obtener('perito_contador_nombre', 'PERITO CONTADOR'));
         $registroContador = $this->option('registro-contador') ?: $this->ask('Registro Perito Contador', ConfiguracionSistema::obtener('perito_contador_registro', ''));
 
+        // Selección de Logo
+        $logo = $this->option('logo');
+        if ($logo === null && $this->input->isInteractive()) {
+            $disponibles = app(\App\Services\LogoResolverService::class)->getLogosDisponibles();
+            $opciones = ['(Sin logo / Solo tipografía limpia)' => ''];
+            foreach ($disponibles as $l) {
+                $opciones[$l['nombre'] . ' [' . $l['archivo'] . ']'] = $l['archivo'];
+            }
+            $keys = array_keys($opciones);
+            $seleccion = $this->choice(
+                'Selecciona el logo a usar para esta organización',
+                $keys,
+                0
+            );
+            $logo = $opciones[$seleccion];
+        }
+
         // Guardar en configuraciones_sistema
         ConfiguracionSistema::establecer('empresa_nombre', $nombre);
         ConfiguracionSistema::establecer('empresa_razon_social', $razonSocial);
@@ -67,6 +85,9 @@ class ConfigurarOrganizacionCommand extends Command
         ConfiguracionSistema::establecer('representante_legal_nombre', $representante);
         ConfiguracionSistema::establecer('perito_contador_nombre', $contador);
         ConfiguracionSistema::establecer('perito_contador_registro', $registroContador);
+        if ($logo !== null) {
+            ConfiguracionSistema::establecer('empresa_logo_url', $logo);
+        }
 
         // Actualizar tb_docs para reflejar los nuevos nombres de firmantes y subtítulos
         TbDoc::whereNull('sucursal_id')->update([
@@ -91,6 +112,7 @@ class ConfigurarOrganizacionCommand extends Command
                 ['Representante Legal', $representante],
                 ['Perito Contador', $contador],
                 ['Registro Contador', $registroContador],
+                ['Logo Activo', $logo ?: '(Ninguno - Texto elegante)'],
             ]
         );
 

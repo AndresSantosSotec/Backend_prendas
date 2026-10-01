@@ -93,11 +93,35 @@ El sistema cuenta con el módulo de **Personalización de Documentos y Logos** (
 
 ---
 
-## 5. Arquitectura del Motor de Documentos
+## 5. Arquitectura Multi-Logo Dinámica
+
+Para evitar tener que eliminar o renombrar archivos de logotipos en cada instalación:
+- El repositorio mantiene los logos de los clientes en `resources/logos/` (ej: `avanza_logo.png`, `cemadec_logo.png`, etc.) y `storage/app/public/logos/`.
+- **`LogoResolverService`**: Es el servicio centralizado que resuelve el logo activo con el siguiente orden de precedencia:
+  1. **Configuración en Base de Datos**: `empresa_logo_url` en `configuraciones_sistema` o `tb_docs` (establecido desde el panel web o por CLI).
+  2. **Variable `.env`**: `APP_LOGO=avanza_logo.png` (o `ORGANIZATION_LOGO=...`).
+  3. **Identificador de Marca**: `ORGANIZATION_SLUG=avanza` (busca automáticamente `avanza_logo.png`).
+  4. **Logo genérico subido**: `storage/logos/logo.png`.
+  5. **Fallback Limpio**: Si no hay ninguna configuración que solicite un logo, el sistema **no asume ninguna marca** y renderiza el nombre institucional en tipografía limpia (100% marca blanca).
+
+### ¿Cómo activar el logo de Avanza en una instalación de Avanza?
+- Opción A: En `.env`, coloca `APP_LOGO=avanza_logo.png`
+- Opción B: Ejecuta `php artisan organizacion:configurar --logo=avanza_logo.png`
+- Opción C: En la interfaz web (`/configuracion/documentos`), en el catálogo de logos del servidor, presiona **"Activar"** sobre Avanza Logo.
+
+### ¿Cómo iniciar una nueva organización sin logo de Avanza?
+- Deja `APP_LOGO=` vacío en `.env`.
+- Aunque el archivo `avanza_logo.png` exista en el servidor, **nunca se cargará en los contratos de la nueva organización**.
+- Sube el nuevo logo desde la UI o colócalo en `resources/logos/tu_marca_logo.png`.
+
+---
+
+## 6. Arquitectura del Motor de Documentos
 
 El motor se rige por una arquitectura limpia y desacoplada:
 - **`configuraciones_sistema`**: Almacena los valores de configuración global de la organización.
 - **`tb_docs`**: Catálogo de plantillas por tipo de documento y sucursal.
 - **`RendererRegistry`**: Lista blanca estricta de renderizadores permitidos (`allowlist`).
 - **`DocumentService`**: Resuelve la jerarquía (Sucursal $\to$ Organización $\to$ Default) y emite un `DocumentResult` con el PDF compilado.
-- **`resources/views/pdf/partials/logo.blade.php`**: Partial inteligente que resuelve logos corporativos sin fallar si el archivo no existe en disco.
+- **`LogoResolverService`**: Inyecta dinámicamente el logo correspondiente en Base64 o permite renderizado tipográfico sin dependencias estáticas.
+- **`resources/views/pdf/partials/logo.blade.php`**: Partial inteligente que consume `LogoResolverService` para DomPDF.

@@ -126,35 +126,6 @@ class TbDoc extends Model
 
         $logoPathOrUrl = $this->logo_url ?: ConfiguracionSistema::obtener('empresa_logo_url');
 
-        if (!$logoPathOrUrl) {
-            return null;
-        }
-
-        try {
-            // Si es un data URI ya codificado
-            if (str_starts_with($logoPathOrUrl, 'data:image')) {
-                return $logoPathOrUrl;
-            }
-
-            // Ruta de almacenamiento local
-            $relativePath = str_replace('/storage/', '', parse_url($logoPathOrUrl, PHP_URL_PATH) ?? $logoPathOrUrl);
-            
-            if (Storage::disk('public')->exists($relativePath)) {
-                $fileContent = Storage::disk('public')->get($relativePath);
-                $mimeType = Storage::disk('public')->mimeType($relativePath) ?? 'image/png';
-                return 'data:' . $mimeType . ';base64,' . base64_encode($fileContent);
-            }
-
-            $localPublicPath = public_path(ltrim(parse_url($logoPathOrUrl, PHP_URL_PATH) ?? $logoPathOrUrl, '/'));
-            if (file_exists($localPublicPath)) {
-                $fileContent = file_get_contents($localPublicPath);
-                $mimeType = mime_content_type($localPublicPath) ?: 'image/png';
-                return 'data:' . $mimeType . ';base64,' . base64_encode($fileContent);
-            }
-
-            return $logoPathOrUrl;
-        } catch (\Exception $e) {
-            return null;
-        }
+        return app(\App\Services\LogoResolverService::class)->resolveBase64($logoPathOrUrl);
     }
 }

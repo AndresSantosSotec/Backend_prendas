@@ -1,16 +1,7 @@
 @php
-    $logoSrc = null;
-    if (!empty($logoBase64)) {
-        $logoSrc = $logoBase64;
-    } elseif (!empty($empresa['logo_base64'])) {
-        $logoSrc = $empresa['logo_base64'];
-    } elseif (!empty($empresa['logo_url'])) {
-        $logoSrc = $empresa['logo_url'];
-    } elseif (file_exists(public_path('storage/logos/logo.png'))) {
-        $logoSrc = 'data:image/png;base64,' . base64_encode(file_get_contents(public_path('storage/logos/logo.png')));
-    } elseif (file_exists(resource_path('logos/logo.png'))) {
-        $logoSrc = 'data:image/png;base64,' . base64_encode(file_get_contents(resource_path('logos/logo.png')));
-    }
+    $resolver = app(\App\Services\LogoResolverService::class);
+    $logoInput = $logoBase64 ?? ($empresa['logo_base64'] ?? ($empresa['logo_url'] ?? null));
+    $logoSrc = $resolver->resolveBase64($logoInput);
     $logoHeight = $height ?? '64px';
 @endphp
 

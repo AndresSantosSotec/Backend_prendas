@@ -483,6 +483,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/configuracion/documentos', [DocumentoConfiguracionController::class, 'store']);
             Route::put('/configuracion/documentos/{id}', [DocumentoConfiguracionController::class, 'updateDocumento']);
             Route::post('/configuracion/logo', [DocumentoConfiguracionController::class, 'subirLogo']);
+            Route::post('/configuracion/seleccionar-logo', [DocumentoConfiguracionController::class, 'seleccionarLogo']);
             Route::post('/configuracion/empresa', [DocumentoConfiguracionController::class, 'updateEmpresa']);
             Route::get('/configuracion/documentos/{id}/preview', [DocumentoConfiguracionController::class, 'preview']);
 
