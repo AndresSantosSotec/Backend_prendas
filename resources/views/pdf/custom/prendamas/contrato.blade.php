@@ -119,22 +119,42 @@
         $clienteNombre = 'FELISA JOSEFINA GUTIERREZ CHUC DE PONCIO';
     }
 
-    $esFemenino = !in_array(strtolower($cliente->genero ?? 'femenino'), ['masculino', 'm', 'hombre', 'varon']);
+    $generoRaw = strtolower(trim($cliente->genero ?? ''));
+    if (in_array($generoRaw, ['femenino', 'f', 'mujer', 'femenina'])) {
+        $esFemenino = true;
+    } elseif (in_array($generoRaw, ['masculino', 'm', 'hombre', 'varon'])) {
+        $esFemenino = false;
+    } elseif (!empty($cliente->estado_civil) && str_ends_with(strtolower(trim($cliente->estado_civil)), 'a')) {
+        $esFemenino = true;
+    } elseif (!empty($cliente->estado_civil) && str_ends_with(strtolower(trim($cliente->estado_civil)), 'o')) {
+        $esFemenino = false;
+    } else {
+        $esFemenino = false;
+    }
+
     $clienteTratamiento = $esFemenino ? 'la señora' : 'el señor';
     $clienteRol = $esFemenino ? 'LA DEUDORA' : 'EL DEUDOR';
-    $clienteEstadoCivil = !empty($cliente->estado_civil) ? strtolower($cliente->estado_civil) : ($esFemenino ? 'casada' : 'casado');
-    $clienteNacionalidad = !empty($cliente->nacionalidad) ? strtolower($cliente->nacionalidad) : ($esFemenino ? 'guatemalteca' : 'guatemalteco');
-    $clienteProfesion = !empty($cliente->profesion) ? strtolower($cliente->profesion) : 'comerciante';
+    $clienteEstadoCivil = !empty($cliente->estado_civil) ? strtolower(trim($cliente->estado_civil)) : ($esFemenino ? 'casada' : 'casado');
+    $clienteNacionalidad = !empty($cliente->nacionalidad) ? strtolower(trim($cliente->nacionalidad)) : ($esFemenino ? 'guatemalteca' : 'guatemalteco');
+    $clienteProfesion = !empty($cliente->profesion) ? strtolower(trim($cliente->profesion)) : 'comerciante';
 
-    // Edad del cliente en letras
-    if (!empty($cliente->fecha_nacimiento)) {
-        $aniosCliente = Carbon::parse($cliente->fecha_nacimiento)->age;
-        $clienteEdad = NumeroALetrasHelper::convertir($aniosCliente) . ' años de edad';
-    } elseif (!empty($cliente->edad)) {
-        $clienteEdad = NumeroALetrasHelper::convertir((int)$cliente->edad) . ' años de edad';
-    } else {
-        $clienteEdad = 'sesenta y cuatro años de edad';
+    // Edad del cliente en letras (con fallback a mayor de edad para evitar 'cero años de edad')
+    $aniosCliente = 0;
+    if (!empty($cliente->fecha_nacimiento) && $cliente->fecha_nacimiento !== '0000-00-00') {
+        try {
+            $parsedAge = Carbon::parse($cliente->fecha_nacimiento)->age;
+            if ($parsedAge > 0 && $parsedAge < 120) {
+                $aniosCliente = $parsedAge;
+            }
+        } catch (\Throwable $e) {}
     }
+    if ($aniosCliente <= 0 && !empty($cliente->edad) && (int)$cliente->edad > 0) {
+        $aniosCliente = (int) $cliente->edad;
+    }
+
+    $clienteEdadTexto = ($aniosCliente > 0) 
+        ? 'de ' . NumeroALetrasHelper::convertir($aniosCliente) . ' años de edad' 
+        : 'mayor de edad';
 
     // Dirección / Domicilio
     $clienteDireccion = $cliente->direccion_completa ?? $cliente->direccion ?? '';
@@ -202,7 +222,7 @@
         el día {{ $representanteActaFecha }} por el Notario {{ $representanteActaNotario }}, la cual quedó inscrita en el Registro Mercantil 
         al número {{ $representanteRegMercantil }}, folio {{ $representanteFolio }} del libro {{ $representanteLibro }} de Auxiliares de Comercio. 
         Representación que conforme a la ley es suficiente para la celebración de este acto; y Yo, <strong>{{ $clienteNombre }}</strong>, 
-        de {{ $clienteEdad }}, {{ $clienteEstadoCivil }}, {{ $clienteNacionalidad }}, {{ $clienteProfesion }}, con domicilio y residencia en 
+        {{ $clienteEdadTexto }}, {{ $clienteEstadoCivil }}, {{ $clienteNacionalidad }}, {{ $clienteProfesion }}, con domicilio y residencia en 
         {{ $clienteDireccion }}, me identifico con el Documento Personal de Identificación con Código Único de Identificación número: 
         <strong>{{ $clienteDpiLetras }}</strong> extendido por el Registro Nacional de las Personas de la República de Guatemala. 
         A quien en el transcurso del presente documento se me podrá denominar como <strong>{{ $clienteRol }}</strong>. 
@@ -215,7 +235,7 @@
     </p>
 
     <p>
-        <strong>SEGUNDA:</strong> Por mi parte Yo, <strong>{{ $clienteNombre }}</strong>, manifiesto que por este acto me reconozco <strong>LISA Y LLANA DEUDORA</strong> de la entidad representada por el señor <strong>{{ $representanteNombre }}</strong>, por la cantidad de <strong>{{ $montoLetras }}</strong> misma que será destinada para <strong>{{ $destinoCredito }}</strong> y que dicha suma la cancelaré de conformidad con las siguientes estipulaciones:
+        <strong>SEGUNDA:</strong> Por mi parte Yo, <strong>{{ $clienteNombre }}</strong>, manifiesto que por este acto me reconozco <strong>{{ $esFemenino ? 'LISA Y LLANA DEUDORA' : 'LISO Y LLANO DEUDOR' }}</strong> de la entidad representada por el señor <strong>{{ $representanteNombre }}</strong>, por la cantidad de <strong>{{ $montoLetras }}</strong> misma que será destinada para <strong>{{ $destinoCredito }}</strong> y que dicha suma la cancelaré de conformidad con las siguientes estipulaciones:
     </p>
 
     <p>

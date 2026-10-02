@@ -105,17 +105,116 @@ class LogoResolverService
     }
 
     /**
-     * Convierte una ruta o nombre de archivo de imagen a Data URI Base64.
+     * Resuelve el origen óptimo para DomPDF:
+     * 1. Prioriza la ruta física del archivo local en disco si existe (DomPDF lee archivos locales al 100% de confiabilidad sin depender de /tmp ni descodificación Base64 en memoria).
+     * 2. Si no hay archivo físico local pero sí Base64 o URL remota, devuelve el Base64 o URL.
      */
-    public function fileToBase64(string $pathOrName): ?string
+    public function resolveForPdf(?string $custom = null): ?string
     {
+        // 1. Intentar resolver la ruta física local en disco
+        $localPath = $this->resolveFilePath($custom);
+        if ($localPath !== null) {
+            return $localPath;
+        }
+
+        // 2. Si ya es Base64 explícito
+        if (!empty($custom) && str_starts_with($custom, 'data:image')) {
+            return $custom;
+        }
+
+        // 3. Fallback a resolución Base64
+        return $this->resolveBase64($custom);
+    }
+
+    /**
+     * Resuelve la ruta física del logo en el servidor local si existe.
+     * Retorna una ruta absoluta normalizada (ej: /home/.../public/logos/prendamas_logo.png)
+     */
+    public function resolveFilePath(?string $custom = null): ?string
+    {
+        // 1. Si se pasó una ruta o nombre de archivo específico
+        if (!empty($custom) && !str_starts_with($custom, 'data:image') && !filter_var($custom, FILTER_VALIDATE_URL)) {
+            $path = $this->findExistingFilePath($custom);
+            if ($path !== null) {
+                return $path;
+            }
+        }
+
+        // 2. Revisar configuración en BD
+        $dbLogo = ConfiguracionSistema::obtener('empresa_logo_url') 
+            ?: ConfiguracionSistema::obtener('empresa_logo') 
+            ?: ConfiguracionSistema::obtener('logo_activo');
+        if (!empty($dbLogo) && !str_starts_with($dbLogo, 'data:image') && !filter_var($dbLogo, FILTER_VALIDATE_URL)) {
+            $path = $this->findExistingFilePath($dbLogo);
+            if ($path !== null) {
+                return $path;
+            }
+        }
+
+        // 3. Revisar variable de entorno APP_LOGO u ORGANIZATION_LOGO
+        $envLogo = env('APP_LOGO') ?: env('ORGANIZATION_LOGO');
+        if (!empty($envLogo)) {
+            $path = $this->findExistingFilePath($envLogo);
+            if ($path !== null) {
+                return $path;
+            }
+        }
+
+        // 4. Revisar slug o nombre de empresa
+        $slug = strtolower(trim((string) (env('ORGANIZATION_SLUG') ?: env('EMPRESA_NOMBRE') ?: env('APP_NAME') ?: '')));
+        if (!empty($slug)) {
+            $candidates = [
+                "{$slug}_logo.png",
+                "{$slug}.png",
+                "{$slug}_logo.jpg",
+                "{$slug}.jpg",
+            ];
+            if (str_contains($slug, 'predama') || str_contains($slug, 'prendama')) {
+                array_unshift($candidates, 'prendamas_logo.png', 'prendamas.png', 'predamas_logo.png', 'predamas.png');
+            }
+            foreach ($candidates as $cand) {
+                $path = $this->findExistingFilePath($cand);
+                if ($path !== null) {
+                    return $path;
+                }
+            }
+        }
+
+        // 5. Revisar candidatos genéricos
+        $genericCandidates = [
+            'prendamas_logo.png',
+            'logos/prendamas_logo.png',
+            'storage/logos/prendamas_logo.png',
+            'storage/logos/logo.png',
+            'logos/logo.png',
+            'logo.png',
+        ];
+        foreach ($genericCandidates as $cand) {
+            $path = $this->findExistingFilePath($cand);
+            if ($path !== null) {
+                return $path;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Localiza un archivo en los directorios públicos, recursos o almacenamiento.
+     */
+    public function findExistingFilePath(string $pathOrName): ?string
+    {
+        if (str_starts_with($pathOrName, 'data:image') || filter_var($pathOrName, FILTER_VALIDATE_URL)) {
+            return null;
+        }
+
         $clean = ltrim($pathOrName, '/\\');
         $fileName = basename($clean);
 
         $possiblePaths = [
-            // Ruta exacta dada
             $pathOrName,
             public_path($clean),
+            public_path('logos/' . $fileName),
             public_path('storage/' . $clean),
             public_path('storage/logos/' . $fileName),
             storage_path('app/public/' . $clean),
@@ -127,24 +226,36 @@ class LogoResolverService
 
         foreach ($possiblePaths as $fullPath) {
             if (!empty($fullPath) && file_exists($fullPath) && is_file($fullPath)) {
-                try {
-                    $ext = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
-                    $mime = match ($ext) {
-                        'png' => 'image/png',
-                        'jpg', 'jpeg' => 'image/jpeg',
-                        'svg' => 'image/svg+xml',
-                        'webp' => 'image/webp',
-                        'gif' => 'image/gif',
-                        default => mime_content_type($fullPath) ?: 'image/png',
-                    };
-                    $content = file_get_contents($fullPath);
-                    if ($content !== false && strlen($content) > 0) {
-                        return 'data:' . $mime . ';base64,' . base64_encode($content);
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning("Error leyendo archivo de logo [{$fullPath}]: " . $e->getMessage());
-                    continue;
+                return str_replace('\\', '/', realpath($fullPath) ?: $fullPath);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Convierte una ruta o nombre de archivo de imagen a Data URI Base64.
+     */
+    public function fileToBase64(string $pathOrName): ?string
+    {
+        $filePath = $this->findExistingFilePath($pathOrName);
+        if ($filePath !== null) {
+            try {
+                $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+                $mime = match ($ext) {
+                    'png' => 'image/png',
+                    'jpg', 'jpeg' => 'image/jpeg',
+                    'svg' => 'image/svg+xml',
+                    'webp' => 'image/webp',
+                    'gif' => 'image/gif',
+                    default => mime_content_type($filePath) ?: 'image/png',
+                };
+                $content = file_get_contents($filePath);
+                if ($content !== false && strlen($content) > 0) {
+                    return 'data:' . $mime . ';base64,' . base64_encode($content);
                 }
+            } catch (\Throwable $e) {
+                Log::warning("Error leyendo archivo de logo [{$filePath}]: " . $e->getMessage());
             }
         }
 
