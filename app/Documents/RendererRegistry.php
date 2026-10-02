@@ -25,6 +25,7 @@ final class RendererRegistry
 
         // Contratos de empeño / compra
         'contrato.estandar'    => ContratoStandardRenderer::class,
+        'contrato.prendamas'   => ContratoStandardRenderer::class,
         'contrato.cemadec'     => ContratoStandardRenderer::class,
         'contrato.compacto'    => ContratoStandardRenderer::class,
 
@@ -118,6 +119,7 @@ final class RendererRegistry
     {
         return [
             'estandar'       => 'Estándar Corporativo (Carta / Oficio)',
+            'prendamas'      => 'Formato Notarial Prendamas (Grupo Jumerc, S.A.)',
             'ticket_80mm'    => 'Ticket Térmico (80mm / POS Ventanilla)',
             'compacto'       => 'Formato Compacto (Medio Oficio)',
             'cemadec'        => 'Formato CEMADEC (Perito Contador + Representante)',
