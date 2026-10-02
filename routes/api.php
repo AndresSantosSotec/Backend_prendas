@@ -471,21 +471,23 @@ Route::prefix('v1')->group(function () {
             Route::patch('/recibos/{id}', [ReciboController::class, 'update']);
             Route::delete('/recibos/{id}', [ReciboController::class, 'destroy']);
 
-            // ========== CONFIGURACIONES DEL SISTEMA ==========
-            Route::get('/configuraciones-sistema', [ConfiguracionSistemaController::class, 'index']);
-            Route::get('/configuraciones-sistema/cash-vault-integration', [ConfiguracionSistemaController::class, 'cashVaultIntegration']);
-            Route::post('/configuraciones-sistema/cash-vault-integration/toggle', [ConfiguracionSistemaController::class, 'toggleCashVaultIntegration']);
-            Route::get('/configuraciones-sistema/{clave}', [ConfiguracionSistemaController::class, 'show']);
-            Route::put('/configuraciones-sistema', [ConfiguracionSistemaController::class, 'update']);
+            // ========== CONFIGURACIONES DEL SISTEMA Y PLANTILLAS (EXCLUSIVO SUPERADMIN) ==========
+            Route::middleware(['superadmin'])->group(function () {
+                Route::get('/configuraciones-sistema', [ConfiguracionSistemaController::class, 'index']);
+                Route::get('/configuraciones-sistema/cash-vault-integration', [ConfiguracionSistemaController::class, 'cashVaultIntegration']);
+                Route::post('/configuraciones-sistema/cash-vault-integration/toggle', [ConfiguracionSistemaController::class, 'toggleCashVaultIntegration']);
+                Route::get('/configuraciones-sistema/{clave}', [ConfiguracionSistemaController::class, 'show']);
+                Route::put('/configuraciones-sistema', [ConfiguracionSistemaController::class, 'update']);
 
-            // ========== PLANTILLAS DE DOCUMENTOS Y LOGO (TB_DOCS) ==========
-            Route::get('/configuracion/documentos', [DocumentoConfiguracionController::class, 'index']);
-            Route::post('/configuracion/documentos', [DocumentoConfiguracionController::class, 'store']);
-            Route::put('/configuracion/documentos/{id}', [DocumentoConfiguracionController::class, 'updateDocumento']);
-            Route::post('/configuracion/logo', [DocumentoConfiguracionController::class, 'subirLogo']);
-            Route::post('/configuracion/seleccionar-logo', [DocumentoConfiguracionController::class, 'seleccionarLogo']);
-            Route::post('/configuracion/empresa', [DocumentoConfiguracionController::class, 'updateEmpresa']);
-            Route::get('/configuracion/documentos/{id}/preview', [DocumentoConfiguracionController::class, 'preview']);
+                // Plantillas de documentos, logos e identidad de empresa (TB_DOCS)
+                Route::get('/configuracion/documentos', [DocumentoConfiguracionController::class, 'index']);
+                Route::post('/configuracion/documentos', [DocumentoConfiguracionController::class, 'store']);
+                Route::put('/configuracion/documentos/{id}', [DocumentoConfiguracionController::class, 'updateDocumento']);
+                Route::post('/configuracion/logo', [DocumentoConfiguracionController::class, 'subirLogo']);
+                Route::post('/configuracion/seleccionar-logo', [DocumentoConfiguracionController::class, 'seleccionarLogo']);
+                Route::post('/configuracion/empresa', [DocumentoConfiguracionController::class, 'updateEmpresa']);
+                Route::get('/configuracion/documentos/{id}/preview', [DocumentoConfiguracionController::class, 'preview']);
+            });
 
         }); // FIN DEL GRUPO DE RUTAS CON SCOPE DE SUCURSAL
     });

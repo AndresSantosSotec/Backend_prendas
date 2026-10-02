@@ -19,8 +19,8 @@ class DocumentoConfiguracionController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = Auth::user();
-        if (!$user) {
-            return response()->json(['error' => 'No autenticado'], 401);
+        if (!$user || ($user->rol !== 'superadmin' && ($user->role ?? null) !== 'superadmin')) {
+            return response()->json(['error' => 'Acceso denegado. Se requiere rol de Super Administrador.'], 403);
         }
 
         $sucursalId = $request->query('sucursal_id');
@@ -65,8 +65,8 @@ class DocumentoConfiguracionController extends Controller
     public function store(Request $request): JsonResponse
     {
         $user = Auth::user();
-        if (!$user || !in_array($user->rol, ['superadmin', 'administrador'])) {
-            return response()->json(['error' => 'No tienes permisos para crear plantillas de documentos.'], 403);
+        if (!$user || ($user->rol !== 'superadmin' && ($user->role ?? null) !== 'superadmin')) {
+            return response()->json(['error' => 'Acceso denegado. Se requiere rol de Super Administrador.'], 403);
         }
 
         $request->validate([
@@ -112,8 +112,8 @@ class DocumentoConfiguracionController extends Controller
     public function updateDocumento(Request $request, int $id): JsonResponse
     {
         $user = Auth::user();
-        if (!$user || !in_array($user->rol, ['superadmin', 'administrador'])) {
-            return response()->json(['error' => 'No tienes permisos para modificar plantillas de documentos.'], 403);
+        if (!$user || ($user->rol !== 'superadmin' && ($user->role ?? null) !== 'superadmin')) {
+            return response()->json(['error' => 'Acceso denegado. Se requiere rol de Super Administrador.'], 403);
         }
 
         $doc = TbDoc::findOrFail($id);
@@ -170,8 +170,8 @@ class DocumentoConfiguracionController extends Controller
     public function subirLogo(Request $request): JsonResponse
     {
         $user = Auth::user();
-        if (!$user || !in_array($user->rol, ['superadmin', 'administrador'])) {
-            return response()->json(['error' => 'No tienes permisos para modificar el logo.'], 403);
+        if (!$user || ($user->rol !== 'superadmin' && ($user->role ?? null) !== 'superadmin')) {
+            return response()->json(['error' => 'Acceso denegado. Se requiere rol de Super Administrador.'], 403);
         }
 
         $request->validate([
@@ -219,8 +219,8 @@ class DocumentoConfiguracionController extends Controller
     public function updateEmpresa(Request $request): JsonResponse
     {
         $user = Auth::user();
-        if (!$user || !in_array($user->rol, ['superadmin', 'administrador'])) {
-            return response()->json(['error' => 'No tienes permisos para modificar datos de la empresa.'], 403);
+        if (!$user || ($user->rol !== 'superadmin' && ($user->role ?? null) !== 'superadmin')) {
+            return response()->json(['error' => 'Acceso denegado. Se requiere rol de Super Administrador.'], 403);
         }
 
         $request->validate([
@@ -250,8 +250,8 @@ class DocumentoConfiguracionController extends Controller
     public function preview(Request $request, int $id, \App\Documents\DocumentService $documentService)
     {
         $user = Auth::user();
-        if (!$user) {
-            return response()->json(['error' => 'No autenticado'], 401);
+        if (!$user || ($user->rol !== 'superadmin' && ($user->role ?? null) !== 'superadmin')) {
+            return response()->json(['error' => 'Acceso denegado. Se requiere rol de Super Administrador.'], 403);
         }
 
         try {
@@ -277,8 +277,8 @@ class DocumentoConfiguracionController extends Controller
     public function seleccionarLogo(Request $request): JsonResponse
     {
         $user = Auth::user();
-        if (!$user || !in_array($user->rol, ['superadmin', 'administrador'])) {
-            return response()->json(['error' => 'No tienes permisos para modificar el logo.'], 403);
+        if (!$user || ($user->rol !== 'superadmin' && ($user->role ?? null) !== 'superadmin')) {
+            return response()->json(['error' => 'Acceso denegado. Se requiere rol de Super Administrador.'], 403);
         }
 
         $request->validate([

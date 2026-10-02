@@ -17,8 +17,8 @@ class ConfiguracionSistemaController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = Auth::user();
-        if (!$user) {
-            return response()->json(['error' => 'No autenticado'], 401);
+        if (!$user || ($user->rol !== 'superadmin' && ($user->role ?? null) !== 'superadmin')) {
+            return response()->json(['error' => 'Acceso denegado. Se requiere rol de Super Administrador.'], 403);
         }
 
         $query = ConfiguracionSistema::query();
@@ -64,9 +64,8 @@ class ConfiguracionSistemaController extends Controller
     public function update(Request $request): JsonResponse
     {
         $user = Auth::user();
-
-        if (!$user || !in_array($user->rol, ['superadmin', 'administrador'])) {
-            return response()->json(['error' => 'No tienes permisos para modificar configuraciones del sistema.'], 403);
+        if (!$user || ($user->rol !== 'superadmin' && ($user->role ?? null) !== 'superadmin')) {
+            return response()->json(['error' => 'Acceso denegado. Se requiere rol de Super Administrador.'], 403);
         }
 
         $request->validate([
@@ -128,8 +127,7 @@ class ConfiguracionSistemaController extends Controller
     public function toggleCashVaultIntegration(Request $request): JsonResponse
     {
         $user = Auth::user();
-
-        if (!$user || !in_array($user->rol, ['superadmin', 'administrador'])) {
+        if (!$user || ($user->rol !== 'superadmin' && ($user->role ?? null) !== 'superadmin')) {
             return response()->json(['error' => 'No tienes permisos para modificar esta configuración.'], 403);
         }
 
