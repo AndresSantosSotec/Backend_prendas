@@ -36,7 +36,9 @@ class LogoResolverService
         }
 
         // 3. Revisar configuración activa en Base de Datos (configuraciones_sistema)
-        $dbLogo = ConfiguracionSistema::obtener('empresa_logo_url') ?: ConfiguracionSistema::obtener('empresa_logo');
+        $dbLogo = ConfiguracionSistema::obtener('empresa_logo_url') 
+            ?: ConfiguracionSistema::obtener('empresa_logo') 
+            ?: ConfiguracionSistema::obtener('logo_activo');
         if (!empty($dbLogo)) {
             if (str_starts_with($dbLogo, 'data:image')) {
                 return $dbLogo;
@@ -59,8 +61,8 @@ class LogoResolverService
             }
         }
 
-        // 5. Revisar ORGANIZATION_SLUG (ej: avanza -> avanza_logo.png o avanza.png)
-        $slug = env('ORGANIZATION_SLUG');
+        // 5. Revisar ORGANIZATION_SLUG o EMPRESA_NOMBRE / APP_NAME (ej: prendamas o predamas)
+        $slug = strtolower(trim((string) (env('ORGANIZATION_SLUG') ?: env('EMPRESA_NOMBRE') ?: env('APP_NAME') ?: '')));
         if (!empty($slug)) {
             $candidates = [
                 "{$slug}_logo.png",
@@ -69,6 +71,11 @@ class LogoResolverService
                 "{$slug}.jpg",
                 "{$slug}.svg",
             ];
+
+            if (str_contains($slug, 'predama') || str_contains($slug, 'prendama')) {
+                array_unshift($candidates, 'prendamas_logo.png', 'prendamas.png', 'predamas_logo.png', 'predamas.png');
+            }
+
             foreach ($candidates as $cand) {
                 $base64 = $this->fileToBase64($cand);
                 if ($base64 !== null) {
@@ -77,8 +84,11 @@ class LogoResolverService
             }
         }
 
-        // 6. Revisar logo genérico del sistema si existe
+        // 6. Revisar logo genérico o disponible del sistema si existe
         $genericCandidates = [
+            'prendamas_logo.png',
+            'storage/logos/prendamas_logo.png',
+            'logos/prendamas_logo.png',
             'storage/logos/logo.png',
             'logos/logo.png',
             'logo.png',
