@@ -6,14 +6,17 @@
     <style>
         @page {
             size: letter;
-            margin: 2.2cm 2cm 2cm 2.5cm;
+            margin-top: 2.22cm;
+            margin-right: 1.27cm;
+            margin-bottom: 0.49cm;
+            margin-left: 0.63cm;
         }
         * {
             box-sizing: border-box;
         }
         body {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 11pt;
+            font-family: 'Arial MT', 'Arial', Helvetica, sans-serif;
+            font-size: 10pt;
             line-height: 1.35;
             color: #000;
             text-align: justify;
