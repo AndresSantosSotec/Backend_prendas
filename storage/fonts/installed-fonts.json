@@ -1,8 +1,8 @@
 {
     "arial narrow": {
-        "normal": "D:\\Dev_empenios\\empenios-api\\storage\\fonts\/arial_narrow_normal_38a0dbfd92e327f312d141a5bdee91a3",
-        "bold": "D:\\Dev_empenios\\empenios-api\\storage\\fonts\/arial_narrow_bold_5b3e4cd3e206bc7a99d25f2c22109030",
-        "italic": "D:\\Dev_empenios\\empenios-api\\storage\\fonts\/arial_narrow_italic_f2d4706d145e5ecf7c7eca65699f347a",
-        "bold_italic": "arial_narrow_bold_italic_00fac6e761049bfea0e6c11aa0a14061"
+        "normal": "C:\\Users\\Sotecpro\\Desktop\\DiPrenda\\Backend_prendas\\storage\\fonts\/arial_narrow_normal_233767cf67109509ef28e1f6b19f4e65",
+        "bold": "C:\\Users\\Sotecpro\\Desktop\\DiPrenda\\Backend_prendas\\storage\\fonts\/arial_narrow_bold_07a08bd7a07b8b358a87d9e06709ee2e",
+        "italic": "C:\\Users\\Sotecpro\\Desktop\\DiPrenda\\Backend_prendas\\storage\\fonts\/arial_narrow_italic_145815429a45932a57fc22f3309a44f5",
+        "bold_italic": "arial_narrow_bold_italic_64748fdf0f393998992f4cfc939b34f5"
     }
 }

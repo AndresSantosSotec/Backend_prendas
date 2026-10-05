@@ -22,6 +22,7 @@ final class RendererRegistry
         'recibo.estandar'      => ReciboStandardRenderer::class,
         'recibo.ticket_80mm'   => ReciboTicketRenderer::class,
         'recibo.compacto'      => ReciboStandardRenderer::class,
+        'recibo.prueba1harry'  => ContratoStandardRenderer::class,
 
         // Contratos de empeño / compra
         'contrato.estandar'    => ContratoStandardRenderer::class,
@@ -125,6 +126,7 @@ final class RendererRegistry
             'compacto'       => 'Formato Compacto (Medio Oficio)',
             'cemadec'        => 'Formato CEMADEC (Perito Contador + Representante)',
             'moderno'        => 'Diseño Corporativo Moderno',
+            'prueba1harry'   => 'Prueba Harry',
         ];
     }
 }
