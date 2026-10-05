@@ -349,6 +349,9 @@ class PrendamasOrganizacionSeeder extends Seeder
             ]
         );
 
-        $this->command->info('✅ Seeder de PRENDAMÁS+ ejecutado correctamente con datos empresariales, plantillas y créditos de muestra.');
+        // 6. PRODUCTOS DE CRÉDITO Y CATEGORÍAS PRENDAMÁS+
+        $this->call(PrendamasProductosCreditoSeeder::class);
+
+        $this->command->info('✅ Seeder de PRENDAMÁS+ ejecutado correctamente con datos empresariales, plantillas, productos de crédito y créditos de muestra.');
     }
 }
