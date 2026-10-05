@@ -349,6 +349,64 @@ class PrendamasProductosCreditoSeeder extends Seeder
                 ]
             );
 
+            // 5. ASEGURAR QUE LAS PLANTILLAS ACTIVAS DE DOCUMENTOS SEAN LAS DE PRENDAMÁS EN TB_DOCS
+            if (\Illuminate\Support\Facades\Schema::hasTable('tb_docs')) {
+                $orgCode = '01';
+                \App\Models\TbDoc::updateOrCreate(
+                    [
+                        'organizacion_code' => $orgCode,
+                        'tipo_documento'    => 'plan_pagos',
+                        'plantilla_variante'=> 'prendamas',
+                    ],
+                    [
+                        'nombre_documento'        => 'Estado de Cuenta y Plan de Pagos Prendamas',
+                        'vista_pdf'               => 'pdf.custom.prendamas.plan-pagos',
+                        'titulo_personalizado'    => 'ESTADO DE CUENTA',
+                        'subtitulo_personalizado' => 'RESUMEN DEL DIA',
+                        'encabezado_texto'        => 'Estado de cuenta prendario con detalle de avalúo, prenda y calendario de cuotas.',
+                        'pie_pagina_texto'        => 'Prendamas+ - Tu patrimonio en buenas manos',
+                        'firmante_1_nombre'       => 'CLIENTE',
+                        'firmante_1_titulo'       => 'RECIBO MI PRENDA CONFORME',
+                        'mostrar_logo'            => true,
+                        'mostrar_firmas'          => true,
+                        'activo'                  => true,
+                    ]
+                );
+
+                \App\Models\TbDoc::updateOrCreate(
+                    [
+                        'organizacion_code' => $orgCode,
+                        'tipo_documento'    => 'contrato_credito',
+                        'plantilla_variante'=> 'prendamas',
+                    ],
+                    [
+                        'nombre_documento'        => 'Contrato Notarial Prendamas (Grupo Jumerc)',
+                        'vista_pdf'               => 'pdf.custom.prendamas.contrato',
+                        'titulo_personalizado'    => 'CONTRATO DE MUTUO CON GARANTÍA PRENDARIA',
+                        'subtitulo_personalizado' => 'PRENDAMÁS+ - GRUPO JUMERC, S.A.',
+                        'encabezado_texto'        => 'Contrato notarial con legalización de firmas y prenda con desplazamiento.',
+                        'pie_pagina_texto'        => 'Prendamas+ - Tu patrimonio en buenas manos',
+                        'firmante_1_nombre'       => 'DEUDORA (CLIENTE)',
+                        'firmante_1_titulo'       => 'FIRMA DE LA CLIENTA',
+                        'firmante_2_nombre'       => 'MANUEL FRANCISCO GARCÍA ROBLES',
+                        'firmante_2_titulo'       => 'ADMINISTRADOR ÚNICO Y REPRESENTANTE LEGAL',
+                        'mostrar_logo'            => true,
+                        'mostrar_firmas'          => true,
+                        'activo'                  => true,
+                    ]
+                );
+
+                \App\Models\TbDoc::where('organizacion_code', $orgCode)
+                    ->where('tipo_documento', 'plan_pagos')
+                    ->where('plantilla_variante', '!=', 'prendamas')
+                    ->update(['activo' => false]);
+
+                \App\Models\TbDoc::where('organizacion_code', $orgCode)
+                    ->where('tipo_documento', 'contrato_credito')
+                    ->where('plantilla_variante', '!=', 'prendamas')
+                    ->update(['activo' => false]);
+            }
+
             DB::commit();
 
             $this->command?->info("Parametrización de productos de crédito PRENDAMÁS+ completada exitosamente.");
