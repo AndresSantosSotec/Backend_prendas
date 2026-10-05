@@ -139,6 +139,17 @@ class PrendamasOrganizacionSeeder extends Seeder
             ]
         );
 
+        // Desactivar plantillas genéricas/estándar para que la variante 'prendamas' tenga prioridad activa
+        TbDoc::where('organizacion_code', $orgCode)
+            ->where('tipo_documento', 'contrato_credito')
+            ->where('plantilla_variante', '!=', 'prendamas')
+            ->update(['activo' => false]);
+
+        TbDoc::where('organizacion_code', $orgCode)
+            ->where('tipo_documento', 'plan_pagos')
+            ->where('plantilla_variante', '!=', 'prendamas')
+            ->update(['activo' => false]);
+
         // c) Recibo de pago
         TbDoc::updateOrCreate(
             [
