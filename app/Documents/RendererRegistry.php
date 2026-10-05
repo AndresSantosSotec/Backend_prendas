@@ -28,6 +28,7 @@ final class RendererRegistry
         'contrato.prendamas'   => ContratoStandardRenderer::class,
         'contrato.cemadec'     => ContratoStandardRenderer::class,
         'contrato.compacto'    => ContratoStandardRenderer::class,
+        'contrato.pruebamoi'      => ContratoStandardRenderer::class,
 
         // Plan de pagos / amortización
         'plan_pagos.estandar'  => PlanPagosStandardRenderer::class,
@@ -124,6 +125,7 @@ final class RendererRegistry
             'compacto'       => 'Formato Compacto (Medio Oficio)',
             'cemadec'        => 'Formato CEMADEC (Perito Contador + Representante)',
             'moderno'        => 'Diseño Corporativo Moderno',
+            'pruebamoi'      => 'Prueba 1 (Moise)',
         ];
     }
 }
