@@ -77,28 +77,70 @@ class TbDoc extends Model
     {
         $orgCode = $orgCode ?: ConfiguracionSistema::obtener('organizacion_code') ?: env('ORGANIZATION_CODE', '01');
 
-        // 1. Buscar por sucursal específica si se indica
+        // 0. Preferencia explícita desde .env o desde configuraciones_sistema (rotación instantánea sin SQL)
+        $variantePreferida = env('DOC_VARIANTE')
+            ?: env('DOC_VARIANTE_DEFAULT')
+            ?: ConfiguracionSistema::obtener('doc_variante_default');
+
+        if (!empty($variantePreferida)) {
+            // A. Buscar con variante preferida y sucursal específica
+            if ($sucursalId) {
+                $docEnv = static::where('organizacion_code', $orgCode)
+                    ->where('sucursal_id', $sucursalId)
+                    ->where('tipo_documento', $tipoDocumento)
+                    ->where('plantilla_variante', $variantePreferida)
+                    ->where('activo', true)
+                    ->orderBy('id', 'desc')
+                    ->first();
+                if ($docEnv) return $docEnv;
+            }
+
+            // B. Buscar con variante preferida a nivel organización general
+            $docEnvGeneral = static::where('organizacion_code', $orgCode)
+                ->whereNull('sucursal_id')
+                ->where('tipo_documento', $tipoDocumento)
+                ->where('plantilla_variante', $variantePreferida)
+                ->where('activo', true)
+                ->orderBy('id', 'desc')
+                ->first();
+            if ($docEnvGeneral) return $docEnvGeneral;
+
+            // C. Fallback de variante preferida en cualquier ámbito activo
+            $docEnvBase = static::where('tipo_documento', $tipoDocumento)
+                ->where('plantilla_variante', $variantePreferida)
+                ->where('activo', true)
+                ->orderBy('id', 'desc')
+                ->first();
+            if ($docEnvBase) return $docEnvBase;
+        }
+
+        // 1. Buscar por sucursal específica si se indica (priorizar plantilla personalizada configurada)
         if ($sucursalId) {
             $doc = static::where('organizacion_code', $orgCode)
                 ->where('sucursal_id', $sucursalId)
                 ->where('tipo_documento', $tipoDocumento)
                 ->where('activo', true)
+                ->orderByRaw("CASE WHEN plantilla_variante != 'estandar' THEN 0 ELSE 1 END")
+                ->orderBy('id', 'desc')
                 ->first();
             if ($doc) return $doc;
         }
 
-        // 2. Buscar por organización general (sucursal null)
+        // 2. Buscar por organización general (sucursal null, priorizar plantilla personalizada configurada)
         $docGeneral = static::where('organizacion_code', $orgCode)
             ->whereNull('sucursal_id')
             ->where('tipo_documento', $tipoDocumento)
             ->where('activo', true)
+            ->orderByRaw("CASE WHEN plantilla_variante != 'estandar' THEN 0 ELSE 1 END")
+            ->orderBy('id', 'desc')
             ->first();
         if ($docGeneral) return $docGeneral;
 
-        // 3. Fallback inteligente: buscar la plantilla base activa registrada en BD
+        // 3. Fallback inteligente: buscar la plantilla activa registrada en BD
         $docBase = static::where('tipo_documento', $tipoDocumento)
             ->where('activo', true)
-            ->orderBy('id', 'asc')
+            ->orderByRaw("CASE WHEN plantilla_variante != 'estandar' THEN 0 ELSE 1 END")
+            ->orderBy('id', 'desc')
             ->first();
         if ($docBase) return $docBase;
 

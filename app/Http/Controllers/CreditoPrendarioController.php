@@ -3023,14 +3023,31 @@ class CreditoPrendarioController extends Controller
                 'barcodeImage' => $barcodeImage,
                 'barcodeValue' => $barcodeValue,
                 'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
+                'esPreliminar' => true,
             ];
 
-            $pdf = Pdf::loadView('creditos.recibo', $data);
-            $pdf->setPaper('letter', 'portrait');
+            try {
+                $docService = app(\App\Documents\DocumentService::class);
+                $result = $docService->generate(
+                    tipoDocumento: 'recibo_pago',
+                    businessData: $data,
+                    formatId: null,
+                    sucursalId: $sucursal?->id
+                );
 
-            $nombreArchivo = 'Recibo_Preliminar_' . $numeroCredito . '_' . date('Ymd') . '.pdf';
+                return response($result->content, 200, [
+                    'Content-Type' => $result->mimeType,
+                    'Content-Disposition' => 'attachment; filename="' . $result->filename . '"',
+                ]);
+            } catch (\Throwable $eDoc) {
+                Log::warning('DocumentService recibo preliminar fallback: ' . $eDoc->getMessage());
+                $pdf = Pdf::loadView('creditos.recibo', $data);
+                $pdf->setPaper('letter', 'portrait');
 
-            return $pdf->download($nombreArchivo);
+                $nombreArchivo = 'Recibo_Preliminar_' . $numeroCredito . '_' . date('Ymd') . '.pdf';
+
+                return $pdf->download($nombreArchivo);
+            }
 
         } catch (\Exception $e) {
             Log::error('Error al generar recibo preliminar: ' . $e->getMessage(), [
@@ -3114,22 +3131,90 @@ class CreditoPrendarioController extends Controller
                 'dias_gracia' => $request->credito['dias_gracia'] ?? 0,
             ]);
 
+            // Calcular plan de pagos preliminar para que el contrato tenga cuotas completas
+            $tasaInteres = (float) ($request->credito['tasa_interes'] ?? 15);
+            $tipoInteres = $request->credito['tipo_interes'] ?? 'mensual';
+            $numeroCuotas = (int) ($request->credito['numero_cuotas'] ?? 1);
+            $montoAprobado = (float) ($request->credito['monto_aprobado'] ?? 0);
+            $diasGracia = (int) ($request->credito['dias_gracia'] ?? 0);
+            $fechaDesembolso = isset($request->credito['fecha_desembolso']) ? Carbon::parse($request->credito['fecha_desembolso']) : Carbon::now();
+            $fechaPrimerPago = isset($request->credito['fecha_primer_pago']) ? Carbon::parse($request->credito['fecha_primer_pago']) : null;
+
+            $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres);
+            $interesPorCuota = round($montoAprobado * $tasaPorPeriodo, 2);
+            $capitalPorCuota = round($montoAprobado / max(1, $numeroCuotas), 2);
+            $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);
+
+            $planPagos = collect([]);
+            $saldoCapital = $montoAprobado;
+
+            for ($i = 1; $i <= $numeroCuotas; $i++) {
+                $fechaBaseCuota = $fechaPrimerPago ? $fechaPrimerPago : $fechaDesembolso;
+                $fechaVencimientoCuota = $this->calcularFechaVencimientoPorCuota(
+                    $fechaBaseCuota,
+                    $i,
+                    $tipoInteres,
+                    $diasEntreCuotas
+                );
+
+                if ($i === 1 && $diasGracia > 0 && !$fechaPrimerPago) {
+                    $fechaVencimientoCuota->addDays($diasGracia);
+                }
+
+                $abonoCapital = ($i === $numeroCuotas) ? $saldoCapital : $capitalPorCuota;
+                $totalCuota = round($abonoCapital + $interesPorCuota, 2);
+
+                $planPagos->push((object)[
+                    'numero_cuota' => $i,
+                    'fecha_vencimiento' => $fechaVencimientoCuota->format('Y-m-d'),
+                    'capital_proyectado' => $abonoCapital,
+                    'interes_proyectado' => $interesPorCuota,
+                    'mora_proyectada' => 0,
+                    'otros_cargos_proyectados' => 0,
+                    'monto_cuota_proyectado' => $totalCuota,
+                    'capital_pendiente' => $abonoCapital,
+                    'interes_pendiente' => $interesPorCuota,
+                    'monto_pendiente' => $totalCuota,
+                    'saldo_capital_credito' => round(max(0, $saldoCapital - $abonoCapital), 2),
+                    'estado' => 'pendiente'
+                ]);
+
+                $saldoCapital -= $abonoCapital;
+            }
+
             $data = [
                 'credito' => (object) $creditoData,
                 'cliente' => (object) $request->cliente,
                 'sucursal' => $sucursal,
                 'prendas' => [(object) $prendaData],
-                'planPagos' => collect([]), // Sin plan de pagos en preliminar
+                'planPagos' => $planPagos,
                 'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
                 'fechaContrato' => $fechaFormateada,
+                'esPreliminar' => true,
             ];
 
-            $pdf = Pdf::loadView('creditos.contrato', $data);
-            $pdf->setPaper('letter', 'portrait');
+            try {
+                $docService = app(\App\Documents\DocumentService::class);
+                $result = $docService->generate(
+                    tipoDocumento: 'contrato_credito',
+                    businessData: $data,
+                    formatId: null,
+                    sucursalId: $sucursal?->id
+                );
 
-            $nombreArchivo = 'Contrato_Preliminar_' . $request->credito['numero_credito'] . '_' . date('Ymd') . '.pdf';
+                return response($result->content, 200, [
+                    'Content-Type' => $result->mimeType,
+                    'Content-Disposition' => 'attachment; filename="' . $result->filename . '"',
+                ]);
+            } catch (\Throwable $eDoc) {
+                Log::warning('DocumentService contrato preliminar fallback: ' . $eDoc->getMessage());
+                $pdf = Pdf::loadView('creditos.contrato', $data);
+                $pdf->setPaper('letter', 'portrait');
 
-            return $pdf->download($nombreArchivo);
+                $nombreArchivo = 'Contrato_Preliminar_' . $request->credito['numero_credito'] . '_' . date('Ymd') . '.pdf';
+
+                return $pdf->download($nombreArchivo);
+            }
 
         } catch (\Exception $e) {
             Log::error('Error al generar contrato preliminar: ' . $e->getMessage(), [
@@ -3413,8 +3498,13 @@ class CreditoPrendarioController extends Controller
                     'capital_proyectado' => $abonoCapital,
                     'interes_proyectado' => $interesPorCuota,
                     'mora_proyectada' => 0,
+                    'otros_cargos_proyectados' => $gastosEstaCuota,
                     'otros_proyectados' => $gastosEstaCuota,
                     'monto_cuota_proyectado' => $totalCuota,
+                    'capital_pendiente' => $abonoCapital,
+                    'interes_pendiente' => $interesPorCuota,
+                    'monto_pendiente' => $totalCuota,
+                    'saldo_capital_credito' => round(max(0, $saldoCapital - $abonoCapital), 2),
                     'estado' => 'pendiente'
                 ];
 
@@ -3447,21 +3537,56 @@ class CreditoPrendarioController extends Controller
                 'direccion' => $clienteData['direccion'] ?? null,
             ];
 
+            // Preparar prendas si vienen en la petición (para el Estado de Cuenta de 2 páginas de Prendamás)
+            $prendas = [];
+            if ($request->has('prenda')) {
+                $prendaInput = $request->input('prenda');
+                $prendas[] = (object) array_merge($prendaInput, [
+                    'descripcion' => $prendaInput['descripcion_general'] ?? $prendaInput['descripcion'] ?? 'Prenda empeñada',
+                    'valor_tasacion' => $request->input('tasacion.valor_mercado') ?? $request->input('tasacion.valor_comercial') ?? $montoAprobado,
+                ]);
+            } elseif ($request->has('prendas')) {
+                foreach ($request->input('prendas') as $p) {
+                    $prendas[] = (object) array_merge($p, [
+                        'descripcion' => $p['descripcion_general'] ?? $p['descripcion'] ?? 'Prenda empeñada',
+                        'valor_tasacion' => $p['valor_tasacion'] ?? $montoAprobado,
+                    ]);
+                }
+            }
+
             $data = [
                 'credito' => $creditoObj,
                 'cliente' => $clienteObj,
                 'sucursal' => $sucursal,
+                'prendas' => $prendas,
                 'planPagos' => $planPagos,
+                'totalGastos' => $totalGastos,
                 'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
                 'esPreliminar' => true,
             ];
 
-            $pdf = Pdf::loadView('creditos.plan-pagos', $data);
-            $pdf->setPaper('letter', 'portrait');
+            try {
+                $docService = app(\App\Documents\DocumentService::class);
+                $result = $docService->generate(
+                    tipoDocumento: 'plan_pagos',
+                    businessData: $data,
+                    formatId: null,
+                    sucursalId: $sucursal?->id
+                );
 
-            $nombreArchivo = 'Plan_Pagos_Simulacion_' . ($datosCredito['numero_credito'] ?? 'SIM') . '.pdf';
+                return response($result->content, 200, [
+                    'Content-Type' => $result->mimeType,
+                    'Content-Disposition' => 'attachment; filename="' . $result->filename . '"',
+                ]);
+            } catch (\Throwable $eDoc) {
+                Log::warning('DocumentService plan_pagos preliminar fallback: ' . $eDoc->getMessage());
+                $pdf = Pdf::loadView('creditos.plan-pagos', $data);
+                $pdf->setPaper('letter', 'portrait');
 
-            return $pdf->download($nombreArchivo);
+                $nombreArchivo = 'Plan_Pagos_Simulacion_' . ($datosCredito['numero_credito'] ?? 'SIM') . '.pdf';
+
+                return $pdf->download($nombreArchivo);
+            }
 
         } catch (\Exception $e) {
             Log::error('Error al generar plan de pagos preliminar: ' . $e->getMessage(), [
