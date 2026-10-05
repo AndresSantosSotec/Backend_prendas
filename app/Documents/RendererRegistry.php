@@ -31,8 +31,9 @@ final class RendererRegistry
         'contrato.pruebamoi'      => ContratoStandardRenderer::class,
 
         // Plan de pagos / amortización
-        'plan_pagos.estandar'  => PlanPagosStandardRenderer::class,
-        'plan_pagos.ticket'    => PlanPagosStandardRenderer::class,
+        'plan_pagos.estandar'   => PlanPagosStandardRenderer::class,
+        'plan_pagos.prendamas'  => PlanPagosStandardRenderer::class,
+        'plan_pagos.ticket'     => PlanPagosStandardRenderer::class,
 
         // Contabilidad y Estados Financieros
         'contabilidad.balance'    => ContabilidadReportRenderer::class,

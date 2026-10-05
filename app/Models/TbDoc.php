@@ -75,7 +75,7 @@ class TbDoc extends Model
      */
     public static function obtenerPlantilla(string $tipoDocumento, ?int $sucursalId = null, ?string $orgCode = null): self
     {
-        $orgCode = $orgCode ?: env('ORGANIZATION_CODE', '01');
+        $orgCode = $orgCode ?: ConfiguracionSistema::obtener('organizacion_code') ?: env('ORGANIZATION_CODE', '01');
 
         // 1. Buscar por sucursal específica si se indica
         if ($sucursalId) {

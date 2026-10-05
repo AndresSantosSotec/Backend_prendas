@@ -2798,6 +2798,7 @@ class CreditoPrendarioController extends Controller
                 'cliente',
                 'sucursal',
                 'gastos',
+                'prendas.categoriaProducto',
                 'planPagos' => function($query) {
                     $query->orderBy('numero_cuota', 'asc');
                 }
@@ -2824,6 +2825,7 @@ class CreditoPrendarioController extends Controller
                 'credito' => $credito,
                 'cliente' => $credito->cliente,
                 'sucursal' => $credito->sucursal,
+                'prendas' => $credito->prendas,
                 'planPagos' => $planPagos,
                 'totalGastos' => $totalGastos,
                 'fechaGeneracion' => now()->format('d/m/Y H:i:s'),

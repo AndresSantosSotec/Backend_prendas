@@ -33,7 +33,7 @@ final class DocumentService
         ?string $varianteOverride = null,
         ?string $orgCode = null
     ): DocumentResult {
-        $orgCode = $orgCode ?: env('ORGANIZATION_CODE', '01');
+        $orgCode = $orgCode ?: ConfiguracionSistema::obtener('organizacion_code') ?: env('ORGANIZATION_CODE', '01');
 
         // 1. Resolver configuración de plantilla
         $config = $this->resolverConfiguracion($tipoDocumento, $formatId, $sucursalId, $orgCode);
@@ -74,6 +74,7 @@ final class DocumentService
             return $format;
         }
 
+        $orgCode = $orgCode ?: ConfiguracionSistema::obtener('organizacion_code') ?: env('ORGANIZATION_CODE', '01');
         return TbDoc::obtenerPlantilla($tipoDocumento, $sucursalId, $orgCode);
     }
 
@@ -84,12 +85,31 @@ final class DocumentService
     {
         $logoBase64 = $doc->obtenerLogoBase64();
 
+        // PRIORIDAD ABSOLUTA: Lo que esté en la base de datos (configuraciones_sistema) manda sobre .env
+        $empresaNombre = ConfiguracionSistema::obtener('empresa_nombre') ?: env('APP_NAME', 'PRENDAMÁS+');
+        $razonSocial = ConfiguracionSistema::obtener('empresa_razon_social') ?: 'GRUPO JUMERC, SOCIEDAD ANÓNIMA';
+        $direccion = ConfiguracionSistema::obtener('empresa_direccion') ?: '15 Avenida 4-60 zona 3 Quetzaltenango.';
+        $telefono = ConfiguracionSistema::obtener('empresa_telefono') ?: '7934-0485';
+        $whatsapp = ConfiguracionSistema::obtener('empresa_whatsapp') ?: '3996-6178';
+        $nit = ConfiguracionSistema::obtener('empresa_nit') ?: 'C/F';
+        $email = ConfiguracionSistema::obtener('empresa_email') ?: 'contacto@ejemplo.com';
+        $repNombre = ConfiguracionSistema::obtener('representante_legal_nombre') ?: 'MANUEL FRANCISCO GARCÍA ROBLES';
+        $repTitulo = ConfiguracionSistema::obtener('representante_legal_titulo') ?: 'ADMINISTRADOR ÚNICO Y REPRESENTANTE LEGAL';
+        $repDpi = ConfiguracionSistema::obtener('representante_legal_dpi') ?: '2182 74416 0801';
+        $horarioAtencion = ConfiguracionSistema::obtener('horario_atencion') ?: 'Lunes a viernes: 8:00 AM – 5:00 PM | SÁBADO: CERRADO | Domingo: 9:00 AM – 12:30 PM';
+
         $empresa = [
-            'nombre' => ConfiguracionSistema::obtener('empresa_nombre', env('APP_NAME', 'Microsystem Plus')),
-            'nit' => ConfiguracionSistema::obtener('empresa_nit', 'C/F'),
-            'direccion' => ConfiguracionSistema::obtener('empresa_direccion', 'Guatemala'),
-            'telefono' => ConfiguracionSistema::obtener('empresa_telefono', 'PBX: 2200-0000'),
-            'email' => ConfiguracionSistema::obtener('empresa_email', 'contacto@ejemplo.com'),
+            'nombre' => $empresaNombre,
+            'razon_social' => $razonSocial,
+            'nit' => $nit,
+            'direccion' => $direccion,
+            'telefono' => $telefono,
+            'whatsapp' => $whatsapp,
+            'horario_atencion' => $horarioAtencion,
+            'email' => $email,
+            'representante_legal' => $repNombre,
+            'representante_titulo' => $repTitulo,
+            'representante_dpi' => $repDpi,
             'logo_base64' => $logoBase64,
         ];
 
@@ -104,12 +124,12 @@ final class DocumentService
             'piePaginaTexto' => $doc->pie_pagina_texto,
             'mostrarLogo' => $doc->mostrar_logo,
             'mostrarFirmas' => $doc->mostrar_firmas,
-            'peritoContadorNombre' => $doc->perito_contador_nombre ?: ConfiguracionSistema::obtener('perito_contador_nombre', 'PERITO CONTADOR'),
-            'peritoContadorRegistro' => $doc->perito_contador_registro ?: ConfiguracionSistema::obtener('perito_contador_registro', ''),
-            'firmante1Nombre' => $doc->firmante_1_nombre ?: ($doc->perito_contador_nombre ?: ConfiguracionSistema::obtener('perito_contador_nombre', 'PERITO CONTADOR')),
-            'firmante1Titulo' => $doc->firmante_1_titulo ?: 'CONTADOR AUTORIZADO',
-            'firmante2Nombre' => $doc->firmante_2_nombre ?: ConfiguracionSistema::obtener('representante_legal_nombre', 'REPRESENTANTE LEGAL'),
-            'firmante2Titulo' => $doc->firmante_2_titulo ?: 'REPRESENTANTE LEGAL',
+            'peritoContadorNombre' => $doc->perito_contador_nombre ?: (ConfiguracionSistema::obtener('perito_contador_nombre') ?: 'MANUEL FRANCISCO GARCÍA ROBLES'),
+            'peritoContadorRegistro' => $doc->perito_contador_registro ?: (ConfiguracionSistema::obtener('perito_contador_registro') ?: ''),
+            'firmante1Nombre' => $doc->firmante_1_nombre ?: 'CLIENTE',
+            'firmante1Titulo' => $doc->firmante_1_titulo ?: 'FIRMA DE CONFORMIDAD',
+            'firmante2Nombre' => $doc->firmante_2_nombre ?: $repNombre,
+            'firmante2Titulo' => $doc->firmante_2_titulo ?: $repTitulo,
             'plantillaVariante' => $doc->plantilla_variante ?: 'estandar',
         ];
 
