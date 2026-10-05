@@ -224,17 +224,24 @@ class PlanInteresCategoria extends Model
     }
 
     /**
-     * Scope: Plan default de una categoría
+     * Scope: Plan default de una categoría (soporta FK directa y relación muchos-a-muchos vía pivote)
      */
     public function scopePlanDefault($query, $categoriaId)
     {
-        return $query->where(function ($q) use ($categoriaId) {
-                         $q->where('planes_interes_categoria.categoria_producto_id', $categoriaId)
-                           ->orWhereNull('planes_interes_categoria.categoria_producto_id');
-                     })
-                     ->where('es_default', true)
-                     ->where('activo', true)
-                     ->orderByRaw('planes_interes_categoria.categoria_producto_id DESC');
+        return $query->where('planes_interes_categoria.activo', true)
+            ->where(function ($q) use ($categoriaId) {
+                $q->where(function ($sq) use ($categoriaId) {
+                    $sq->where(function ($csq) use ($categoriaId) {
+                        $csq->where('planes_interes_categoria.categoria_producto_id', $categoriaId)
+                            ->orWhereNull('planes_interes_categoria.categoria_producto_id');
+                    })->where('planes_interes_categoria.es_default', true);
+                })
+                ->orWhereHas('categorias', function ($r) use ($categoriaId) {
+                    $r->where('categoria_productos.id', $categoriaId)
+                      ->where('plan_interes_categorias.es_default', true);
+                });
+            })
+            ->orderByRaw('planes_interes_categoria.categoria_producto_id DESC');
     }
 
     /**
