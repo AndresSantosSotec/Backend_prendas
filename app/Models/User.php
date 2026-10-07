@@ -218,7 +218,7 @@ class User extends Authenticatable
             $roles = [$roles];
         }
 
-        // Normalizar roles (admin -> administrador, etc.)
+        // Normalizar roles a comparar
         $normalizedRoles = array_map(function ($role) {
             return match(strtolower($role)) {
                 'admin' => 'administrador',
@@ -230,7 +230,17 @@ class User extends Authenticatable
             };
         }, $roles);
 
-        return in_array($this->rol, $normalizedRoles);
+        // Normalizar también el rol actual del usuario
+        $userRole = match(strtolower($this->rol ?? '')) {
+            'admin' => 'administrador',
+            'gerente', 'manager' => 'gerente',
+            'cajero', 'cashier' => 'cajero',
+            'vendedor', 'seller' => 'vendedor',
+            'contador', 'accountant' => 'contador',
+            default => strtolower($this->rol ?? '')
+        };
+
+        return in_array($userRole, $normalizedRoles);
     }
 
     /**

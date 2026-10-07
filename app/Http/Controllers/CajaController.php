@@ -276,10 +276,15 @@ class CajaController extends Controller
 
             try {
                 return DB::transaction(function () use ($user, $fecha, $request, $boveda) {
+                    $sucursalApertura = $request->sucursal_id 
+                        ?? $request->header('X-Sucursal-Activa') 
+                        ?? $user->sucursal_id 
+                        ?? ($boveda->sucursal_id ?? 1);
+
                     // 1. Crear apertura de caja
                     $caja = CajaAperturaCierre::create([
                         'user_id'          => $user->id,
-                        'sucursal_id'      => $user->sucursal_id ?? 1,
+                        'sucursal_id'      => $sucursalApertura,
                         'fecha_apertura'   => $fecha,
                         'hora_apertura'    => Carbon::now()->toTimeString(),
                         'saldo_inicial'    => $request->saldo_inicial,
@@ -325,9 +330,14 @@ class CajaController extends Controller
 
         // ── MODO DESCONECTADO: apertura normal ────────────────────────────────
         // Nota: se permite abrir nueva caja aunque ya se haya cerrado una el mismo día.
+        $sucursalAperturaDesc = $request->sucursal_id 
+            ?? $request->header('X-Sucursal-Activa') 
+            ?? $user->sucursal_id 
+            ?? 1;
+
         $caja = new CajaAperturaCierre();
         $caja->user_id      = $user->id;
-        $caja->sucursal_id  = $user->sucursal_id ?? 1;
+        $caja->sucursal_id  = $sucursalAperturaDesc;
         $caja->fecha_apertura = $fecha;
         $caja->hora_apertura  = Carbon::now()->toTimeString();
         $caja->saldo_inicial  = $request->saldo_inicial;
@@ -371,14 +381,39 @@ class CajaController extends Controller
         $boveda = null;
         if ($request->boveda_destino_id) {
             // El usuario eligió explícitamente una bóveda
-            $boveda = Boveda::activas()->findOrFail($request->boveda_destino_id);
-        } else {
-            // Auto-seleccionar: buscar bóvedas activas de la sucursal de la caja
-            $bovedasDisponibles = Boveda::activas()->deSucursal($caja->sucursal_id)->get();
-            if ($bovedasDisponibles->count() === 1) {
-                $boveda = $bovedasDisponibles->first();
+            $boveda = Boveda::activas()->find($request->boveda_destino_id);
+        }
+
+        if (!$boveda) {
+            // Auto-seleccionar bóveda destino:
+            // 1. Intentar con la sucursal de la caja o del usuario
+            $sucursalId = $caja->sucursal_id 
+                ?: $request->header('X-Sucursal-Activa') 
+                ?: $user->sucursal_id;
+
+            if ($sucursalId) {
+                $bovedasDisponibles = Boveda::activas()->deSucursal($sucursalId)->get();
+                if ($bovedasDisponibles->isNotEmpty()) {
+                    // Priorizar tipo 'principal', luego 'general', o la primera disponible
+                    $boveda = $bovedasDisponibles->firstWhere('tipo', 'principal')
+                        ?? $bovedasDisponibles->firstWhere('tipo', 'general')
+                        ?? $bovedasDisponibles->first();
+                }
             }
-            // Si hay 0 o más de 1, no se transfiere automáticamente
+
+            // 2. Si no se encontró bóveda por sucursal (ej: usuario admin sin sucursal fija asignada),
+            // buscar entre todas las bóvedas activas del sistema (priorizando 'principal' o 'general')
+            if (!$boveda) {
+                $boveda = Boveda::activas()->principales()->first()
+                    ?? Boveda::activas()->generales()->first()
+                    ?? Boveda::activas()->first();
+            }
+        }
+
+        // Si la caja no tenía sucursal_id pero se asignó a una bóveda, vincularla
+        if (!$caja->sucursal_id && $boveda) {
+            $caja->sucursal_id = $boveda->sucursal_id;
+            $caja->save();
         }
 
         $desglose = null;
@@ -399,7 +434,7 @@ class CajaController extends Controller
 
         $mensaje = 'Caja cerrada correctamente';
         if ($movimientoBoveda) {
-            $mensaje .= '. Saldo transferido a bóveda automáticamente.';
+            $mensaje .= '. Saldo transferido a bóveda automáticamente (' . ($boveda?->nombre ?? 'Bóveda') . ').';
         }
 
         return response()->json([
