@@ -1530,13 +1530,14 @@ class CreditoPrendarioController extends Controller
                 }
             }
 
-            // Determinar si es cuota de gracia (solo interés, sin capital)
-            $esCuotaGracia = ($numeroCuota === 1 && $diasGracia > 0 && $credito->dias_gracia > 0);
+            // NOTA DE SEGURIDAD: dias_gracia representa días de tolerancia antes de cobrar mora.
+            // NUNCA debe anular el capital de la cuota ni convertirla en cuota de solo interés.
+            $esCuotaGracia = false;
 
-            if ($esCuotaGracia) {
-                // En cuota de gracia, solo se cobra interés, el capital se prorratea en las demás cuotas
-                $capitalProyectado = 0;
-                $montoCuotaProyectado = round($interesProyectado, 2);
+            // Salvaguarda: En la última (o única) cuota, asegurar que absorba todo el saldo de capital restante
+            if ($numeroCuota === $numeroCuotas && $saldoCapital > 0) {
+                $capitalProyectado = round($saldoCapital, 2);
+                $montoCuotaProyectado = round($capitalProyectado + $interesProyectado, 2);
             }
 
             $diasCuota = $diasEntreCuotas;
