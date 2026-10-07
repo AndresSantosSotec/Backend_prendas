@@ -29,6 +29,7 @@ final class RendererRegistry
         'contrato.cemadec'     => ContratoStandardRenderer::class,
         'contrato.compacto'    => ContratoStandardRenderer::class,
         'contrato.pruebamoi'      => ContratoStandardRenderer::class,
+        'contracto.crediprendas'     => ContratoStandardRenderer::class,
 
         // Plan de pagos / amortización
         'plan_pagos.estandar'   => PlanPagosStandardRenderer::class,
@@ -127,6 +128,7 @@ final class RendererRegistry
             'cemadec'        => 'Formato CEMADEC (Perito Contador + Representante)',
             'moderno'        => 'Diseño Corporativo Moderno',
             'pruebamoi'      => 'Prueba 1 (Moise)',
+            'crediprendas'     => 'Formato Crediprendas',
         ];
     }
 }
