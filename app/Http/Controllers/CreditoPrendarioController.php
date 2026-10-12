@@ -1712,78 +1712,76 @@ class CreditoPrendarioController extends Controller
     }
 
     /**
-     * Determina si la ejecución actual corresponde a la instancia / productos de PRENDAMÁS.
-     * Solo afecta a PRENDAMÁS sin alterar el cálculo estándar de otras instancias.
+     * Determina si se debe aplicar la tasa de interés directamente por período (sin prorratear)
+     * o si se debe prorratear desde una tasa mensual (comportamiento estándar tradicional).
+     * 
+     * Configuración:
+     * - En Avanza y organizaciones estándar: Retorna false (prorrateo mensual: /2 quincenal, /4 semanal).
+     * - En Prendamás o tenants con tasa directa: Retorna true (tasa directa por período: 7.64% quincenal, etc.).
      */
-    public static function esInstanciaPrendamas($planIdOObjeto = null): bool
+    public static function debeAplicarTasaDirectaPorPeriodo($planIdOObjeto = null): bool
     {
-        // 1. Si se pasa un plan directamente o por ID o un crédito con plan_interes_id
+        // 1. Configuración del tenant en base de datos (clave configurable)
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('configuraciones_sistema')) {
+                $configVal = ConfiguracionSistema::obtener('credito_tasa_por_periodo_directa', null);
+                if ($configVal !== null) {
+                    return (bool) $configVal;
+                }
+            }
+        } catch (\Throwable) {}
+
+        // 2. Variable de entorno del servidor / instancia
+        if (filter_var(env('CREDITO_TASA_POR_PERIODO_DIRECTA', false), FILTER_VALIDATE_BOOLEAN)) {
+            return true;
+        }
+
+        // 3. Si se pasa un plan de crédito específico, revisar si ese plan pertenece al catálogo Prendamás
         if ($planIdOObjeto) {
+            $plan = null;
             if ($planIdOObjeto instanceof CreditoPrendario) {
                 if ($planIdOObjeto->plan_interes_id) {
                     $plan = PlanInteresCategoria::find($planIdOObjeto->plan_interes_id);
-                    if ($plan && (str_starts_with($plan->codigo ?? '', 'PM-') || str_contains(strtolower($plan->nombre ?? ''), 'prendam'))) {
-                        return true;
-                    }
                 }
             } elseif ($planIdOObjeto instanceof PlanInteresCategoria) {
-                if (str_starts_with($planIdOObjeto->codigo ?? '', 'PM-') || str_contains(strtolower($planIdOObjeto->nombre ?? ''), 'prendam')) {
-                    return true;
-                }
+                $plan = $planIdOObjeto;
             } elseif (is_numeric($planIdOObjeto)) {
                 $plan = PlanInteresCategoria::find((int) $planIdOObjeto);
-                if ($plan && (str_starts_with($plan->codigo ?? '', 'PM-') || str_contains(strtolower($plan->nombre ?? ''), 'prendam'))) {
-                    return true;
-                }
+            }
+
+            if ($plan && (str_starts_with($plan->codigo ?? '', 'PM-') || str_contains(strtolower($plan->nombre ?? ''), 'prendam'))) {
+                return true;
             }
         }
 
-        // 2. Variable de entorno de organización o app
+        // 4. Identificador de organización por entorno
         $orgSlug = strtolower(trim((string) (env('ORGANIZATION_SLUG') ?: env('EMPRESA_NOMBRE') ?: env('APP_NAME') ?: '')));
         if (str_contains($orgSlug, 'prendam')) {
             return true;
         }
 
-        // 3. Configuraciones específicas de Prendamás en base de datos
-        try {
-            if (\Illuminate\Support\Facades\Schema::hasTable('configuraciones_sistema')) {
-                if (ConfiguracionSistema::where('clave', 'like', 'prendamas_%')->exists()) {
-                    return true;
-                }
-            }
-        } catch (\Throwable) {}
-
-        // 4. Plantilla documental activa de Prendamás
-        try {
-            if (\Illuminate\Support\Facades\Schema::hasTable('tb_docs')) {
-                if (\App\Models\TbDoc::where('plantilla_variante', 'prendamas')->where('activo', true)->exists()) {
-                    return true;
-                }
-            }
-        } catch (\Throwable) {}
-
-        // 5. Planes de crédito oficiales de Prendamás en la BD
-        try {
-            if (\Illuminate\Support\Facades\Schema::hasTable('planes_interes_categoria')) {
-                if (PlanInteresCategoria::where('codigo', 'like', 'PM-%')->exists()) {
-                    return true;
-                }
-            }
-        } catch (\Throwable) {}
-
+        // Por defecto: false (comportamiento estándar tradicional para Avanza y nuevos clientes)
         return false;
+    }
+
+    /**
+     * Alias de retrocompatibilidad
+     */
+    public static function esInstanciaPrendamas($planIdOObjeto = null): bool
+    {
+        return static::debeAplicarTasaDirectaPorPeriodo($planIdOObjeto);
     }
 
     private function calcularTasaPorPeriodo(float $tasaInteres, string $tipoInteres, $planIdOObjeto = null, ?CreditoPrendario $credito = null): float
     {
-        // En PRENDAMÁS: Las tasas de los planes oficiales ya están configuradas por período completo
+        // Si el tenant o el plan tiene configurado el cálculo directo por período:
         // (ej: Plan Quincenal = 7.64% por quincena, Plan Semanal = 4.03% por semana, Plan Mensual = 15.05% por mes).
-        // NO deben dividirse a la mitad ni a la cuarta parte porque NO son tasas mensuales prorrateadas.
-        if (static::esInstanciaPrendamas($planIdOObjeto ?? $credito)) {
+        // NO se divide entre 2 ni entre 4 porque ya es la tasa efectiva del período.
+        if (static::debeAplicarTasaDirectaPorPeriodo($planIdOObjeto ?? $credito)) {
             return $tasaInteres / 100;
         }
 
-        // En otras instancias (DigiPrenda estándar):
+        // En Avanza y otras organizaciones (comportamiento estándar tradicional):
         // La tasa ingresada se considera mensual (ej: 15% mensual) y se prorratea.
         switch ($tipoInteres) {
             case 'diario':

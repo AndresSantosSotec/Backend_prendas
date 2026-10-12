@@ -317,8 +317,8 @@ class PagoService
      */
     private function calcularTasaPorPeriodo(float $tasaMensual, string $tipoInteres, $planIdOObjeto = null, ?CreditoPrendario $credito = null): float
     {
-        // En PRENDAMÁS: Las tasas de los planes oficiales ya están configuradas por período completo
-        if (\App\Http\Controllers\CreditoPrendarioController::esInstanciaPrendamas($planIdOObjeto ?? $credito)) {
+        // Si el tenant o el plan tiene configurado el cálculo directo por período:
+        if (\App\Http\Controllers\CreditoPrendarioController::debeAplicarTasaDirectaPorPeriodo($planIdOObjeto ?? $credito)) {
             return $tasaMensual / 100;
         }
 

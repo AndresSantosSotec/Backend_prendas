@@ -107,6 +107,16 @@ class ConfiguracionSistemaSeeder extends Seeder
                 'descripcion' => 'Habilitar integración automática entre cajas y bóvedas',
                 'editable_por_usuario' => true,
             ],
+
+            // Política de cálculo de tasas de interés
+            [
+                'clave' => 'credito_tasa_por_periodo_directa',
+                'valor' => 'false',
+                'tipo' => 'boolean',
+                'grupo' => 'creditos',
+                'descripcion' => 'Si es true, la tasa de interés se aplica directamente por periodo sin prorrateo. Si es false (default Avanza), la tasa se asume mensual y se prorratea (/2 quincenal, /4 semanal).',
+                'editable_por_usuario' => true,
+            ],
         ];
 
         foreach ($configuraciones as $config) {

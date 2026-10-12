@@ -454,6 +454,20 @@ class PrendamasProductosCreditoSeeder extends Seeder
                     ->update(['activo' => false]);
             }
 
+            // 6. ACTIVAR POLÍTICA DE TASA DIRECTA POR PERÍODO PARA PRENDAMÁS+
+            if (\Illuminate\Support\Facades\Schema::hasTable('configuraciones_sistema')) {
+                ConfiguracionSistema::updateOrCreate(
+                    ['clave' => 'credito_tasa_por_periodo_directa'],
+                    [
+                        'valor' => 'true',
+                        'tipo' => 'boolean',
+                        'grupo' => 'creditos',
+                        'descripcion' => 'Aplica la tasa de interés configurada directamente por periodo sin prorratear (oficial Prendamás)',
+                        'editable_por_usuario' => true,
+                    ]
+                );
+            }
+
             DB::commit();
 
             $this->command?->info("Parametrización de productos de crédito PRENDAMÁS+ completada exitosamente.");
