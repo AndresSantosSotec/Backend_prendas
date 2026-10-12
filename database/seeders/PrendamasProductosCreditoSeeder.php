@@ -95,10 +95,12 @@ class PrendamasProductosCreditoSeeder extends Seeder
                     'afecta_interes_mensual'       => true,
                     'permite_pago_capital_diferente'=> true,
                     'requiere_pago_capital_refrendo'=> false,
-                    'deleted_at'                   => null,
                 ];
 
                 if ($cat) {
+                    if ($cat->trashed()) {
+                        $cat->restore();
+                    }
                     $cat->update($camposUpdate);
                 } else {
                     $cat = CategoriaProducto::create($camposUpdate);
@@ -120,9 +122,9 @@ class PrendamasProductosCreditoSeeder extends Seeder
                         'viernes'                 => true,
                         'sabado'                  => false,
                         'domingo'                 => true,
-                        'max_dias_mora'           => null,
+                        'max_dias_mora'           => 0,
                         'aplicar_tope_mora'       => false,
-                        'dias_tope_mora'          => null,
+                        'dias_tope_mora'          => 0,
                         'aplicar_mora_completa'   => false,
                         'dias_para_mora_completa' => 8, // Días para enajenación de la prenda
                         'dias_gracia'             => 4, // 4 días de gracia antes de cobrar mora
@@ -137,7 +139,8 @@ class PrendamasProductosCreditoSeeder extends Seeder
                         $pm->update([
                             'dias_gracia'             => 4,
                             'aplicar_tope_mora'       => false,
-                            'dias_tope_mora'          => null,
+                            'dias_tope_mora'          => 0,
+                            'max_dias_mora'           => 0,
                             'dias_para_mora_completa' => 8,
                             'frecuencia_defecto'      => 'mensual',
                             'tasa_interes_defecto'    => 15.05,
@@ -345,6 +348,50 @@ class PrendamasProductosCreditoSeeder extends Seeder
                     'tipo' => 'integer',
                     'grupo' => 'creditos',
                     'descripcion' => 'Días de atraso tras los cuales se inicia el proceso de enajenación / venta de la prenda',
+                    'editable_por_usuario' => true,
+                ]
+            );
+
+            ConfiguracionSistema::updateOrCreate(
+                ['clave' => 'prendamas_dias_gracia_multicuota'],
+                [
+                    'valor' => '2',
+                    'tipo' => 'integer',
+                    'grupo' => 'creditos',
+                    'descripcion' => 'Días de gracia para planes multicuota Prendamás (3, 6, 12 meses)',
+                    'editable_por_usuario' => true,
+                ]
+            );
+
+            ConfiguracionSistema::updateOrCreate(
+                ['clave' => 'prendamas_dias_gracia_estandar'],
+                [
+                    'valor' => '4',
+                    'tipo' => 'integer',
+                    'grupo' => 'creditos',
+                    'descripcion' => 'Días de gracia para planes estándar Prendamás (semanal, quincenal, mensual)',
+                    'editable_por_usuario' => true,
+                ]
+            );
+
+            ConfiguracionSistema::updateOrCreate(
+                ['clave' => 'prendamas_descuento_cancelacion_anticipada'],
+                [
+                    'valor' => '50.00',
+                    'tipo' => 'decimal',
+                    'grupo' => 'creditos',
+                    'descripcion' => 'Porcentaje de descuento sobre intereses faltantes en cancelación anticipada (planes de 3, 6 y 12 meses)',
+                    'editable_por_usuario' => true,
+                ]
+            );
+
+            ConfiguracionSistema::updateOrCreate(
+                ['clave' => 'prendamas_cancelacion_anticipada_habilitada'],
+                [
+                    'valor' => 'true',
+                    'tipo' => 'boolean',
+                    'grupo' => 'creditos',
+                    'descripcion' => 'Habilitar condición de cancelación anticipada en plan de pagos Prendamás',
                     'editable_por_usuario' => true,
                 ]
             );
