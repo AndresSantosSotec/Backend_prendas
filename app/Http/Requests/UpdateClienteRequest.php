@@ -5,6 +5,7 @@ namespace App\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
+
 class UpdateClienteRequest extends FormRequest
 {
     /**
@@ -53,6 +54,40 @@ class UpdateClienteRequest extends FormRequest
             'sucursal' => 'nullable|string|max:255',
             'tipo_cliente' => 'nullable|in:regular,vip',
             'notas' => 'nullable|string',
+            'es_pep' => 'nullable|boolean',
+            'entidad' => 'required_if:es_pep,true|string|max:255',
+            'puesto' => 'required_if:es_pep,true|string|max:255',
+            'paisEntidad' => 'nullable|string|max:255',
+            'origen' => [
+                'required_if:es_pep,true',
+                 Rule::in([
+                    'Bienes muebles e inmuebles por herencia',
+                    'Bienes muebles e inmuebles',
+                    'Negocio propio',
+                    'Servicios profesionales',
+                    'Préstamos bancarios',
+                    'Trabajos anteriores',
+                    'Trabajo actual',
+                    'Otros',
+                ]),
+            ],
+            'complemento_pep' => 'nullable|array',
+            'complemento_pep.tipo' => 'required_with:complemento_pep|in:parentesco',
+            'complemento_pep.parentesco' => 'required_if:complemento_pep.tipo,parentesco|string|max:255',
+            'complemento_pep.motivoAsociacion' => 'nullable|string|max:255',
+            'complemento_pep.detalleOtro' => 'nullable|string|max:255',
+            'complemento_pep.primerNombre' => 'required_if:complemento_pep.tipo,parentesco|string|max:255',
+            'complemento_pep.segundoNombre' => 'nullable|string|max:255',
+            'complemento_pep.otrosNombres' => 'nullable|string|max:255',
+            'complemento_pep.primerApellido' => 'required_if:complemento_pep.tipo,parentesco|string|max:255',
+            'complemento_pep.segundoApellido' => 'nullable|string|max:255',
+            'complemento_pep.apellidoCasada' => 'nullable|string|max:255',
+            'complemento_pep.genero' => 'required_if:complemento_pep.tipo,parentesco|in:masculino,femenino',
+            'complemento_pep.condicion' => 'required_if:complemento_pep.tipo,parentesco|in:nacional,extranjero',
+            'complemento_pep.entidad' => 'required_if:complemento_pep.tipo,parentesco|string|max:255',
+            'complemento_pep.puesto' => 'required_if:complemento_pep.tipo,parentesco|string|max:255',
+            'complemento_pep.pais' => 'required_if:complemento_pep.tipo,parentesco|string|max:255',
+            'complemento_pep.estado' => 'nullable|in:activo,inactivo',
             'referencias' => 'sometimes|array',
             'referencias.*.nombre' => 'required_with:referencias.*.telefono|string|max:255',
             'referencias.*.telefono' => 'required_with:referencias.*.nombre|string|max:20',

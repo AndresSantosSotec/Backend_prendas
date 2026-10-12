@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Cliente;
+use App\Models\ClienteComplementoPep;
 use App\Models\ClienteReferencia;
 use App\Models\CreditoPrendario;
 use App\Http\Requests\StoreClienteRequest;
@@ -24,7 +25,7 @@ class ClienteController extends Controller
     {
         try {
             $query = Cliente::query()
-                ->with('referencias')
+                ->with(['referencias', 'pep'])
                 ->withCount([
                 'creditosPrendarios as total_creditos',
                 'creditosPrendarios as activos_creditos' => function($q) {
@@ -227,7 +228,7 @@ class ClienteController extends Controller
      */
     public function show(string $id): JsonResponse
     {
-        $cliente = Cliente::with('referencias')
+        $cliente = Cliente::with(['referencias', 'pep'])
             ->where('id', $id)
             ->where('eliminado', false)
             ->first();
@@ -254,7 +255,8 @@ class ClienteController extends Controller
      */
     public function creditosPrendarios(Request $request, string $id): JsonResponse
     {
-        $cliente = Cliente::where('id', $id)
+        $cliente = Cliente::with('referencias', 'pep')
+            ->where('id', $id)
             ->where('eliminado', false)
             ->first();
 
@@ -330,7 +332,7 @@ class ClienteController extends Controller
      */
     public function ficha(string $id): JsonResponse
     {
-        $cliente = Cliente::with('referencias')
+        $cliente = Cliente::with('referencias', 'pep')
             ->where('id', $id)
             ->where('eliminado', false)
             ->first();
@@ -453,7 +455,7 @@ class ClienteController extends Controller
     public function descargarFichaCliente(string $id)
     {
         try {
-            $cliente = Cliente::with('referencias')->findOrFail($id);
+            $cliente = Cliente::with('referencias', 'pep')->findOrFail($id);
 
             // Obtener todos los créditos del cliente (activos y archivados)
             $creditos = \App\Models\CreditoPrendario::where('cliente_id', $id)
@@ -572,19 +574,63 @@ class ClienteController extends Controller
     {
         $data = $request->validated();
         $referencias = $data['referencias'] ?? [];
-        unset($data['referencias']);
+        $complementoPep = $data['complemento_pep'] ?? null;
+
+        $esPep = (bool) ($data['es_pep'] ?? false);
+
+        $pepData = [
+        'entidad' => $data['entidad'] ?? null,
+        'puesto' => $data['puesto'] ?? null,
+        'paisEntidad' => $data['paisEntidad'] ?? 'Guatemala',
+        'origen' => $data['origen'] ?? null,
+        ];
+
+        unset(
+            $data['referencias'],
+            $data['complemento_pep'],
+            $data['es_pep'],
+            $data['entidad'],
+            $data['puesto'],
+            $data['paisEntidad'],
+            $data['origen']
+        );
 
         $data['estado'] = $data['estado'] ?? 'activo';
         $data['tipo_cliente'] = $data['tipo_cliente'] ?? 'regular';
         $data['eliminado'] = false;
 
-        $cliente = DB::transaction(function () use ($data, $referencias) {
+        $cliente = DB::transaction(function () use ($data, $esPep, $pepData, $referencias, $complementoPep) {
             // Procesar fotografía si es base64
             if (!empty($data['fotografia']) && str_starts_with($data['fotografia'], 'data:image')) {
                 $data['fotografia'] = $this->savePhotoFromBase64($data['fotografia']);
             }
 
             $cliente = Cliente::create($data);
+            
+            if ($esPep) {
+                $cliente->pep()->create($pepData);
+            }
+
+            if ($complementoPep !== null && ($complementoPep['tipo'] ?? null) === 'parentesco') {
+                $cliente->complementosPep()->create([
+                    'tipo' => 'parentesco',
+                    'parentesco' => $complementoPep['parentesco'],
+                    'motivoAsociacion' => $complementoPep['motivoAsociacion'] ?? '',
+                    'detalleOtro' => $complementoPep['detalleOtro'] ?? '',
+                    'primerNombre' => $complementoPep['primerNombre'],
+                    'segundoNombre' => $complementoPep['segundoNombre'] ?? null,
+                    'otrosNombres' => $complementoPep['otrosNombres'] ?? null,
+                    'primerApellido' => $complementoPep['primerApellido'],
+                    'segundoApellido' => $complementoPep['segundoApellido'] ?? null,
+                    'apellidoCasada' => $complementoPep['apellidoCasada'] ?? null,
+                    'genero' => $complementoPep['genero'],
+                    'condicion' => $complementoPep['condicion'],
+                    'entidad' => $complementoPep['entidad'],
+                    'puesto' => $complementoPep['puesto'],
+                    'pais' => $complementoPep['pais'],
+                    'estado' => $complementoPep['estado'] ?? 'activo',
+                ]);
+            }
 
             // Crear referencias si vienen en la petición
             foreach ($referencias as $ref) {
@@ -605,7 +651,7 @@ class ClienteController extends Controller
             return $cliente;
         });
 
-        $cliente->load('referencias');
+        $cliente->load('referencias', 'pep', 'complementosPep');
 
         return response()->json([
             'success' => true,
@@ -629,13 +675,44 @@ class ClienteController extends Controller
                 'message' => 'Cliente no encontrado'
             ], 404);
         }
-
         $data = $request->validated();
+        $tieneComplementoPep = array_key_exists('complemento_pep', $data);
+        $complementoPep = $data['complemento_pep'] ?? null;
+
+        $tienePep = array_key_exists('es_pep', $data);
+        $esPep = (bool) ($data['es_pep'] ?? false);
+
+        $pepData = [
+            'entidad' => $data['entidad'] ?? null,
+            'puesto' => $data['puesto'] ?? null,
+            'paisEntidad' => $data['paisEntidad'] ?? 'Guatemala',
+            'origen' => $data['origen'] ?? null,
+        ];
+
+        unset(
+            $data['complemento_pep'],
+            $data['es_pep'],
+            $data['entidad'],
+            $data['puesto'],
+            $data['paisEntidad'],
+            $data['origen']
+        );
+
         $tieneReferencias = array_key_exists('referencias', $data);
         $referencias = $data['referencias'] ?? [];
         unset($data['referencias']);
 
-        DB::transaction(function () use ($cliente, $data, $tieneReferencias, $referencias) {
+        DB::transaction(function () use (
+            $cliente,
+            $data,
+            $tienePep,
+            $esPep,
+            $pepData,
+            $tieneComplementoPep,
+            $complementoPep,
+            $tieneReferencias,
+            $referencias
+        ) {
             // Procesar fotografía si es base64
             if (isset($data['fotografia']) && str_starts_with($data['fotografia'], 'data:image')) {
                 // Eliminar foto anterior si existe
@@ -646,6 +723,62 @@ class ClienteController extends Controller
             }
 
             $cliente->update($data);
+            
+            if ($tienePep) {
+                if ($esPep) {
+                    $cliente->pep()->updateOrCreate(
+                        ['id_cliente' => $cliente->id],
+                        $pepData
+                    );
+                } else {
+                    $cliente->pep()->delete();
+                }
+
+            }
+
+            if ($tieneComplementoPep) {
+                if ($complementoPep !== null && ($complementoPep['tipo'] ?? null) === 'parentesco') {
+                    $datosComplemento = [
+                        'tipo' => 'parentesco',
+                        'parentesco' => $complementoPep['parentesco'],
+                        'motivoAsociacion' => $complementoPep['motivoAsociacion'] ?? '',
+                        'detalleOtro' => $complementoPep['detalleOtro'] ?? '',
+                        'primerNombre' => $complementoPep['primerNombre'],
+                        'segundoNombre' => $complementoPep['segundoNombre'] ?? null,
+                        'otrosNombres' => $complementoPep['otrosNombres'] ?? null,
+                        'primerApellido' => $complementoPep['primerApellido'],
+                        'segundoApellido' => $complementoPep['segundoApellido'] ?? null,
+                        'apellidoCasada' => $complementoPep['apellidoCasada'] ?? null,
+                        'genero' => $complementoPep['genero'],
+                        'condicion' => $complementoPep['condicion'],
+                        'entidad' => $complementoPep['entidad'],
+                        'puesto' => $complementoPep['puesto'],
+                        'pais' => $complementoPep['pais'],
+                        'estado' => $complementoPep['estado'] ?? 'activo',
+                    ];
+
+                    $complementoExistente = $cliente->complementosPep()
+                        ->withTrashed()
+                        ->where('tipo', 'parentesco')
+                        ->latest('id')
+                        ->first();
+
+                    if ($complementoExistente) {
+                        if ($complementoExistente->trashed()) {
+                            $complementoExistente->restore();
+                        }
+
+                        $complementoExistente->update($datosComplemento);
+                    } else {
+                        $cliente->complementosPep()->create($datosComplemento);
+                    }
+                } else {
+                    $cliente->complementosPep()
+                        ->where('tipo', 'parentesco')
+                        ->delete();
+                }
+            }
+            
 
             // Si vienen referencias en la petición, reemplazarlas completamente
             if ($tieneReferencias) {
@@ -668,7 +801,7 @@ class ClienteController extends Controller
             }
         });
 
-        $cliente->load('referencias');
+        $cliente->load('referencias', 'pep', 'complementosPep');
 
         return response()->json([
             'success' => true,
@@ -909,6 +1042,13 @@ class ClienteController extends Controller
             'sucursal' => $cliente->sucursal,
             'tipoCliente' => $cliente->tipo_cliente,
             'notas' => $cliente->notas,
+
+            'esPep' => $cliente->pep !== null,
+            'entidad' => $cliente->pep?->entidad,
+            'puesto' => $cliente->pep?->puesto,
+            'paisEntidad' => $cliente->pep?->paisEntidad,
+            'origen' => $cliente->pep?->origen,            
+
             'eliminado' => $cliente->eliminado,
             'creadoEn' => $cliente->created_at->toISOString(),
             'actualizadoEn' => $cliente->updated_at->toISOString(),
@@ -926,6 +1066,29 @@ class ClienteController extends Controller
                         'relacion' => $ref->relacion,
                     ];
                 })->values()->all()
+                : [],
+            'complementosPep' => ($complemento = $cliente->complementosPep?->first())
+                ? (function (ClienteComplementoPep $complemento) {
+                    return [
+                        'id' => (string) $complemento->id,
+                        'tipo' => $complemento->tipo,
+                        'parentesco' => $complemento->parentesco,
+                        'motivoAsociacion' => $complemento->motivoAsociacion,
+                        'detalleOtro' => $complemento->detalleOtro,
+                        'primerNombre' => $complemento->primerNombre,
+                        'segundoNombre' => $complemento->segundoNombre,
+                        'otrosNombres' => $complemento->otrosNombres,
+                        'primerApellido' => $complemento->primerApellido,
+                        'segundoApellido' => $complemento->segundoApellido,
+                        'apellidoCasada' => $complemento->apellidoCasada,
+                        'genero' => $complemento->genero,
+                        'condicion' => $complemento->condicion,
+                        'entidad' => $complemento->entidad,
+                        'puesto' => $complemento->puesto,
+                        'pais' => $complemento->pais,
+                        'estado' => $complemento->estado,
+                    ];
+                })($complemento)
                 : [],
         ];
     }
@@ -962,4 +1125,3 @@ class ClienteController extends Controller
         }
     }
 }
-
