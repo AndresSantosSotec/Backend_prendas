@@ -322,11 +322,19 @@
         : $fechaInicioObj->copy()->addDays($plazoDias);
     $fechaFinFormatted = $fechaFinObj->isoFormat('DD [de] MMMM YYYY');
 
-    // Días de gracia
-    $diasGracia = (int) ($credito->dias_gracia ?? 4);
-    if ($diasGracia <= 0) {
-        $diasGracia = 4; // Default corporativo Prendamas
-    }
+    // Días de gracia: si viene definido explícitamente se respeta; por defecto mantiene el estándar habitual de Prendamás (4 días)
+    $diasGraciaParam = isset($credito->dias_gracia) ? (int) $credito->dias_gracia : 0;
+    $diasGracia = $diasGraciaParam > 0 ? $diasGraciaParam : (int) (\App\Models\ConfiguracionSistema::obtener('prendamas_dias_gracia_estandar', 4));
+
+    $descuentoCancelacionAnticipada = (float) ($credito->descuento_cancelacion_anticipada ?? \App\Models\ConfiguracionSistema::obtener('prendamas_descuento_cancelacion_anticipada', 50));
+    $cancelacionAnticipadaHabilitada = (bool) (\App\Models\ConfiguracionSistema::obtener('prendamas_cancelacion_anticipada_habilitada', true));
+
+    // Cláusula de cancelación anticipada: Opcional y flexible. Solo se activa si viene explícitamente habilitada en la simulación o crédito
+    $aplicaCancelacionAnticipada = $cancelacionAnticipadaHabilitada && (
+        !empty($credito->aplica_cancelacion_anticipada) 
+        || !empty($credito->incluir_cancelacion_anticipada)
+    );
+
     $fechaGraciaObj = $fechaFinObj->copy()->addDays($diasGracia);
     $fechaGraciaFormatted = $fechaGraciaObj->isoFormat('D [de] MMMM, YYYY');
 
@@ -757,6 +765,9 @@
             <li><strong>Tasa de Interés:</strong> {{ number_format($credito->tasa_interes ?? 13.44, 2) }}% calculada sobre el saldo o monto convenido según el tipo de plan {{ $tipoPlan }}.</li>
             <li><strong>Período de Gracia:</strong> Cuenta con {{ $diasGracia }} días hábiles posteriores a la fecha de vencimiento antes de incurrir en recargos moratorios.</li>
             <li><strong>Cancelación y Retiro:</strong> Al cancelar el saldo total más intereses devengados, la garantía le será entregada en la misma agencia donde formalizó su crédito.</li>
+            @if($aplicaCancelacionAnticipada)
+            <li><strong>Cancelación anticipada:</strong> Si cancela su credito antes de la fecha de vencimiento del contrato se le hara un descuento del {{ number_format($descuentoCancelacionAnticipada, 0) }}% sobre los intereses faltantes.</li>
+            @endif
         </ul>
     </div>
 

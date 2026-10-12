@@ -349,6 +349,50 @@ class PrendamasProductosCreditoSeeder extends Seeder
                 ]
             );
 
+            ConfiguracionSistema::updateOrCreate(
+                ['clave' => 'prendamas_dias_gracia_multicuota'],
+                [
+                    'valor' => '2',
+                    'tipo' => 'integer',
+                    'grupo' => 'creditos',
+                    'descripcion' => 'Días de gracia para planes multicuota Prendamás (3, 6, 12 meses)',
+                    'editable_por_usuario' => true,
+                ]
+            );
+
+            ConfiguracionSistema::updateOrCreate(
+                ['clave' => 'prendamas_dias_gracia_estandar'],
+                [
+                    'valor' => '4',
+                    'tipo' => 'integer',
+                    'grupo' => 'creditos',
+                    'descripcion' => 'Días de gracia para planes estándar Prendamás (semanal, quincenal, mensual)',
+                    'editable_por_usuario' => true,
+                ]
+            );
+
+            ConfiguracionSistema::updateOrCreate(
+                ['clave' => 'prendamas_descuento_cancelacion_anticipada'],
+                [
+                    'valor' => '50.00',
+                    'tipo' => 'decimal',
+                    'grupo' => 'creditos',
+                    'descripcion' => 'Porcentaje de descuento sobre intereses faltantes en cancelación anticipada (planes de 3, 6 y 12 meses)',
+                    'editable_por_usuario' => true,
+                ]
+            );
+
+            ConfiguracionSistema::updateOrCreate(
+                ['clave' => 'prendamas_cancelacion_anticipada_habilitada'],
+                [
+                    'valor' => 'true',
+                    'tipo' => 'boolean',
+                    'grupo' => 'creditos',
+                    'descripcion' => 'Habilitar condición de cancelación anticipada en plan de pagos Prendamás',
+                    'editable_por_usuario' => true,
+                ]
+            );
+
             // 5. ASEGURAR QUE LAS PLANTILLAS ACTIVAS DE DOCUMENTOS SEAN LAS DE PRENDAMÁS EN TB_DOCS
             if (\Illuminate\Support\Facades\Schema::hasTable('tb_docs')) {
                 $orgCode = '01';
