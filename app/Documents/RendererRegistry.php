@@ -22,6 +22,7 @@ final class RendererRegistry
         'recibo.estandar'      => ReciboStandardRenderer::class,
         'recibo.ticket_80mm'   => ReciboTicketRenderer::class,
         'recibo.compacto'      => ReciboStandardRenderer::class,
+        'recibo.prueba1harry'  => ContratoStandardRenderer::class,
 
         // Contratos de empeño / compra
         'contrato.estandar'    => ContratoStandardRenderer::class,
@@ -129,6 +130,7 @@ final class RendererRegistry
             'moderno'        => 'Diseño Corporativo Moderno',
             'pruebamoi'      => 'Prueba 1 (Moise)',
             'crediprendas'     => 'Formato Crediprendas',
+            'prueba1harry'   => 'Prueba Harry',
         ];
     }
 }
