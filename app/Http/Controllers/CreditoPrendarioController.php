@@ -13,6 +13,8 @@ use App\Models\CreditoPlanPago;
 use App\Models\IdempotencyKey;
 use App\Models\AuditoriaCredito;
 use App\Models\CodigoPrereservado;
+use App\Models\PlanInteresCategoria;
+use App\Models\ConfiguracionSistema;
 use App\Services\CajaService;
 use App\Services\ContabilidadAutomaticaService;
 use App\Enums\EstadoCredito;
@@ -1421,8 +1423,8 @@ class CreditoPrendarioController extends Controller
         // Calcular días entre cuotas según tipo de interés
         $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);
 
-        // Calcular tasa de interés por período
-        $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres);
+        // Calcular tasa de interés por período (respeta tasas por período en Prendamás)
+        $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres, $credito->plan_interes_id, $credito);
 
         // Calcular según método de cálculo
         if ($metodoCalculo === 'flat') {
@@ -1709,10 +1711,80 @@ class CreditoPrendarioController extends Controller
         return $mapeo[$metodoValuacion] ?? 'comparativo';
     }
 
-    private function calcularTasaPorPeriodo(float $tasaInteres, string $tipoInteres): float
+    /**
+     * Determina si la ejecución actual corresponde a la instancia / productos de PRENDAMÁS.
+     * Solo afecta a PRENDAMÁS sin alterar el cálculo estándar de otras instancias.
+     */
+    public static function esInstanciaPrendamas($planIdOObjeto = null): bool
     {
-        // La tasa ingresada es la tasa mensual (ej: 15% mensual).
-        // Se divide según el tipo de interés para obtener la tasa por período en decimal.
+        // 1. Si se pasa un plan directamente o por ID o un crédito con plan_interes_id
+        if ($planIdOObjeto) {
+            if ($planIdOObjeto instanceof CreditoPrendario) {
+                if ($planIdOObjeto->plan_interes_id) {
+                    $plan = PlanInteresCategoria::find($planIdOObjeto->plan_interes_id);
+                    if ($plan && (str_starts_with($plan->codigo ?? '', 'PM-') || str_contains(strtolower($plan->nombre ?? ''), 'prendam'))) {
+                        return true;
+                    }
+                }
+            } elseif ($planIdOObjeto instanceof PlanInteresCategoria) {
+                if (str_starts_with($planIdOObjeto->codigo ?? '', 'PM-') || str_contains(strtolower($planIdOObjeto->nombre ?? ''), 'prendam')) {
+                    return true;
+                }
+            } elseif (is_numeric($planIdOObjeto)) {
+                $plan = PlanInteresCategoria::find((int) $planIdOObjeto);
+                if ($plan && (str_starts_with($plan->codigo ?? '', 'PM-') || str_contains(strtolower($plan->nombre ?? ''), 'prendam'))) {
+                    return true;
+                }
+            }
+        }
+
+        // 2. Variable de entorno de organización o app
+        $orgSlug = strtolower(trim((string) (env('ORGANIZATION_SLUG') ?: env('EMPRESA_NOMBRE') ?: env('APP_NAME') ?: '')));
+        if (str_contains($orgSlug, 'prendam')) {
+            return true;
+        }
+
+        // 3. Configuraciones específicas de Prendamás en base de datos
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('configuraciones_sistema')) {
+                if (ConfiguracionSistema::where('clave', 'like', 'prendamas_%')->exists()) {
+                    return true;
+                }
+            }
+        } catch (\Throwable) {}
+
+        // 4. Plantilla documental activa de Prendamás
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('tb_docs')) {
+                if (\App\Models\TbDoc::where('plantilla_variante', 'prendamas')->where('activo', true)->exists()) {
+                    return true;
+                }
+            }
+        } catch (\Throwable) {}
+
+        // 5. Planes de crédito oficiales de Prendamás en la BD
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('planes_interes_categoria')) {
+                if (PlanInteresCategoria::where('codigo', 'like', 'PM-%')->exists()) {
+                    return true;
+                }
+            }
+        } catch (\Throwable) {}
+
+        return false;
+    }
+
+    private function calcularTasaPorPeriodo(float $tasaInteres, string $tipoInteres, $planIdOObjeto = null, ?CreditoPrendario $credito = null): float
+    {
+        // En PRENDAMÁS: Las tasas de los planes oficiales ya están configuradas por período completo
+        // (ej: Plan Quincenal = 7.64% por quincena, Plan Semanal = 4.03% por semana, Plan Mensual = 15.05% por mes).
+        // NO deben dividirse a la mitad ni a la cuarta parte porque NO son tasas mensuales prorrateadas.
+        if (static::esInstanciaPrendamas($planIdOObjeto ?? $credito)) {
+            return $tasaInteres / 100;
+        }
+
+        // En otras instancias (DigiPrenda estándar):
+        // La tasa ingresada se considera mensual (ej: 15% mensual) y se prorratea.
         switch ($tipoInteres) {
             case 'diario':
                 return ($tasaInteres / 30) / 100;
@@ -3285,7 +3357,8 @@ class CreditoPrendarioController extends Controller
             // Cálculo tipo "flat" prendario:
             // Interés total = monto × tasa (fijo, NO se multiplica por cuotas)
             // Interés por cuota = interés total / número de cuotas
-            $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres);
+            $planId = $request->plan_id ?? $request->plan_interes_id;
+            $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres, $planId);
             $interesPorCuota = round($montoAprobado * $tasaPorPeriodo, 2);
             $interesTotal = round($interesPorCuota * $numeroCuotas, 2);
             $capitalPorCuota = round($montoAprobado / $numeroCuotas, 2);
@@ -3461,7 +3534,8 @@ class CreditoPrendarioController extends Controller
             // Cálculo tipo "flat" prendario:
             // Interés total = monto × tasa (fijo, NO se multiplica por cuotas)
             // Interés por cuota = interés total / número de cuotas
-            $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres);
+            $planId = $datosCredito['plan_id'] ?? $datosCredito['plan_interes_id'] ?? null;
+            $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres, $planId);
             $interesPorCuota = round($montoAprobado * $tasaPorPeriodo, 2);
             $interesTotal = round($interesPorCuota * $numeroCuotas, 2);
             $capitalPorCuota = round($montoAprobado / $numeroCuotas, 2);

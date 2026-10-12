@@ -228,8 +228,8 @@ class PagoService
         $diferenciaTotal = round($totalParaLiquidar - $totalRecalculado, 2);
 
         // Interés por un periodo (para cálculo de adelantos y renovación)
-        // Usar tasa convertida al período correcto (mensual, semanal, etc.)
-        $tasaPorPeriodo = $this->calcularTasaPorPeriodo($credito->tasa_interes, $credito->tipo_interes);
+        // Usar tasa convertida al período correcto (mensual, semanal, etc., respetando Prendamás)
+        $tasaPorPeriodo = $this->calcularTasaPorPeriodo($credito->tasa_interes, $credito->tipo_interes, $credito->plan_interes_id, $credito);
         $interesPorPeriodo = $credito->capital_pendiente * $tasaPorPeriodo;
 
         // Renovación = pagar interés de nuevos períodos + mora + otros acumulados
@@ -315,8 +315,13 @@ class PagoService
     /**
      * Convierte la tasa anual a tasa por período
      */
-    private function calcularTasaPorPeriodo(float $tasaMensual, string $tipoInteres): float
+    private function calcularTasaPorPeriodo(float $tasaMensual, string $tipoInteres, $planIdOObjeto = null, ?CreditoPrendario $credito = null): float
     {
+        // En PRENDAMÁS: Las tasas de los planes oficiales ya están configuradas por período completo
+        if (\App\Http\Controllers\CreditoPrendarioController::esInstanciaPrendamas($planIdOObjeto ?? $credito)) {
+            return $tasaMensual / 100;
+        }
+
         switch ($tipoInteres) {
             case 'diario':
                 return ($tasaMensual / 30) / 100;
