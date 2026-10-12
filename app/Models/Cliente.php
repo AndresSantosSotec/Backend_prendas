@@ -15,6 +15,7 @@ class Cliente extends Model
     protected array $auditoriaIgnorar = ['fotografia', 'updated_at'];
     public static bool $auditarDeshabilitado = false;
 
+
     protected $fillable = [
         'codigo_cliente',
         'nombres',
@@ -149,6 +150,14 @@ class Cliente extends Model
     {
         return $this->hasMany(ClienteReferencia::class, 'cliente_id');
     }
+    public function pep()
+    {
+        return $this->hasOne(CliPep::class, 'id_cliente');
+    }
+
+    public function complementosPep()
+    {
+        return $this->hasMany(ClienteComplementoPep::class, 'id_cliente');
+    }
+
 }
-
-
