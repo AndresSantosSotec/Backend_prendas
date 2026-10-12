@@ -95,10 +95,12 @@ class PrendamasProductosCreditoSeeder extends Seeder
                     'afecta_interes_mensual'       => true,
                     'permite_pago_capital_diferente'=> true,
                     'requiere_pago_capital_refrendo'=> false,
-                    'deleted_at'                   => null,
                 ];
 
                 if ($cat) {
+                    if ($cat->trashed()) {
+                        $cat->restore();
+                    }
                     $cat->update($camposUpdate);
                 } else {
                     $cat = CategoriaProducto::create($camposUpdate);
@@ -120,9 +122,9 @@ class PrendamasProductosCreditoSeeder extends Seeder
                         'viernes'                 => true,
                         'sabado'                  => false,
                         'domingo'                 => true,
-                        'max_dias_mora'           => null,
+                        'max_dias_mora'           => 0,
                         'aplicar_tope_mora'       => false,
-                        'dias_tope_mora'          => null,
+                        'dias_tope_mora'          => 0,
                         'aplicar_mora_completa'   => false,
                         'dias_para_mora_completa' => 8, // Días para enajenación de la prenda
                         'dias_gracia'             => 4, // 4 días de gracia antes de cobrar mora
@@ -137,7 +139,8 @@ class PrendamasProductosCreditoSeeder extends Seeder
                         $pm->update([
                             'dias_gracia'             => 4,
                             'aplicar_tope_mora'       => false,
-                            'dias_tope_mora'          => null,
+                            'dias_tope_mora'          => 0,
+                            'max_dias_mora'           => 0,
                             'dias_para_mora_completa' => 8,
                             'frecuencia_defecto'      => 'mensual',
                             'tasa_interes_defecto'    => 15.05,
