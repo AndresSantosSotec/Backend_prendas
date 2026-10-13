@@ -216,7 +216,7 @@
     $cantidadCuotas = $cantidadCuotasPlan > 0 ? $cantidadCuotasPlan : $cantidadCuotas;
     $cantidadCuotasTexto = ($cantidadCuotas === 1)
         ? 'UNA'
-        : strtoupper(NumeroALetrasHelper::convertir($cantidadCuotas));
+        : strtoupper(NumeroALetrasHelper::convertir($cantidadCuotas));  
     $cuotasPorMonto = $planCuotas
         ->map(function ($cuota) {
             $monto = data_get($cuota, 'monto_cuota_proyectado')

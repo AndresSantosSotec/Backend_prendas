@@ -184,6 +184,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/clientes/{id}', [ClienteController::class, 'show']);
             Route::get('/clientes/{id}/ficha', [ClienteController::class, 'ficha']);
             Route::post('/clientes/{id}/ficha/pdf', [ClienteController::class, 'descargarFichaCliente']);
+            Route::post('/clientes/{id}/feic/pdf', [ClienteController::class, 'descargarFeicCliente']);
             Route::get('/clientes/{id}/creditos-prendarios', [ClienteController::class, 'creditosPrendarios']);
             Route::post('/clientes', [ClienteController::class, 'store']);
             Route::put('/clientes/{id}', [ClienteController::class, 'update']);
@@ -641,5 +642,4 @@ Route::middleware('throttle:60,1')->prefix('ecommerce')->group(function () {
     });
 
 });
-
 

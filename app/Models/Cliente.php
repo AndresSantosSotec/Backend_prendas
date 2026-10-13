@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Traits\Auditable;
+use App\Models\Sucursal;
 
 class Cliente extends Model
 {
@@ -37,6 +38,7 @@ class Cliente extends Model
         'estado',
         'sucursal',
         'tipo_cliente',
+        'es_cpe',
         'notas',
         'eliminado',
         'eliminado_en',
@@ -44,6 +46,7 @@ class Cliente extends Model
 
     protected $casts = [
         'fecha_nacimiento' => 'date',
+        'es_cpe' => 'boolean',
         'eliminado' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -158,6 +161,10 @@ class Cliente extends Model
     public function complementosPep()
     {
         return $this->hasMany(ClienteComplementoPep::class, 'id_cliente');
+    }
+    public function sucursalRelacion()
+    {
+    return $this->belongsTo(Sucursal::class, 'sucursal', 'codigo');
     }
 
 }

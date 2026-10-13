@@ -228,7 +228,7 @@ class ClienteController extends Controller
      */
     public function show(string $id): JsonResponse
     {
-        $cliente = Cliente::with(['referencias', 'pep'])
+        $cliente = Cliente::with(['referencias', 'pep', 'sucursalRelacion',])
             ->where('id', $id)
             ->where('eliminado', false)
             ->first();
@@ -568,13 +568,63 @@ class ClienteController extends Controller
     }
 
     /**
+     * Generar y descargar el FEIC del cliente en PDF
+     */
+    public function descargarFeicCliente(string $id)
+    {
+        try {
+            $cliente = Cliente::with('referencias', 'pep')
+                ->where('eliminado', false)
+                ->findOrFail($id);
+
+            $credito = $cliente->creditosPrendarios()
+                ->orderBy('fecha_solicitud')
+                ->first();
+
+            $data = [
+                'cliente' => $cliente,
+                'credito' => $credito,
+                'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
+            ];
+
+            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.FEIC.feic', $data);
+            $pdf->setPaper('letter', 'portrait');
+
+            $nombreArchivo = 'FEIC_Cliente_' . ($cliente->codigo_cliente ?? $cliente->id) . '_' . date('Ymd') . '.pdf';
+
+            return $pdf->download($nombreArchivo);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            Log::error('Cliente no encontrado para FEIC PDF: ' . $id);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Cliente no encontrado',
+            ], 404);
+        } catch (\Exception $e) {
+            Log::error('Error al generar el FEIC del cliente PDF: ' . $e->getMessage(), [
+                'cliente_id' => $id,
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el FEIC del cliente',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
+            ], 500);
+        }
+    }
+
+    /**
      * Crear un nuevo cliente
      */
     public function store(StoreClienteRequest $request): JsonResponse
     {
         $data = $request->validated();
         $referencias = $data['referencias'] ?? [];
-        $complementoPep = $data['complemento_pep'] ?? null;
+        $complementosPep = $data['complementos_pep'] ?? null;
+        if ($complementosPep === null && isset($data['complemento_pep'])) {
+            $complementosPep = [$data['complemento_pep']];
+        }
 
         $esPep = (bool) ($data['es_pep'] ?? false);
 
@@ -588,6 +638,7 @@ class ClienteController extends Controller
         unset(
             $data['referencias'],
             $data['complemento_pep'],
+            $data['complementos_pep'],
             $data['es_pep'],
             $data['entidad'],
             $data['puesto'],
@@ -599,7 +650,7 @@ class ClienteController extends Controller
         $data['tipo_cliente'] = $data['tipo_cliente'] ?? 'regular';
         $data['eliminado'] = false;
 
-        $cliente = DB::transaction(function () use ($data, $esPep, $pepData, $referencias, $complementoPep) {
+        $cliente = DB::transaction(function () use ($data, $esPep, $pepData, $referencias, $complementosPep) {
             // Procesar fotografía si es base64
             if (!empty($data['fotografia']) && str_starts_with($data['fotografia'], 'data:image')) {
                 $data['fotografia'] = $this->savePhotoFromBase64($data['fotografia']);
@@ -611,11 +662,13 @@ class ClienteController extends Controller
                 $cliente->pep()->create($pepData);
             }
 
-            if ($complementoPep !== null && ($complementoPep['tipo'] ?? null) === 'parentesco') {
+            foreach ($complementosPep ?? [] as $complementoPep) {
                 $cliente->complementosPep()->create([
-                    'tipo' => 'parentesco',
-                    'parentesco' => $complementoPep['parentesco'],
-                    'motivoAsociacion' => $complementoPep['motivoAsociacion'] ?? '',
+                    'tipo' => $complementoPep['tipo'],
+                    'parentesco' => $complementoPep['parentesco'] ?? '',
+                    'motivoAsociacion' => ($complementoPep['tipo'] ?? null) === 'asociado'
+                        ? ($complementoPep['motivoAsociacion'] ?? $complementoPep['detalleOtro'] ?? '')
+                        : ($complementoPep['motivoAsociacion'] ?? ''),
                     'detalleOtro' => $complementoPep['detalleOtro'] ?? '',
                     'primerNombre' => $complementoPep['primerNombre'],
                     'segundoNombre' => $complementoPep['segundoNombre'] ?? null,
@@ -676,8 +729,14 @@ class ClienteController extends Controller
             ], 404);
         }
         $data = $request->validated();
-        $tieneComplementoPep = array_key_exists('complemento_pep', $data);
-        $complementoPep = $data['complemento_pep'] ?? null;
+        $tieneComplementoPep = array_key_exists('complementos_pep', $data)
+            || array_key_exists('complemento_pep', $data);
+        $complementosPep = $data['complementos_pep'] ?? null;
+        if ($complementosPep === null && array_key_exists('complemento_pep', $data)) {
+            $complementosPep = $data['complemento_pep'] === null
+                ? []
+                : [$data['complemento_pep']];
+        }
 
         $tienePep = array_key_exists('es_pep', $data);
         $esPep = (bool) ($data['es_pep'] ?? false);
@@ -691,6 +750,7 @@ class ClienteController extends Controller
 
         unset(
             $data['complemento_pep'],
+            $data['complementos_pep'],
             $data['es_pep'],
             $data['entidad'],
             $data['puesto'],
@@ -709,7 +769,7 @@ class ClienteController extends Controller
             $esPep,
             $pepData,
             $tieneComplementoPep,
-            $complementoPep,
+            $complementosPep,
             $tieneReferencias,
             $referencias
         ) {
@@ -737,11 +797,16 @@ class ClienteController extends Controller
             }
 
             if ($tieneComplementoPep) {
-                if ($complementoPep !== null && ($complementoPep['tipo'] ?? null) === 'parentesco') {
+                $tiposGuardados = [];
+                foreach ($complementosPep as $complementoPep) {
+                    $tipo = $complementoPep['tipo'];
+                    $tiposGuardados[] = $tipo;
                     $datosComplemento = [
-                        'tipo' => 'parentesco',
-                        'parentesco' => $complementoPep['parentesco'],
-                        'motivoAsociacion' => $complementoPep['motivoAsociacion'] ?? '',
+                        'tipo' => $tipo,
+                        'parentesco' => $complementoPep['parentesco'] ?? '',
+                        'motivoAsociacion' => ($tipo === 'asociado')
+                            ? ($complementoPep['motivoAsociacion'] ?? $complementoPep['detalleOtro'] ?? '')
+                            : ($complementoPep['motivoAsociacion'] ?? ''),
                         'detalleOtro' => $complementoPep['detalleOtro'] ?? '',
                         'primerNombre' => $complementoPep['primerNombre'],
                         'segundoNombre' => $complementoPep['segundoNombre'] ?? null,
@@ -759,24 +824,21 @@ class ClienteController extends Controller
 
                     $complementoExistente = $cliente->complementosPep()
                         ->withTrashed()
-                        ->where('tipo', 'parentesco')
+                        ->where('tipo', $tipo)
                         ->latest('id')
                         ->first();
 
                     if ($complementoExistente) {
-                        if ($complementoExistente->trashed()) {
-                            $complementoExistente->restore();
-                        }
-
+                        if ($complementoExistente->trashed()) $complementoExistente->restore();
                         $complementoExistente->update($datosComplemento);
                     } else {
                         $cliente->complementosPep()->create($datosComplemento);
                     }
-                } else {
-                    $cliente->complementosPep()
-                        ->where('tipo', 'parentesco')
-                        ->delete();
                 }
+
+                $cliente->complementosPep()
+                    ->whereNotIn('tipo', $tiposGuardados ?: ['__ninguno__'])
+                    ->delete();
             }
             
 
@@ -1041,6 +1103,7 @@ class ClienteController extends Controller
             'estado' => $cliente->estado,
             'sucursal' => $cliente->sucursal,
             'tipoCliente' => $cliente->tipo_cliente,
+            'esCPE' => (bool) $cliente->es_cpe,
             'notas' => $cliente->notas,
 
             'esPep' => $cliente->pep !== null,
@@ -1067,8 +1130,8 @@ class ClienteController extends Controller
                     ];
                 })->values()->all()
                 : [],
-            'complementosPep' => ($complemento = $cliente->complementosPep?->first())
-                ? (function (ClienteComplementoPep $complemento) {
+            'complementosPep' => $cliente->complementosPep
+                ? $cliente->complementosPep->map(function (ClienteComplementoPep $complemento) {
                     return [
                         'id' => (string) $complemento->id,
                         'tipo' => $complemento->tipo,
@@ -1088,7 +1151,7 @@ class ClienteController extends Controller
                         'pais' => $complemento->pais,
                         'estado' => $complemento->estado,
                     ];
-                })($complemento)
+                })->values()->all()
                 : [],
         ];
     }

@@ -18,16 +18,7 @@ return new class extends Migration
             $table->string('puesto');
             $table->string('paisEntidad')->default('Guatemala')->comment('País de la entidad');
 
-            $table->enum('origen', [
-                'Bienes muebles e inmuebles por herencia',
-                'Bienes muebles e inmuebles',
-                'Negocio propio',
-                'Servicios profesionales',
-                'Préstamos bancarios',
-                'Trabajos anteriores',
-                'Trabajo actual',
-                'Otros'
-            ])->comment('Origen de los fondos o bienes');
+            $table->string('origen')->comment('Origen de los fondos o bienes');
 
             $table->timestamps();
             $table->softDeletes();
