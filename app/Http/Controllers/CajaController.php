@@ -545,8 +545,19 @@ class CajaController extends Controller
 
                 return DB::transaction(function () use ($user, $request, $caja, $boveda) {
                     if ($request->tipo === 'incremento') {
-                        // Incremento: bóveda → caja (requiere aprobación del encargado de bóveda)
-                        // 1. Crear movimiento de caja en estado pendiente
+                        // Verificar que la bóveda tenga saldo suficiente
+                        if (!$boveda->puedeRetirarMonto($request->monto)) {
+                            return response()->json([
+                                'error' => 'La bóveda origen no cuenta con saldo suficiente para este incremento.',
+                            ], 422);
+                        }
+
+                        // Verificar si la bóveda requiere aprobación
+                        $requiereAprobacion = ($boveda->requiere_aprobacion && !$user->hasPermission('boveda', 'aprobar'));
+                        $estadoBoveda = $requiereAprobacion ? 'pendiente' : 'aprobado';
+                        $estadoCaja = $requiereAprobacion ? 'pendiente' : 'aplicado';
+
+                        // 1. Crear movimiento de caja
                         $movCaja = MovimientoCaja::create([
                             'caja_id'      => $caja->id,
                             'tipo'         => 'incremento',
@@ -554,12 +565,14 @@ class CajaController extends Controller
                             'concepto'     => $request->concepto,
                             'detalles_movimiento' => $request->detalles,
                             'user_id'      => $user->id,
-                            'estado'       => 'pendiente',
+                            'estado'       => $estadoCaja,
                             'boveda_id'    => $boveda->id,
-                            'estado_boveda' => 'pendiente_aprobacion',
+                            'estado_boveda' => $requiereAprobacion ? 'pendiente_aprobacion' : 'aprobado',
+                            'fecha_aprobacion_boveda' => $requiereAprobacion ? null : now(),
+                            'aprobado_por_id' => $requiereAprobacion ? null : $user->id,
                         ]);
 
-                        // 2. Crear movimiento de bóveda en estado pendiente (salida)
+                        // 2. Crear movimiento de bóveda (salida)
                         $movBoveda = BovedaMovimiento::create([
                             'boveda_id'       => $boveda->id,
                             'usuario_id'      => $user->id,
@@ -568,20 +581,29 @@ class CajaController extends Controller
                             'monto'           => $request->monto,
                             'concepto'        => 'Incremento de caja #' . $caja->id . ' — ' . $request->concepto,
                             'referencia'      => 'incremento_caja:' . $movCaja->id,
-                            'estado'          => 'pendiente',
+                            'estado'          => $estadoBoveda,
+                            'aprobado_por'    => $requiereAprobacion ? null : $user->id,
+                            'fecha_aprobacion' => $requiereAprobacion ? null : now(),
                         ]);
 
                         // 3. Enlazar movimiento de bóveda al movimiento de caja
                         $movCaja->boveda_movimiento_id = $movBoveda->id;
                         $movCaja->save();
 
+                        // 4. Si se aplicó de inmediato, actualizar saldo de la bóveda
+                        if (!$requiereAprobacion) {
+                            $boveda->actualizarSaldo();
+                        }
+
                         $movCaja->load('user', 'boveda');
 
                         return response()->json([
-                            'message'             => 'Solicitud de incremento enviada. Pendiente de aprobación del encargado de bóveda.',
+                            'message'             => $requiereAprobacion
+                                ? 'Solicitud de incremento enviada. Pendiente de aprobación del encargado de bóveda.'
+                                : 'Incremento registrado y aplicado correctamente a la caja.',
                             'movimiento'          => $movCaja,
                             'boveda_movimiento'   => $movBoveda,
-                            'requiere_aprobacion' => true,
+                            'requiere_aprobacion' => $requiereAprobacion,
                         ], 201);
 
                     } else {
