@@ -426,7 +426,7 @@ class CajaController extends Controller
         [$cajaCerrada, $movimientoBoveda] = $this->closureService->closeAndTransferToVault($caja, [
             'monto_total_efectivo' => $request->saldo_final_real,
             'desglose_denominaciones' => $desglose,
-            'enviar_a_boveda' => $boveda !== null,
+            'enviar_a_boveda' => $boveda !== null && (float)$request->saldo_final_real > 0,
             'boveda_destino_id' => $boveda?->id,
             'cajero_id' => $caja->user_id,
             'observaciones' => null,
@@ -473,7 +473,7 @@ class CajaController extends Controller
         [$cajaCerrada, $movimientoBoveda] = $this->closureService->closeAndTransferToVault($caja, [
             'monto_total_efectivo' => $request->input('monto_total_efectivo'),
             'desglose_denominaciones' => $request->input('desglose_denominaciones', []),
-            'enviar_a_boveda' => $request->boolean('enviar_a_boveda'),
+            'enviar_a_boveda' => $request->boolean('enviar_a_boveda') && (float)$request->input('monto_total_efectivo') > 0,
             'boveda_destino_id' => $request->input('boveda_destino_id'),
             'cajero_id' => $request->input('cajero_id') ?? $caja->user_id,
             'observaciones' => $request->input('observaciones'),
