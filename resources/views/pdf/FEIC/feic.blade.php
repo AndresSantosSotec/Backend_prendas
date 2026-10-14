@@ -1664,6 +1664,7 @@
                 </tr>
             </tbody>
         </table> -->
+        @if($cantidadCreditos > 0)
         <section class="page">
             <div class="header-clearance"></div>
         @foreach($totalcreditos as $credito)
@@ -1795,6 +1796,7 @@
         @endif
         @endforeach
         </section>
+        @endif
     </main>
 </body>
 </html>
