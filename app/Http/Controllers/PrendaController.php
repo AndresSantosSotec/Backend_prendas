@@ -616,6 +616,10 @@ class PrendaController extends Controller
             $ubicacion = implode(', ', $partes);
         }
 
+        if ($ubicacion !== null && trim($ubicacion) === '') {
+            $ubicacion = null;
+        }
+
         $prenda->ubicacion_fisica = $ubicacion;
 
         if ($request->has('seccion_almacen') || $request->has('seccion')) {
