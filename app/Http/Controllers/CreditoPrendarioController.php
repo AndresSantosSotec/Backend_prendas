@@ -361,80 +361,8 @@ class CreditoPrendarioController extends Controller
             $numeroCredito = $request->numero_credito;
 
             if (!$numeroCredito) {
-                // 🔒 PROTECCIÓN CONTRA RACE CONDITION: Reintentar hasta 5 veces si hay duplicado
-                $intentos = 0;
-                $maxIntentos = 5;
-
-                while ($intentos < $maxIntentos) {
-                    try {
-                        // 🏢 ORGANIZACIÓN: Código configurable desde .env (2 dígitos)
-                        $organizacion = str_pad(env('ORGANIZATION_CODE', '01'), 2, '0', STR_PAD_LEFT);
-
-                        // Generar número de crédito único en formato ORGDDMMYYAACORRELATIVO (sin guiones)
-                        $fecha = now()->format('dmy'); // Día, Mes, Año (2 dígitos cada uno)
-
-                        // Obtener agencia (solo números, sin letras)
-                        $sucursalId = $request->sucursal_id ?? 1;
-                        $agencia = str_pad($sucursalId, 2, '0', STR_PAD_LEFT);
-
-                        // 🔐 BLOQUEO: Usar lockForUpdate para prevenir race condition
-                        $hoy = now()->format('Y-m-d');
-                        $prefijoBusqueda = $organizacion . $fecha . $agencia;
-
-                        $ultimoCredito = CreditoPrendario::withTrashed()
-                            ->whereDate('created_at', $hoy)
-                            ->whereNotNull('numero_credito')
-                            // Solo buscar códigos con el nuevo formato (no inician con CR-)
-                            ->where('numero_credito', 'NOT LIKE', 'CR-%')
-                            ->where('numero_credito', 'LIKE', $prefijoBusqueda . '%')
-                            ->lockForUpdate() // 🔒 Bloqueo para lectura concurrente
-                            ->orderBy('id', 'desc')
-                            ->first();
-
-                        if ($ultimoCredito && $ultimoCredito->numero_credito) {
-                            // Extraer correlativo del formato ORGDDMMYYAACORRELATIVO (últimos 6 dígitos)
-                            $ultimoCorrelativo = (int) substr($ultimoCredito->numero_credito, -6);
-                            $correlativo = $ultimoCorrelativo + 1;
-                        } else {
-                            $correlativo = 1;
-                        }
-
-                        // Formato: ORGDDMMYYAACORRELATIVO (16 dígitos sin guiones)
-                        // Ejemplo: 0102022601000001 = Org:01, 02/02/26, Agencia:01, Correlativo:000001
-                        $numeroCredito = $organizacion . $fecha . $agencia . str_pad($correlativo, 6, '0', STR_PAD_LEFT);
-
-                        // ✅ Verificar que no exista (doble verificación)
-                        $existe = CreditoPrendario::withTrashed()
-                            ->where('numero_credito', $numeroCredito)
-                            ->exists();
-
-                        if ($existe) {
-                            throw new \Exception("Código duplicado detectado: {$numeroCredito}");
-                        }
-
-                        break; // ✅ Código generado exitosamente, salir del loop
-
-                    } catch (\Exception $e) {
-                        $intentos++;
-
-                        if ($intentos >= $maxIntentos) {
-                            Log::error('ERROR CRÍTICO: No se pudo generar código único después de ' . $maxIntentos . ' intentos', [
-                                'error' => $e->getMessage(),
-                                'organizacion' => $organizacion ?? null,
-                                'fecha' => $fecha ?? null,
-                                'agencia' => $agencia ?? null
-                            ]);
-
-                            return response()->json([
-                                'success' => false,
-                                'message' => 'Error al generar código de crédito único. Por favor, intente nuevamente.'
-                            ], 500);
-                        }
-
-                        // Esperar un momento antes de reintentar (backoff exponencial)
-                        usleep(100000 * $intentos); // 100ms, 200ms, 300ms, etc.
-                    }
-                }
+                $sucursalId = $request->sucursal_id ?? 1;
+                $numeroCredito = \App\Models\CodigoPrereservado::generarCodigoCredito((int) $sucursalId);
             }
 
             // Calcular fecha de vencimiento si hay plazo

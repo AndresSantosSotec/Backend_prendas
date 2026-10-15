@@ -335,6 +335,8 @@ Route::prefix('v1')->group(function () {
             Route::post('/prendas', [PrendaController::class, 'store']);
             Route::put('/prendas/{id}', [PrendaController::class, 'update']);
             Route::patch('/prendas/{id}', [PrendaController::class, 'update']); // Permitir PATCH también
+            Route::put('/prendas/{id}/ubicacion', [PrendaController::class, 'actualizarUbicacion']);
+            Route::patch('/prendas/{id}/ubicacion', [PrendaController::class, 'actualizarUbicacion']);
             Route::delete('/prendas/{id}', [PrendaController::class, 'destroy']);
             Route::post('/prendas/{id}/foto', [PrendaController::class, 'uploadPhoto']);
             Route::post('/prendas/{id}/recuperar', [PrendaController::class, 'marcarRecuperada']);

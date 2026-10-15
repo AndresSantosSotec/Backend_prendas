@@ -444,13 +444,25 @@ class PrendaController extends Controller
             'ubicacion_fisica' => $request->input('ubicacion_fisica'),
         ]);
 
+        // Normalizar ubicación desde cualquier variante que envíe el cliente
+        $ubicacionInput = $request->input('ubicacion_fisica')
+            ?? $request->input('ubicacion_bodega')
+            ?? $request->input('ubicacion_detalle')
+            ?? $request->input('ubicacion');
+
         $validator = Validator::make($request->all(), [
             'descripcion' => 'sometimes|string|max:500',
+            'descripcion_general' => 'sometimes|string|max:500',
+            'categoria_producto_id' => 'sometimes|nullable|exists:categorias_productos,id',
+            'categoria_id' => 'sometimes|nullable|exists:categorias_productos,id',
             'valor_tasacion' => 'sometimes|numeric|min:0',
             'valor_prestamo' => 'sometimes|numeric|min:0',
             'valor_venta' => 'sometimes|numeric|min:0',
             'precio_venta' => 'sometimes|numeric|min:0',
-            'ubicacion_fisica' => 'sometimes|string|max:255',
+            'ubicacion_fisica' => 'sometimes|nullable|string|max:255',
+            'ubicacion_bodega' => 'sometimes|nullable|string|max:255',
+            'ubicacion_detalle' => 'sometimes|nullable|string|max:255',
+            'ubicacion' => 'sometimes|nullable|string|max:255',
             'estado' => 'sometimes|in:en_custodia,recuperada,en_venta,vendida,perdida,dañada,en_evaluacion,extraviada,danada',
         ]);
 
@@ -499,16 +511,54 @@ class PrendaController extends Controller
             }
         }
 
-        // Actualizar solo los campos que vienen en el request
-        $dataToUpdate = $request->only([
-            'descripcion',
-            'valor_tasacion',
-            'valor_prestamo',
-            'valor_venta',
-            'precio_venta',
-            'ubicacion_fisica',
-            'estado',
-        ]);
+        // Armar datos a actualizar permitiendo nombres alternativos
+        $dataToUpdate = [];
+
+        if ($request->has('descripcion')) {
+            $dataToUpdate['descripcion'] = $request->input('descripcion');
+        } elseif ($request->has('descripcion_general')) {
+            $dataToUpdate['descripcion'] = $request->input('descripcion_general');
+        }
+
+        if ($request->has('categoria_producto_id')) {
+            $dataToUpdate['categoria_producto_id'] = $request->input('categoria_producto_id');
+        } elseif ($request->has('categoria_id')) {
+            $dataToUpdate['categoria_producto_id'] = $request->input('categoria_id');
+        }
+
+        if ($request->has('valor_tasacion')) {
+            $dataToUpdate['valor_tasacion'] = $request->input('valor_tasacion');
+        }
+        if ($request->has('valor_prestamo')) {
+            $dataToUpdate['valor_prestamo'] = $request->input('valor_prestamo');
+        }
+        if ($request->has('valor_venta')) {
+            $dataToUpdate['valor_venta'] = $request->input('valor_venta');
+        }
+        if ($request->has('precio_venta')) {
+            $dataToUpdate['precio_venta'] = $request->input('precio_venta');
+        }
+        if ($request->has('estado')) {
+            $dataToUpdate['estado'] = $request->input('estado');
+        }
+
+        // Mapear cualquier campo de ubicación
+        if (
+            $request->has('ubicacion_fisica') ||
+            $request->has('ubicacion_bodega') ||
+            $request->has('ubicacion_detalle') ||
+            $request->has('ubicacion') ||
+            $ubicacionInput !== null
+        ) {
+            $dataToUpdate['ubicacion_fisica'] = $ubicacionInput;
+        }
+
+        if ($request->has('seccion_almacen') || $request->has('seccion')) {
+            $dataToUpdate['seccion'] = $request->input('seccion_almacen') ?? $request->input('seccion');
+        }
+        if ($request->has('estante')) {
+            $dataToUpdate['estante'] = $request->input('estante');
+        }
 
         Log::info('UPDATE PRENDA - Data to update:', $dataToUpdate);
 
@@ -522,6 +572,69 @@ class PrendaController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Prenda actualizada exitosamente',
+            'data' => new PrendaResource($prenda->fresh()->load(['categoriaProducto', 'creditoPrendario.cliente'])),
+        ]);
+    }
+
+    /**
+     * Actualizar la ubicación física de una prenda específicamente
+     */
+    public function actualizarUbicacion(Request $request, string $id): JsonResponse
+    {
+        $prenda = Prenda::findOrFail($id);
+
+        $validator = Validator::make($request->all(), [
+            'ubicacion_fisica' => 'nullable|string|max:255',
+            'ubicacion_bodega' => 'nullable|string|max:255',
+            'ubicacion_detalle' => 'nullable|string|max:255',
+            'ubicacion' => 'nullable|string|max:255',
+            'seccion_almacen' => 'nullable|string|max:50',
+            'seccion' => 'nullable|string|max:50',
+            'estante' => 'nullable|string|max:50',
+            'caja' => 'nullable|string|max:50',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error de validación',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $ubicacion = $request->input('ubicacion_fisica')
+            ?? $request->input('ubicacion_bodega')
+            ?? $request->input('ubicacion_detalle')
+            ?? $request->input('ubicacion');
+
+        // Si enviaron seccion, estante o caja pero no texto de ubicación
+        if (!$ubicacion && ($request->filled('seccion_almacen') || $request->filled('seccion'))) {
+            $sec = $request->input('seccion_almacen') ?? $request->input('seccion');
+            $est = $request->input('estante');
+            $caj = $request->input('caja');
+            $partes = array_filter([$sec ? "Sección {$sec}" : null, $est ? "Estante {$est}" : null, $caj ? "Caja {$caj}" : null]);
+            $ubicacion = implode(', ', $partes);
+        }
+
+        $prenda->ubicacion_fisica = $ubicacion;
+
+        if ($request->has('seccion_almacen') || $request->has('seccion')) {
+            $prenda->seccion = $request->input('seccion_almacen') ?? $request->input('seccion');
+        }
+        if ($request->has('estante')) {
+            $prenda->estante = $request->input('estante');
+        }
+
+        $prenda->save();
+
+        Log::info('UBICACION PRENDA ACTUALIZADA:', [
+            'prenda_id' => $prenda->id,
+            'ubicacion_fisica' => $prenda->ubicacion_fisica,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Ubicación de la prenda actualizada exitosamente',
             'data' => new PrendaResource($prenda->fresh()->load(['categoriaProducto', 'creditoPrendario.cliente'])),
         ]);
     }
