@@ -423,158 +423,183 @@ class PrendaController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, string $id)
+    public function update(Request $request, string $id): JsonResponse
     {
-        $prenda = Prenda::findOrFail($id);
+        try {
+            $prenda = Prenda::find($id);
+            if (!$prenda) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "La prenda con ID {$id} no fue encontrada",
+                ], 404);
+            }
 
-        // VALIDACIÓN: No permitir editar prendas con estado 'pagada' o 'recuperada'
-        // Solo se pueden eliminar, no editar (para mantener integridad con créditos)
-        if (in_array($prenda->estado, ['pagada', 'recuperada'])) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No se puede editar una prenda con estado "' . $prenda->estado . '". Solo se puede eliminar.',
-                'errors' => ['estado' => ['Prenda no editable en estado actual']]
-            ], 422);
-        }
+            // VALIDACIÓN: No permitir editar prendas con estado 'pagada' o 'recuperada'
+            // Solo se pueden eliminar, no editar (para mantener integridad con créditos)
+            if (in_array($prenda->estado, ['pagada', 'recuperada'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se puede editar una prenda con estado "' . $prenda->estado . '". Solo se puede eliminar.',
+                    'errors' => ['estado' => ['Prenda no editable en estado actual']]
+                ], 422);
+            }
 
-        // Log para debugging
-        Log::info('UPDATE PRENDA - Request data:', [
-            'prenda_id' => $id,
-            'all_data' => $request->all(),
-            'precio_venta' => $request->input('precio_venta'),
-            'ubicacion_fisica' => $request->input('ubicacion_fisica'),
-        ]);
+            // Log para debugging
+            Log::info('UPDATE PRENDA - Request data:', [
+                'prenda_id' => $id,
+                'all_data' => $request->all(),
+                'precio_venta' => $request->input('precio_venta'),
+                'ubicacion_fisica' => $request->input('ubicacion_fisica'),
+            ]);
 
-        // Normalizar ubicación desde cualquier variante que envíe el cliente
-        $ubicacionInput = $request->input('ubicacion_fisica')
-            ?? $request->input('ubicacion_bodega')
-            ?? $request->input('ubicacion_detalle')
-            ?? $request->input('ubicacion');
+            // Normalizar ubicación desde cualquier variante que envíe el cliente
+            $ubicacionInput = $request->input('ubicacion_fisica')
+                ?? $request->input('ubicacion_bodega')
+                ?? $request->input('ubicacion_detalle')
+                ?? $request->input('ubicacion');
 
-        $validator = Validator::make($request->all(), [
-            'descripcion' => 'sometimes|string|max:500',
-            'descripcion_general' => 'sometimes|string|max:500',
-            'categoria_producto_id' => 'sometimes|nullable|exists:categorias_productos,id',
-            'categoria_id' => 'sometimes|nullable|exists:categorias_productos,id',
-            'valor_tasacion' => 'sometimes|numeric|min:0',
-            'valor_prestamo' => 'sometimes|numeric|min:0',
-            'valor_venta' => 'sometimes|numeric|min:0',
-            'precio_venta' => 'sometimes|numeric|min:0',
-            'ubicacion_fisica' => 'sometimes|nullable|string|max:255',
-            'ubicacion_bodega' => 'sometimes|nullable|string|max:255',
-            'ubicacion_detalle' => 'sometimes|nullable|string|max:255',
-            'ubicacion' => 'sometimes|nullable|string|max:255',
-            'estado' => 'sometimes|in:en_custodia,recuperada,en_venta,vendida,perdida,dañada,en_evaluacion,extraviada,danada',
-        ]);
+            $validator = Validator::make($request->all(), [
+                'descripcion' => 'sometimes|string|max:500',
+                'descripcion_general' => 'sometimes|string|max:500',
+                'categoria_producto_id' => 'sometimes|nullable|exists:categoria_productos,id',
+                'categoria_id' => 'sometimes|nullable|exists:categoria_productos,id',
+                'valor_tasacion' => 'sometimes|numeric|min:0',
+                'valor_prestamo' => 'sometimes|numeric|min:0',
+                'valor_venta' => 'sometimes|numeric|min:0',
+                'precio_venta' => 'sometimes|numeric|min:0',
+                'ubicacion_fisica' => 'sometimes|nullable|string|max:255',
+                'ubicacion_bodega' => 'sometimes|nullable|string|max:255',
+                'ubicacion_detalle' => 'sometimes|nullable|string|max:255',
+                'ubicacion' => 'sometimes|nullable|string|max:255',
+                'estado' => 'sometimes|in:en_custodia,recuperada,en_venta,vendida,perdida,dañada,en_evaluacion,extraviada,danada',
+            ]);
 
-        if ($validator->fails()) {
-            Log::error('UPDATE PRENDA - Validation failed:', $validator->errors()->toArray());
-            return response()->json([
-                'success' => false,
-                'message' => 'Error de validación',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
+            if ($validator->fails()) {
+                Log::error('UPDATE PRENDA - Validation failed:', $validator->errors()->toArray());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error de validación',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
 
-        // 🔒 VALIDACIÓN ESPECIAL: Si se está cambiando a "en_venta", verificar estado del crédito
-        if ($request->has('estado') && $request->estado === 'en_venta' && $prenda->credito_prendario_id) {
-            $prenda->load('creditoPrendario');
+            // 🔒 VALIDACIÓN ESPECIAL: Si se está cambiando a "en_venta", verificar estado del crédito
+            if ($request->has('estado') && $request->estado === 'en_venta' && $prenda->credito_prendario_id) {
+                $prenda->load('creditoPrendario');
 
-            if ($prenda->creditoPrendario) {
-                $estadoCredito = $prenda->creditoPrendario->estado;
-                $estadosPermitidos = ['vencido', 'en_mora', 'cancelado', 'incobrable'];
+                if ($prenda->creditoPrendario) {
+                    $estadoCredito = $prenda->creditoPrendario->estado;
+                    $estadosPermitidos = ['vencido', 'en_mora', 'cancelado', 'incobrable'];
 
-                // ⚠️ LÓGICA FLEXIBLE: Permitir si está vencido AUNQUE el estado sea "vigente"
-                $fechaVencimiento = $prenda->creditoPrendario->fecha_vencimiento;
-                $estaVencidoPorFecha = $fechaVencimiento && $fechaVencimiento->isPast();
+                    // ⚠️ LÓGICA FLEXIBLE: Permitir si está vencido AUNQUE el estado sea "vigente"
+                    $fechaVencimiento = $prenda->creditoPrendario->fecha_vencimiento;
+                    $estaVencidoPorFecha = $fechaVencimiento && $fechaVencimiento->isPast();
 
-                if (!in_array($estadoCredito, $estadosPermitidos) && !$estaVencidoPorFecha) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => "No se puede marcar en venta. El crédito está '{$estadoCredito}' y no ha vencido. Primero cambie el estado del crédito a 'vencido' o espere a la fecha de vencimiento.",
-                        'credito_estado' => $estadoCredito,
-                        'fecha_vencimiento' => $fechaVencimiento?->format('Y-m-d'),
-                    ], 422);
-                }
+                    if (!in_array($estadoCredito, $estadosPermitidos) && !$estaVencidoPorFecha) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => "No se puede marcar en venta. El crédito está '{$estadoCredito}' y no ha vencido. Primero cambie el estado del crédito a 'vencido' o espere a la fecha de vencimiento.",
+                            'credito_estado' => $estadoCredito,
+                            'fecha_vencimiento' => $fechaVencimiento?->format('Y-m-d'),
+                        ], 422);
+                    }
 
-                // ✅ Si está vencido por fecha pero aún dice "vigente", actualizar automáticamente
-                if ($estadoCredito === 'vigente' && $estaVencidoPorFecha) {
-                    $prenda->creditoPrendario->update([
-                        'estado' => 'vencido',
-                        'fecha_vencimiento' => $fechaVencimiento
-                    ]);
+                    // ✅ Si está vencido por fecha pero aún dice "vigente", actualizar automáticamente
+                    if ($estadoCredito === 'vigente' && $estaVencidoPorFecha) {
+                        $prenda->creditoPrendario->update([
+                            'estado' => 'vencido',
+                            'fecha_vencimiento' => $fechaVencimiento
+                        ]);
 
-                    Log::info('UPDATE PRENDA - Crédito actualizado automáticamente a vencido', [
-                        'credito_id' => $prenda->creditoPrendario->id,
-                        'fecha_vencimiento' => $fechaVencimiento
-                    ]);
+                        Log::info('UPDATE PRENDA - Crédito actualizado automáticamente a vencido', [
+                            'credito_id' => $prenda->creditoPrendario->id,
+                            'fecha_vencimiento' => $fechaVencimiento
+                        ]);
+                    }
                 }
             }
-        }
 
-        // Armar datos a actualizar permitiendo nombres alternativos
-        $dataToUpdate = [];
+            // Armar datos a actualizar permitiendo nombres alternativos
+            $dataToUpdate = [];
 
-        if ($request->has('descripcion')) {
-            $dataToUpdate['descripcion'] = $request->input('descripcion');
-        } elseif ($request->has('descripcion_general')) {
-            $dataToUpdate['descripcion'] = $request->input('descripcion_general');
-        }
+            if ($request->has('descripcion')) {
+                $dataToUpdate['descripcion'] = $request->input('descripcion');
+            } elseif ($request->has('descripcion_general')) {
+                $dataToUpdate['descripcion'] = $request->input('descripcion_general');
+            }
 
-        if ($request->has('categoria_producto_id')) {
-            $dataToUpdate['categoria_producto_id'] = $request->input('categoria_producto_id');
-        } elseif ($request->has('categoria_id')) {
-            $dataToUpdate['categoria_producto_id'] = $request->input('categoria_id');
-        }
+            if ($request->has('categoria_producto_id')) {
+                $dataToUpdate['categoria_producto_id'] = $request->input('categoria_producto_id');
+            } elseif ($request->has('categoria_id')) {
+                $dataToUpdate['categoria_producto_id'] = $request->input('categoria_id');
+            }
 
-        if ($request->has('valor_tasacion')) {
-            $dataToUpdate['valor_tasacion'] = $request->input('valor_tasacion');
-        }
-        if ($request->has('valor_prestamo')) {
-            $dataToUpdate['valor_prestamo'] = $request->input('valor_prestamo');
-        }
-        if ($request->has('valor_venta')) {
-            $dataToUpdate['valor_venta'] = $request->input('valor_venta');
-        }
-        if ($request->has('precio_venta')) {
-            $dataToUpdate['precio_venta'] = $request->input('precio_venta');
-        }
-        if ($request->has('estado')) {
-            $dataToUpdate['estado'] = $request->input('estado');
-        }
+            if ($request->has('valor_tasacion')) {
+                $dataToUpdate['valor_tasacion'] = $request->input('valor_tasacion');
+            }
+            if ($request->has('valor_prestamo')) {
+                $dataToUpdate['valor_prestamo'] = $request->input('valor_prestamo');
+            }
+            if ($request->has('valor_venta')) {
+                $dataToUpdate['valor_venta'] = $request->input('valor_venta');
+            }
+            if ($request->has('precio_venta')) {
+                $dataToUpdate['precio_venta'] = $request->input('precio_venta');
+            }
+            if ($request->has('estado')) {
+                $dataToUpdate['estado'] = $request->input('estado');
+            }
 
-        // Mapear cualquier campo de ubicación
-        if (
-            $request->has('ubicacion_fisica') ||
-            $request->has('ubicacion_bodega') ||
-            $request->has('ubicacion_detalle') ||
-            $request->has('ubicacion') ||
-            $ubicacionInput !== null
-        ) {
-            $dataToUpdate['ubicacion_fisica'] = $ubicacionInput;
+            // Mapear cualquier campo de ubicación
+            if (
+                $request->has('ubicacion_fisica') ||
+                $request->has('ubicacion_bodega') ||
+                $request->has('ubicacion_detalle') ||
+                $request->has('ubicacion') ||
+                $ubicacionInput !== null
+            ) {
+                $dataToUpdate['ubicacion_fisica'] = $ubicacionInput;
+            }
+
+            if ($request->has('seccion_almacen') || $request->has('seccion')) {
+                $dataToUpdate['seccion'] = $request->input('seccion_almacen') ?? $request->input('seccion');
+            }
+            if ($request->has('estante')) {
+                $dataToUpdate['estante'] = $request->input('estante');
+            }
+
+            Log::info('UPDATE PRENDA - Data to update:', $dataToUpdate);
+
+            $prenda->update($dataToUpdate);
+
+            Log::info('UPDATE PRENDA - After update:', [
+                'precio_venta' => $prenda->precio_venta,
+                'ubicacion_fisica' => $prenda->ubicacion_fisica,
+            ]);
+
+            $prendaFresh = $prenda->fresh();
+            if ($prendaFresh) {
+                $prendaFresh->loadMissing(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal']);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Prenda actualizada exitosamente',
+                'data' => new PrendaResource($prendaFresh ?? $prenda),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Error al actualizar prenda:', [
+                'prenda_id' => $id,
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al actualizar la prenda: ' . $e->getMessage(),
+            ], 500);
         }
-
-        if ($request->has('seccion_almacen') || $request->has('seccion')) {
-            $dataToUpdate['seccion'] = $request->input('seccion_almacen') ?? $request->input('seccion');
-        }
-        if ($request->has('estante')) {
-            $dataToUpdate['estante'] = $request->input('estante');
-        }
-
-        Log::info('UPDATE PRENDA - Data to update:', $dataToUpdate);
-
-        $prenda->update($dataToUpdate);
-
-        Log::info('UPDATE PRENDA - After update:', [
-            'precio_venta' => $prenda->precio_venta,
-            'ubicacion_fisica' => $prenda->ubicacion_fisica,
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Prenda actualizada exitosamente',
-            'data' => new PrendaResource($prenda->fresh()->load(['categoriaProducto', 'creditoPrendario.cliente'])),
-        ]);
     }
 
     /**
