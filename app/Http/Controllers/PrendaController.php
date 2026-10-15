@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Auth;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Illuminate\Http\JsonResponse;
 
 class PrendaController extends Controller
 {
@@ -579,69 +580,94 @@ class PrendaController extends Controller
     /**
      * Actualizar la ubicación física de una prenda específicamente
      */
-    public function actualizarUbicacion(Request $request, string $id): JsonResponse
-    {
-        $prenda = Prenda::findOrFail($id);
+     public function actualizarUbicacion(Request $request, string $id): JsonResponse
+     {
+         try {
+             $prenda = Prenda::find($id);
+             if (!$prenda) {
+                 return response()->json([
+                     'success' => false,
+                     'message' => "La prenda con ID {$id} no fue encontrada",
+                 ], 404);
+             }
 
-        $validator = Validator::make($request->all(), [
-            'ubicacion_fisica' => 'nullable|string|max:255',
-            'ubicacion_bodega' => 'nullable|string|max:255',
-            'ubicacion_detalle' => 'nullable|string|max:255',
-            'ubicacion' => 'nullable|string|max:255',
-            'seccion_almacen' => 'nullable|string|max:50',
-            'seccion' => 'nullable|string|max:50',
-            'estante' => 'nullable|string|max:50',
-            'caja' => 'nullable|string|max:50',
-        ]);
+             $validator = Validator::make($request->all(), [
+                 'ubicacion_fisica' => 'nullable|string|max:255',
+                 'ubicacion_bodega' => 'nullable|string|max:255',
+                 'ubicacion_detalle' => 'nullable|string|max:255',
+                 'ubicacion' => 'nullable|string|max:255',
+                 'seccion_almacen' => 'nullable|string|max:50',
+                 'seccion' => 'nullable|string|max:50',
+                 'estante' => 'nullable|string|max:50',
+                 'caja' => 'nullable|string|max:50',
+             ]);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error de validación',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
+             if ($validator->fails()) {
+                 return response()->json([
+                     'success' => false,
+                     'message' => 'Error de validación',
+                     'errors' => $validator->errors(),
+                 ], 422);
+             }
 
-        $ubicacion = $request->input('ubicacion_fisica')
-            ?? $request->input('ubicacion_bodega')
-            ?? $request->input('ubicacion_detalle')
-            ?? $request->input('ubicacion');
+             $ubicacion = $request->input('ubicacion_fisica')
+                 ?? $request->input('ubicacion_bodega')
+                 ?? $request->input('ubicacion_detalle')
+                 ?? $request->input('ubicacion');
 
-        // Si enviaron seccion, estante o caja pero no texto de ubicación
-        if (!$ubicacion && ($request->filled('seccion_almacen') || $request->filled('seccion'))) {
-            $sec = $request->input('seccion_almacen') ?? $request->input('seccion');
-            $est = $request->input('estante');
-            $caj = $request->input('caja');
-            $partes = array_filter([$sec ? "Sección {$sec}" : null, $est ? "Estante {$est}" : null, $caj ? "Caja {$caj}" : null]);
-            $ubicacion = implode(', ', $partes);
-        }
+             // Si enviaron seccion, estante o caja pero no texto de ubicación
+             if (!$ubicacion && ($request->filled('seccion_almacen') || $request->filled('seccion'))) {
+                 $sec = $request->input('seccion_almacen') ?? $request->input('seccion');
+                 $est = $request->input('estante');
+                 $caj = $request->input('caja');
+                 $partes = array_filter([$sec ? "Sección {$sec}" : null, $est ? "Estante {$est}" : null, $caj ? "Caja {$caj}" : null]);
+                 $ubicacion = implode(', ', $partes);
+             }
 
-        if ($ubicacion !== null && trim($ubicacion) === '') {
-            $ubicacion = null;
-        }
+             if ($ubicacion !== null && trim($ubicacion) === '') {
+                 $ubicacion = null;
+             }
 
-        $prenda->ubicacion_fisica = $ubicacion;
+             $prenda->ubicacion_fisica = $ubicacion;
 
-        if ($request->has('seccion_almacen') || $request->has('seccion')) {
-            $prenda->seccion = $request->input('seccion_almacen') ?? $request->input('seccion');
-        }
-        if ($request->has('estante')) {
-            $prenda->estante = $request->input('estante');
-        }
+             if ($request->has('seccion_almacen') || $request->has('seccion')) {
+                 $prenda->seccion = $request->input('seccion_almacen') ?? $request->input('seccion');
+             }
+             if ($request->has('estante')) {
+                 $prenda->estante = $request->input('estante');
+             }
 
-        $prenda->save();
+             $prenda->save();
 
-        Log::info('UBICACION PRENDA ACTUALIZADA:', [
-            'prenda_id' => $prenda->id,
-            'ubicacion_fisica' => $prenda->ubicacion_fisica,
-        ]);
+             Log::info('UBICACION PRENDA ACTUALIZADA:', [
+                 'prenda_id' => $prenda->id,
+                 'ubicacion_fisica' => $prenda->ubicacion_fisica,
+             ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Ubicación de la prenda actualizada exitosamente',
-            'data' => new PrendaResource($prenda->fresh()->load(['categoriaProducto', 'creditoPrendario.cliente'])),
-        ]);
-    }
+             $prendaFresh = $prenda->fresh();
+             if ($prendaFresh) {
+                 $prendaFresh->loadMissing(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal']);
+             }
+
+             return response()->json([
+                 'success' => true,
+                 'message' => 'Ubicación de la prenda actualizada exitosamente',
+                 'data' => new PrendaResource($prendaFresh ?? $prenda),
+             ]);
+         } catch (\Throwable $e) {
+             Log::error('Error al actualizar ubicación de prenda:', [
+                 'prenda_id' => $id,
+                 'error' => $e->getMessage(),
+                 'file' => $e->getFile(),
+                 'line' => $e->getLine(),
+             ]);
+
+             return response()->json([
+                 'success' => false,
+                 'message' => 'Error al actualizar la ubicación de la prenda: ' . $e->getMessage(),
+             ], 500);
+         }
+     }
 
     /**
      * Remove the specified resource from storage.
