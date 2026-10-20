@@ -514,6 +514,67 @@ class BovedaController extends Controller
     }
 
     /**
+     * Anular un movimiento de bóveda (Aprobado o Pendiente)
+     * Exclusivo para administradores o con permiso boveda.aprobar
+     */
+    public function anularMovimiento(Request $request, $id)
+    {
+        $user = Auth::user();
+
+        if (!$this->esAdmin($user) && !$user->hasPermission('boveda', 'aprobar')) {
+            return response()->json(['error' => 'No tienes permiso para anular movimientos de bóveda.'], 403);
+        }
+
+        $request->validate([
+            'motivo' => 'required|string|max:500'
+        ]);
+
+        $movimiento = BovedaMovimiento::with(['boveda', 'bovedaDestino'])->findOrFail($id);
+
+        if ($movimiento->estado === 'anulado') {
+            return response()->json(['error' => 'El movimiento ya se encuentra anulado.'], 400);
+        }
+
+        try {
+            return DB::transaction(function () use ($movimiento, $user, $request) {
+                $estadoAnterior = $movimiento->estado;
+                $movimiento->estado = 'anulado';
+                $movimiento->observaciones = 'Anulado por ' . $user->name . ': ' . $request->motivo;
+                $movimiento->save();
+
+                // Si estaba aprobado, revertir saldos de bóveda origen y destino
+                if ($estadoAnterior === 'aprobado') {
+                    if ($movimiento->boveda) {
+                        $movimiento->boveda->actualizarSaldo();
+                    }
+                    if ($movimiento->bovedaDestino) {
+                        $movimiento->bovedaDestino->actualizarSaldo();
+                    }
+                }
+
+                // Si está enlazado a un movimiento de caja, anularlo también
+                $movCaja = MovimientoCaja::where('boveda_movimiento_id', $movimiento->id)->first();
+                if ($movCaja) {
+                    $movCaja->estado = 'anulado';
+                    $movCaja->estado_boveda = 'anulado';
+                    $movCaja->observaciones_boveda = 'Anulado desde bóveda por ' . $user->name . ': ' . $request->motivo;
+                    $movCaja->save();
+                }
+
+                \Illuminate\Support\Facades\Log::info("Movimiento de bóveda #{$movimiento->id} anulado por usuario #{$user->id}: {$request->motivo}");
+
+                return response()->json([
+                    'message' => 'Movimiento de bóveda anulado correctamente',
+                    'movimiento' => $movimiento->fresh(['boveda', 'bovedaDestino']),
+                    'saldo_actual' => $movimiento->boveda?->fresh()->saldo_actual
+                ]);
+            });
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Error al anular movimiento de bóveda: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Obtener historial de movimientos de una bóveda
      */
     public function historialMovimientos(Request $request, $id)

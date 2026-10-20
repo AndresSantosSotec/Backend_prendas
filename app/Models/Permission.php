@@ -35,6 +35,7 @@ class Permission extends Model
                 $descripcion = match ("{$modulo}.{$accion}") {
                     'creditos.editar_tasa_interes' => 'Permite modificar la tasa de interés % al configurar créditos prendarios',
                     'creditos.editar_mora' => 'Permite modificar tasa de mora, tipo y monto fijo al configurar créditos prendarios',
+                    'simulador.editar_tasa_interes' => 'Permite modificar la tasa de interés % en el simulador',
                     'cumplimiento.ver' => 'Ver reportes analíticos de cumplimiento regulatorio e IVE',
                     'cumplimiento.exportar' => 'Exportar reportes de cumplimiento regulatorio e IVE en Excel/CSV',
                     default => ucfirst(str_replace('_', ' ', (string) $accion)).' en '.ucfirst(str_replace('_', ' ', (string) $modulo)),
@@ -55,7 +56,7 @@ class Permission extends Model
         'dashboard' => ['ver'],
         'clientes' => ['ver', 'crear', 'editar', 'eliminar'],
         'sucursales' => ['ver', 'crear', 'editar', 'eliminar'],
-        'simulador' => ['usar', 'imprimir', 'guardar'],
+        'simulador' => ['usar', 'imprimir', 'guardar', 'editar_tasa_interes'],
         'creditos' => ['ver', 'crear', 'renovar', 'cancelar', 'pasar_venta', 'editar_tasa_interes', 'editar_mora'],
         'refrendos' => ['ver', 'validar', 'calcular', 'procesar'],
         'prendas' => ['ver', 'editar', 'cambiar_estado', 'vender'],

@@ -158,9 +158,16 @@ class User extends Authenticatable
 
         $permissionIds = [];
 
-        foreach ($permisos as $permiso) {
-            $modulo = $permiso['modulo'];
-            $acciones = $permiso['acciones'] ?? [];
+        foreach ($permisos as $key => $permiso) {
+            if (is_array($permiso) && isset($permiso['modulo'])) {
+                $modulo = $permiso['modulo'];
+                $acciones = $permiso['acciones'] ?? [];
+            } elseif (is_string($key) && is_array($permiso)) {
+                $modulo = $key;
+                $acciones = $permiso;
+            } else {
+                continue;
+            }
 
             foreach ($acciones as $accion) {
                 $permission = Permission::where('modulo', $modulo)

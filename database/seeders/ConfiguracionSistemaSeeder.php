@@ -117,6 +117,58 @@ class ConfiguracionSistemaSeeder extends Seeder
                 'descripcion' => 'Si es true, la tasa de interés se aplica directamente por periodo sin prorrateo. Si es false (default Avanza), la tasa se asume mensual y se prorratea (/2 quincenal, /4 semanal).',
                 'editable_por_usuario' => true,
             ],
+
+            // Interés Diario Proporcional (Crediprendas)
+            [
+                'clave' => 'credito_interes_diario_habilitado',
+                'valor' => 'false',
+                'tipo' => 'boolean',
+                'grupo' => 'creditos',
+                'descripcion' => 'Habilitar cobro proporcional de interés diario en lugar de períodos cerrados completos',
+                'editable_por_usuario' => true,
+            ],
+            [
+                'clave' => 'credito_interes_diario_dias_minimos',
+                'valor' => '1',
+                'tipo' => 'integer',
+                'grupo' => 'creditos',
+                'descripcion' => 'Días mínimos a cobrar cuando se aplica interés diario',
+                'editable_por_usuario' => true,
+            ],
+
+            // Promociones y Descuentos en Intereses (Lunes y Martes Parametrizables)
+            [
+                'clave' => 'promocion_interes_activa',
+                'valor' => 'false',
+                'tipo' => 'boolean',
+                'grupo' => 'promociones',
+                'descripcion' => 'Activar promociones de descuento en intereses para días específicos de la semana (ej: Lunes o Martes)',
+                'editable_por_usuario' => true,
+            ],
+            [
+                'clave' => 'promocion_interes_dias',
+                'valor' => '["monday", "tuesday"]',
+                'tipo' => 'json',
+                'grupo' => 'promociones',
+                'descripcion' => 'Días de la semana en los que aplica el descuento de intereses (ej: monday, tuesday / lunes, martes)',
+                'editable_por_usuario' => true,
+            ],
+            [
+                'clave' => 'promocion_interes_porcentaje_descuento',
+                'valor' => '10.0',
+                'tipo' => 'float',
+                'grupo' => 'promociones',
+                'descripcion' => 'Porcentaje de descuento en intereses durante los días de promoción',
+                'editable_por_usuario' => true,
+            ],
+            [
+                'clave' => 'promocion_interes_descripcion',
+                'valor' => 'Promoción Lunes y Martes de Descuento en Intereses',
+                'tipo' => 'string',
+                'grupo' => 'promociones',
+                'descripcion' => 'Descripción de la promoción aplicada a los intereses',
+                'editable_por_usuario' => true,
+            ],
         ];
 
         foreach ($configuraciones as $config) {

@@ -30,7 +30,8 @@ class PagoController extends Controller
             app(\App\Services\MoraService::class)->recalcularMoraCredito($credito);
             $credito->refresh();
 
-            $calculo = $this->pagoService->calcularDeudaAlDia($credito);
+            $fechaCalculo = $request->filled('fecha_calculo') ? \Carbon\Carbon::parse($request->input('fecha_calculo')) : null;
+            $calculo = $this->pagoService->calcularDeudaAlDia($credito, $fechaCalculo);
 
             return response()->json([
                 'success' => true,

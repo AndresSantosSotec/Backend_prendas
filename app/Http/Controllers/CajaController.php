@@ -712,4 +712,62 @@ class CajaController extends Controller
 
        return response()->json($movimientos);
     }
+
+    /**
+     * Anular un movimiento de caja (Solo administradores o con permiso gestionar_cajas)
+     */
+    public function anularMovimiento(Request $request, $id)
+    {
+        $user = Auth::user();
+
+        if (!in_array($user->rol, ['superadmin', 'administrador']) && !$user->hasPermission('caja', 'gestionar_cajas')) {
+            return response()->json(['error' => 'No tienes permiso para anular movimientos de caja.'], 403);
+        }
+
+        $request->validate([
+            'motivo' => 'required|string|max:500',
+        ]);
+
+        $movimiento = MovimientoCaja::with(['caja', 'bovedaMovimiento'])->findOrFail($id);
+
+        if ($movimiento->estado === 'anulado') {
+            return response()->json(['error' => 'El movimiento ya se encuentra anulado.'], 400);
+        }
+
+        $caja = $movimiento->caja;
+        if (!$caja || $caja->estado !== 'abierta') {
+            return response()->json(['error' => 'Solo se pueden anular movimientos de una caja que se encuentre abierta.'], 400);
+        }
+
+        if (in_array($movimiento->tipo, ['ingreso_pago', 'egreso_desembolso'])) {
+            return response()->json([
+                'error' => 'Los movimientos vinculados a pagos o desembolsos de créditos deben anularse desde el módulo de Créditos para mantener la coherencia del saldo y plan de pagos.'
+            ], 422);
+        }
+
+        return DB::transaction(function () use ($movimiento, $caja, $user, $request) {
+            // Si tiene movimiento de bóveda enlazado, anularlo y recalcular saldo de bóveda
+            if ($movimiento->boveda_movimiento_id && $movimiento->bovedaMovimiento) {
+                $bovMov = $movimiento->bovedaMovimiento;
+                $estadoAnteriorBoveda = $bovMov->estado;
+                $bovMov->estado = 'anulado';
+                $bovMov->save();
+
+                if ($estadoAnteriorBoveda === 'aprobado' && $bovMov->boveda) {
+                    $bovMov->boveda->actualizarSaldo();
+                }
+            }
+
+            $movimiento->estado = 'anulado';
+            $movimiento->observaciones_boveda = 'Anulado por ' . $user->name . ': ' . $request->motivo;
+            $movimiento->save();
+
+            Log::info("Movimiento de caja #{$movimiento->id} anulado por usuario #{$user->id}: {$request->motivo}");
+
+            return response()->json([
+                'message' => 'Movimiento de caja anulado correctamente',
+                'movimiento' => $movimiento,
+            ]);
+        });
+    }
 }

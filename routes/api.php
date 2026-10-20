@@ -245,6 +245,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/bovedas-movimientos/pendientes', [BovedaController::class, 'movimientosPendientes']);
             Route::post('/bovedas-movimientos/{id}/aprobar', [BovedaController::class, 'aprobarMovimiento']);
             Route::post('/bovedas-movimientos/{id}/rechazar', [BovedaController::class, 'rechazarMovimiento']);
+            Route::post('/bovedas-movimientos/{id}/anular', [BovedaController::class, 'anularMovimiento']);
             Route::put('/bovedas-movimientos/{id}', [BovedaController::class, 'actualizarMovimiento']);
 
             // Recibos - rutas sin parámetro ID primero
@@ -432,6 +433,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/cajas/{id}/detalle', [CajaController::class, 'detalleCaja']);
             Route::get('/cajas/{id}/movimientos', [CajaController::class, 'getMovimientos']);
             Route::post('/cajas/movimientos', [CajaController::class, 'registrarMovimiento']);
+            Route::post('/cajas/movimientos/{id}/anular', [CajaController::class, 'anularMovimiento']);
 
             // Integración Caja-Bóveda: aprobación de movimientos pendientes (modo integrado)
             Route::get('/boveda/movimientos-caja-pendientes', [BovedaController::class, 'movimientosCajaPendientes']);
