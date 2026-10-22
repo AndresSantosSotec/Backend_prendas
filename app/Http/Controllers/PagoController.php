@@ -31,7 +31,8 @@ class PagoController extends Controller
             $credito->refresh();
 
             $fechaCalculo = $request->filled('fecha_calculo') ? \Carbon\Carbon::parse($request->input('fecha_calculo')) : null;
-            $calculo = $this->pagoService->calcularDeudaAlDia($credito, $fechaCalculo);
+            $descuentoPorcentaje = $request->filled('descuento_porcentaje') ? (float) $request->input('descuento_porcentaje') : null;
+            $calculo = $this->pagoService->calcularDeudaAlDia($credito, $fechaCalculo, $descuentoPorcentaje);
 
             return response()->json([
                 'success' => true,
@@ -62,6 +63,10 @@ class PagoController extends Controller
             'idempotency_key' => 'required|string|uuid',
             'periodos' => 'nullable|integer|min:1|max:12', // Para RENOVACION
             'cuotas' => 'nullable|integer|min:1|max:10', // Para ADELANTO
+            'porcentaje_descuento' => 'nullable|numeric|min:0|max:100',
+            'monto_descuento' => 'nullable|numeric|min:0',
+            'descuento_motivo' => 'nullable|string',
+            'recalcular_plan_pagos' => 'nullable|boolean',
         ]);
 
         try {
