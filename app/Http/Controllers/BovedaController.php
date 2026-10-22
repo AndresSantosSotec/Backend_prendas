@@ -521,7 +521,7 @@ class BovedaController extends Controller
     {
         $user = Auth::user();
 
-        if (!$this->esAdmin($user) && !$user->hasPermission('boveda', 'aprobar')) {
+        if (!$this->esAdmin($user) && !$user->hasPermission('boveda', 'aprobar') && !$user->hasPermission('boveda', 'anular') && !$user->hasPermission('boveda', 'anular_movimiento')) {
             return response()->json(['error' => 'No tienes permiso para anular movimientos de bóveda.'], 403);
         }
 
@@ -531,16 +531,16 @@ class BovedaController extends Controller
 
         $movimiento = BovedaMovimiento::with(['boveda', 'bovedaDestino'])->findOrFail($id);
 
-        if ($movimiento->estado === 'anulado') {
+        if ($movimiento->estaAnulado()) {
             return response()->json(['error' => 'El movimiento ya se encuentra anulado.'], 400);
         }
 
         try {
             return DB::transaction(function () use ($movimiento, $user, $request) {
                 $estadoAnterior = $movimiento->estado;
-                $movimiento->estado = 'anulado';
-                $movimiento->observaciones = 'Anulado por ' . $user->name . ': ' . $request->motivo;
-                $movimiento->save();
+                $movimiento->marcarAnulado([
+                    'observaciones' => 'Anulado por ' . $user->name . ': ' . $request->motivo,
+                ]);
 
                 // Si estaba aprobado, revertir saldos de bóveda origen y destino
                 if ($estadoAnterior === 'aprobado') {
@@ -554,11 +554,11 @@ class BovedaController extends Controller
 
                 // Si está enlazado a un movimiento de caja, anularlo también
                 $movCaja = MovimientoCaja::where('boveda_movimiento_id', $movimiento->id)->first();
-                if ($movCaja) {
-                    $movCaja->estado = 'anulado';
-                    $movCaja->estado_boveda = 'anulado';
-                    $movCaja->observaciones_boveda = 'Anulado desde bóveda por ' . $user->name . ': ' . $request->motivo;
-                    $movCaja->save();
+                if ($movCaja && !$movCaja->estaAnulado()) {
+                    $movCaja->marcarAnulado([
+                        'estado_boveda' => 'anulado',
+                        'observaciones_boveda' => 'Anulado desde bóveda por ' . $user->name . ': ' . $request->motivo,
+                    ]);
                 }
 
                 \Illuminate\Support\Facades\Log::info("Movimiento de bóveda #{$movimiento->id} anulado por usuario #{$user->id}: {$request->motivo}");

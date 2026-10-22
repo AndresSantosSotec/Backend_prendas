@@ -106,12 +106,23 @@ class CompraService
                         $this->procesarCamposDinamicos($compra, $data['campos_dinamicos']);
                     }
 
-                    // 7. Registrar movimiento de caja si es necesario
+                    // 7. Registrar movimiento de caja si es necesario.
+                    // Una compra en efectivo NO puede quedar registrada sin rebajar caja.
                     if ($compra->genera_egreso_caja) {
-                        $movimiento = $this->registrarEgresoCaja($compra, $sucursalId);
-                        if ($movimiento) {
-                            $compra->update(['movimiento_caja_id' => $movimiento->id]);
+                        $movimiento = $this->registrarEgresoCaja($compra, (int) $sucursalId);
+                        if (!$movimiento) {
+                            throw new \RuntimeException(
+                                "No se pudo registrar el egreso en caja para la compra {$compra->codigo_compra}. " .
+                                'Verifique que exista una caja abierta hoy en la sucursal e intente de nuevo.'
+                            );
                         }
+                        $compra->update(['movimiento_caja_id' => $movimiento->id]);
+                    }
+
+                    if ($compra->genera_egreso_caja && !$compra->movimiento_caja_id) {
+                        throw new \RuntimeException(
+                            "La compra {$compra->codigo_compra} no puede guardarse porque no rebajó efectivo en caja."
+                        );
                     }
 
                     // 8. Log de auditoría
@@ -121,6 +132,10 @@ class CompraService
                         'monto' => $compra->monto_pagado,
                         'cliente' => $compra->cliente_nombre,
                         'usuario' => $user->name ?? $user->username,
+                        'sucursal_id' => $sucursalId,
+                        'metodo_pago' => $compra->metodo_pago,
+                        'genera_egreso_caja' => $compra->genera_egreso_caja,
+                        'movimiento_caja_id' => $compra->movimiento_caja_id,
                     ]);
 
                     // 9. Disparar evento (opcional para hooks futuros)
@@ -275,81 +290,54 @@ class CompraService
     }
 
     /**
-     * Registrar egreso en caja de manera robusta
+     * Registrar egreso en la caja vigente de la sucursal.
+     * No usa cajas cerradas, inconsistentes ni de otras sucursales.
      */
     public function registrarEgresoCaja(Compra $compra, int $sucursalId): ?MovimientoCaja
     {
-        try {
-            // 1. Intentar buscar caja abierta del usuario actual o de la sucursal indicada
-            $caja = CajaService::getCajaAbierta($compra->usuario_id, $sucursalId);
+        $caja = CajaService::getCajaAbiertaVigente(
+            Auth::id() ?? $compra->usuario_id,
+            $sucursalId
+        );
 
-            // 2. Fallback: buscar cualquier caja abierta activa en la misma sucursal
-            if (!$caja) {
-                $caja = \App\Models\CajaAperturaCierre::where('sucursal_id', $sucursalId)
-                    ->where('estado', 'abierta')
-                    ->whereNull('fecha_cierre')
-                    ->orderBy('fecha_apertura', 'desc')
-                    ->orderBy('id', 'desc')
-                    ->first()
-                    ?? \App\Models\CajaAperturaCierre::where('sucursal_id', $sucursalId)
-                        ->where('estado', 'abierta')
-                        ->orderBy('fecha_apertura', 'desc')
-                        ->orderBy('id', 'desc')
-                        ->first();
-            }
-
-            // 3. Fallback: buscar cualquier caja abierta activa en el sistema
-            if (!$caja) {
-                $caja = \App\Models\CajaAperturaCierre::where('estado', 'abierta')
-                    ->whereNull('fecha_cierre')
-                    ->orderBy('fecha_apertura', 'desc')
-                    ->orderBy('id', 'desc')
-                    ->first()
-                    ?? \App\Models\CajaAperturaCierre::where('estado', 'abierta')
-                        ->orderBy('fecha_apertura', 'desc')
-                        ->orderBy('id', 'desc')
-                        ->first();
-            }
-
-            // Si definitivamente no hay ninguna caja abierta en el sistema
-            if (!$caja) {
-                Log::warning("Compra #{$compra->codigo_compra}: no se encontró caja abierta activa en sucursal {$sucursalId} para registrar egreso.");
-                return null;
-            }
-
-            // Determinar user_id para auditoría del movimiento: usuario activo o de la compra o cajero
-            $userId = Auth::id() ?? $compra->usuario_id ?? $caja->user_id;
-
-            // Limitar concepto a máximo 250 caracteres para evitar desbordar columna VARCHAR(255)
-            $concepto = mb_substr("Compra directa: {$compra->codigo_compra} - {$compra->descripcion}", 0, 250);
-
-            // IMPORTANTE: detalles_movimiento como array asociativo nativo (NO json_encode)
-            // porque el modelo MovimientoCaja ya tiene $casts['detalles_movimiento'] => 'array'
-            return MovimientoCaja::create([
-                'caja_id' => $caja->id,
-                'tipo' => 'decremento',
-                'monto' => abs((float)$compra->monto_pagado),
-                'concepto' => $concepto,
-                'detalles_movimiento' => [
-                    'tipo_operacion' => 'compra_directa',
-                    'compra_id' => $compra->id,
-                    'codigo_compra' => $compra->codigo_compra,
-                    'cliente' => $compra->cliente_nombre,
-                    'descripcion' => $compra->descripcion,
-                    'monto' => (float)$compra->monto_pagado,
-                    'sucursal_id' => $sucursalId,
-                ],
-                'estado' => 'aplicado',
-                'user_id' => $userId,
-            ]);
-        } catch (\Exception $e) {
-            Log::error("Error al registrar egreso en caja para compra #{$compra->codigo_compra}: " . $e->getMessage(), [
-                'trace' => $e->getTraceAsString(),
+        if (!$caja) {
+            Log::warning("Compra #{$compra->codigo_compra}: no hay caja operativa hoy en sucursal {$sucursalId}.", [
                 'compra_id' => $compra->id,
-                'sucursal_id' => $sucursalId,
+                'usuario_compra' => $compra->usuario_id,
+                'auth_id' => Auth::id(),
             ]);
             return null;
         }
+
+        $userId = Auth::id() ?? $compra->usuario_id ?? $caja->user_id;
+        $concepto = mb_substr("Compra directa: {$compra->codigo_compra} - {$compra->descripcion}", 0, 250);
+
+        Log::info("Egreso de compra se aplicará a caja operativa", [
+            'codigo_compra' => $compra->codigo_compra,
+            'caja_id' => $caja->id,
+            'caja_user_id' => $caja->user_id,
+            'caja_sucursal_id' => $caja->sucursal_id,
+            'fecha_apertura' => $caja->fecha_apertura,
+            'monto' => $compra->monto_pagado,
+        ]);
+
+        return MovimientoCaja::create([
+            'caja_id' => $caja->id,
+            'tipo' => 'decremento',
+            'monto' => abs((float)$compra->monto_pagado),
+            'concepto' => $concepto,
+            'detalles_movimiento' => [
+                'tipo_operacion' => 'compra_directa',
+                'compra_id' => $compra->id,
+                'codigo_compra' => $compra->codigo_compra,
+                'cliente' => $compra->cliente_nombre,
+                'descripcion' => $compra->descripcion,
+                'monto' => (float)$compra->monto_pagado,
+                'sucursal_id' => $sucursalId,
+            ],
+            'estado' => 'aplicado',
+            'user_id' => $userId,
+        ]);
     }
 
     /**
@@ -381,6 +369,35 @@ class CompraService
         }
 
         return $movimiento;
+    }
+
+    /**
+     * Anular el egreso de caja asociado a una compra (si la caja sigue abierta).
+     */
+    public function anularEgresoCaja(Compra $compra, string $motivo = 'Compra cancelada/eliminada'): void
+    {
+        if (!$compra->movimiento_caja_id) {
+            return;
+        }
+
+        $movimiento = MovimientoCaja::with('caja')->find($compra->movimiento_caja_id);
+        if (!$movimiento || $movimiento->estaAnulado()) {
+            return;
+        }
+
+        $caja = $movimiento->caja;
+        if (!$caja || $caja->estado !== 'abierta' || $caja->fecha_cierre) {
+            Log::warning("No se pudo revertir el egreso de caja de la compra #{$compra->codigo_compra} porque la caja ya está cerrada.", [
+                'compra_id' => $compra->id,
+                'movimiento_caja_id' => $movimiento->id,
+                'caja_id' => $caja?->id,
+            ]);
+            return;
+        }
+
+        $movimiento->marcarAnulado([
+            'observaciones_boveda' => $motivo,
+        ]);
     }
 
     /**
@@ -459,12 +476,6 @@ class CompraService
             'movimientoCaja',
             'camposDinamicos',
         ])->findOrFail($compraId);
-
-        // Auto-reparación: si es una compra en efectivo activa que no tenía movimiento_caja_id, sincronizar
-        if ($compra->genera_egreso_caja && !$compra->movimiento_caja_id && $compra->estado === 'activa') {
-            $this->sincronizarEgresoCaja($compra);
-            $compra->refresh()->load(['movimientoCaja']);
-        }
 
         return $compra;
     }

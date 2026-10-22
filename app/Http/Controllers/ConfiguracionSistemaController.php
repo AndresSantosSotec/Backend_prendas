@@ -17,8 +17,16 @@ class ConfiguracionSistemaController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = Auth::user();
-        if (!$user || ($user->rol !== 'superadmin' && ($user->role ?? null) !== 'superadmin')) {
-            return response()->json(['error' => 'Acceso denegado. Se requiere rol de Super Administrador.'], 403);
+        $esAutorizado = $user && (
+            in_array($user->rol, ['superadmin', 'administrador']) ||
+            in_array($user->role ?? null, ['superadmin', 'administrador']) ||
+            $user->hasPermission('planes_interes', 'editar') ||
+            $user->hasPermission('planes_interes', 'ver') ||
+            $user->hasPermission('contabilidad', 'configurar')
+        );
+
+        if (!$esAutorizado) {
+            return response()->json(['error' => 'Acceso denegado. Se requieren permisos administrativos.'], 403);
         }
 
         $query = ConfiguracionSistema::query();
@@ -64,8 +72,15 @@ class ConfiguracionSistemaController extends Controller
     public function update(Request $request): JsonResponse
     {
         $user = Auth::user();
-        if (!$user || ($user->rol !== 'superadmin' && ($user->role ?? null) !== 'superadmin')) {
-            return response()->json(['error' => 'Acceso denegado. Se requiere rol de Super Administrador.'], 403);
+        $esAutorizado = $user && (
+            in_array($user->rol, ['superadmin', 'administrador']) ||
+            in_array($user->role ?? null, ['superadmin', 'administrador']) ||
+            $user->hasPermission('planes_interes', 'editar') ||
+            $user->hasPermission('contabilidad', 'configurar')
+        );
+
+        if (!$esAutorizado) {
+            return response()->json(['error' => 'Acceso denegado. Se requieren permisos administrativos.'], 403);
         }
 
         $request->validate([
@@ -79,18 +94,43 @@ class ConfiguracionSistemaController extends Controller
         foreach ($request->configuraciones as $item) {
             $config = ConfiguracionSistema::where('clave', $item['clave'])->first();
 
+            $valor = $item['valor'];
+
             if (!$config) {
-                continue; // Solo actualizamos claves existentes, no creamos nuevas vía API
+                $clave = (string) $item['clave'];
+                $claveNuevaPermitida = str_starts_with($clave, 'promocion_') || str_starts_with($clave, 'credito_');
+                if (!$claveNuevaPermitida) {
+                    continue;
+                }
+
+                $tipo = 'string';
+                if (is_bool($valor) || in_array($valor, ['true', 'false', true, false], true)) {
+                    $tipo = 'boolean';
+                } elseif (is_numeric($valor)) {
+                    $tipo = is_float($valor + 0) ? 'float' : 'integer';
+                } elseif (is_array($valor)) {
+                    $tipo = 'json';
+                }
+
+                $grupo = str_contains($item['clave'], 'promocion') ? 'promociones' : 'creditos';
+
+                $config = new ConfiguracionSistema();
+                $config->clave = $item['clave'];
+                $config->tipo = $tipo;
+                $config->grupo = $grupo;
+                $config->editable_por_usuario = true;
+                $config->descripcion = ucfirst(str_replace('_', ' ', $item['clave']));
             }
 
             if (!$config->editable_por_usuario) {
                 continue; // Respetar restricción de edición
             }
 
-            // Normalizar valor booleano
-            $valor = $item['valor'];
+            // Normalizar valor según tipo
             if ($config->tipo === 'boolean') {
                 $valor = filter_var($valor, FILTER_VALIDATE_BOOLEAN) ? 'true' : 'false';
+            } elseif ($config->tipo === 'json' && is_array($valor)) {
+                $valor = json_encode($valor);
             }
 
             $config->valor = (string) $valor;

@@ -720,7 +720,7 @@ class CajaController extends Controller
     {
         $user = Auth::user();
 
-        if (!in_array($user->rol, ['superadmin', 'administrador']) && !$user->hasPermission('caja', 'gestionar_cajas')) {
+        if (!in_array($user->rol, ['superadmin', 'administrador']) && !$user->hasPermission('caja', 'gestionar_cajas') && !$user->hasPermission('caja', 'anular_movimiento')) {
             return response()->json(['error' => 'No tienes permiso para anular movimientos de caja.'], 403);
         }
 
@@ -730,7 +730,7 @@ class CajaController extends Controller
 
         $movimiento = MovimientoCaja::with(['caja', 'bovedaMovimiento'])->findOrFail($id);
 
-        if ($movimiento->estado === 'anulado') {
+        if ($movimiento->estaAnulado()) {
             return response()->json(['error' => 'El movimiento ya se encuentra anulado.'], 400);
         }
 
@@ -750,17 +750,16 @@ class CajaController extends Controller
             if ($movimiento->boveda_movimiento_id && $movimiento->bovedaMovimiento) {
                 $bovMov = $movimiento->bovedaMovimiento;
                 $estadoAnteriorBoveda = $bovMov->estado;
-                $bovMov->estado = 'anulado';
-                $bovMov->save();
+                $bovMov->marcarAnulado();
 
                 if ($estadoAnteriorBoveda === 'aprobado' && $bovMov->boveda) {
                     $bovMov->boveda->actualizarSaldo();
                 }
             }
 
-            $movimiento->estado = 'anulado';
-            $movimiento->observaciones_boveda = 'Anulado por ' . $user->name . ': ' . $request->motivo;
-            $movimiento->save();
+            $movimiento->marcarAnulado([
+                'observaciones_boveda' => 'Anulado por ' . $user->name . ': ' . $request->motivo,
+            ]);
 
             Log::info("Movimiento de caja #{$movimiento->id} anulado por usuario #{$user->id}: {$request->motivo}");
 

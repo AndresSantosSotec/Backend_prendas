@@ -28,6 +28,7 @@ class PlanInteresCategoria extends Model
     public const PERIODO_MENSUAL = 'mensual';
 
     public const PERIODOS = [
+        self::PERIODO_DIARIO,
         self::PERIODO_SEMANAL,
         self::PERIODO_QUINCENAL,
         self::PERIODO_MENSUAL,

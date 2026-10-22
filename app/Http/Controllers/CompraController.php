@@ -81,7 +81,7 @@ class CompraController extends Controller
         $metodoPago = $request->input('metodo_pago', 'efectivo');
         $sucursalId = $request->input('sucursal_id') ?? $request->input('_sucursal_scope') ?? Auth::user()?->sucursal_id;
 
-        if ($metodoPago === 'efectivo' && !\App\Services\CajaService::tieneCajaAbierta(Auth::id(), $sucursalId)) {
+        if ($metodoPago === 'efectivo' && !\App\Services\CajaService::tieneCajaAbiertaVigente(Auth::id(), $sucursalId)) {
             return response()->json([
                 'success' => false,
                 'message' => 'No hay una caja abierta en la sucursal para realizar compras en efectivo. Por favor, apertura una caja en el módulo de Caja antes de continuar.',
@@ -164,6 +164,11 @@ class CompraController extends Controller
                 'estado' => 'cancelada',
                 'observaciones' => ($compra->observaciones ?? '') . "\n[CANCELADA] " . ($request->input('motivo') ?? 'Sin motivo especificado')
             ]);
+
+            $this->compraService->anularEgresoCaja(
+                $compra,
+                'Compra cancelada: ' . ($request->input('motivo') ?? 'Sin motivo especificado')
+            );
 
             // Eliminar la prenda del inventario (soft delete) — como si nunca hubiera ingresado
             if ($compra->prenda) {
@@ -302,6 +307,8 @@ class CompraController extends Controller
                     'message' => 'No se puede eliminar una compra cuya prenda ya fue vendida'
                 ], 422);
             }
+
+            $this->compraService->anularEgresoCaja($compra, 'Compra eliminada');
 
             // Eliminar la prenda asociada si existe
             if ($compra->prenda) {

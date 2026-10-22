@@ -278,6 +278,8 @@ class CreditoPrendarioController extends Controller
             'monto_aprobado' => 'nullable|numeric|min:0',
             'valor_tasacion' => 'nullable|numeric|min:0',
             'tasa_interes' => 'nullable|numeric|gt:0',
+            'porcentaje_descuento_interes' => 'nullable|numeric|min:0|max:100',
+            'descuento_interes_motivo' => 'nullable|string|max:255',
             'tasa_mora' => 'nullable|numeric|min:0',
             'tipo_mora' => 'nullable|in:porcentaje,monto_fijo',
             'mora_monto_fijo' => 'nullable|numeric|min:0',
@@ -440,6 +442,8 @@ class CreditoPrendarioController extends Controller
                 'monto_aprobado' => $request->monto_aprobado ?? $request->monto_solicitado,
                 'valor_tasacion' => $request->valor_tasacion,
                 'tasa_interes' => $tasaInteresFinal,
+                'porcentaje_descuento_interes' => (float) ($request->porcentaje_descuento_interes ?? 0),
+                'descuento_interes_motivo' => $request->descuento_interes_motivo ?? null,
                 'tasa_mora' => $tasaMora,
                 'tipo_mora' => $tipoMora,
                 'mora_monto_fijo' => $moraMontoFijo,
@@ -1774,6 +1778,11 @@ class CreditoPrendarioController extends Controller
                     'concepto' => $movimiento->concepto,
                     'observaciones' => $movimiento->observaciones,
                     'estado' => $movimiento->estado,
+                    'motivo_reversion' => $movimiento->motivo_reversion,
+                    'fecha_reversion' => $movimiento->fecha_reversion?->toISOString(),
+                    'movimiento_reversa_id' => $movimiento->movimiento_reversa_id
+                        ? (string) $movimiento->movimiento_reversa_id
+                        : null,
                     'usuario' => $movimiento->usuario ? [
                         'id' => (string) $movimiento->usuario->id,
                         'nombre' => $movimiento->usuario->name,
@@ -2508,6 +2517,18 @@ class CreditoPrendarioController extends Controller
      */
     public function anularMovimiento(Request $request, string $id, string $movimientoId): JsonResponse
     {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'No autenticado'], 401);
+        }
+
+        if (!in_array($user->rol, ['superadmin', 'administrador']) && !$user->hasPermission('creditos', 'cancelar') && !$user->hasPermission('creditos', 'anular_movimiento')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para anular movimientos de crédito'
+            ], 403);
+        }
+
         $validator = Validator::make($request->all(), [
             'motivo' => 'required|string|max:1000',
             'idempotency_key' => 'required|string|max:255',
@@ -2644,6 +2665,33 @@ class CreditoPrendarioController extends Controller
                 'tipo_cambio' => 1,
             ]);
 
+            $cajaReversion = null;
+            if (in_array($movimiento->tipo_movimiento, ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado', 'pago_interes'], true)) {
+                $cajaReversion = \App\Services\CajaService::revertirPagoCredito(
+                    $movimiento,
+                    $credito,
+                    (string) $request->motivo
+                );
+            }
+
+            // Sincronizar Contabilidad: agrupar el orWhere para no anular otro asiento
+            $diario = \App\Models\Contabilidad\CtbDiario::where(function ($q) use ($movimiento) {
+                $q->where('movimiento_credito_id', $movimiento->id)
+                    ->orWhere('numero_documento', $movimiento->numero_movimiento);
+            })->first();
+
+            if ($diario && $diario->estado !== 'anulado') {
+                try {
+                    app(\App\Services\ContabilidadAutomaticaService::class)->anularAsiento(
+                        $diario->id,
+                        'Anulación de movimiento de crédito #' . $credito->numero_credito . ': ' . $request->motivo,
+                        Auth::id()
+                    );
+                } catch (\Exception $ce) {
+                    Log::warning('No se pudo anular asiento contable automático: ' . $ce->getMessage());
+                }
+            }
+
             // Registrar auditoría
             AuditoriaCredito::registrar(
                 $credito->id,
@@ -2671,9 +2719,17 @@ class CreditoPrendarioController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Movimiento anulado exitosamente',
-                'data' => $resultado
+                'data' => $resultado,
+                'caja' => $cajaReversion,
             ], 200);
 
+        } catch (\RuntimeException $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
         } catch (\Exception $e) {
             DB::rollBack();
 

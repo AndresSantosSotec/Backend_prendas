@@ -106,7 +106,6 @@ class PagoService
             $cuotaInteres = round((float) ($primeraCuota->interes_pendiente ?? 0), 2);
             $cuotaMora = round((float) ($primeraCuota->mora_pendiente ?? 0), 2);
             $cuotaGastos = round((float) ($primeraCuota->otros_cargos_pendientes ?? 0), 2);
-            $montoCuotaActual = round($cuotaCapital + $cuotaInteres + $cuotaMora + $cuotaGastos, 2);
 
             $interesPorPeriodo = $cuotaInteres;
             if ($interesPorPeriodo <= 0) {
@@ -114,8 +113,15 @@ class PagoService
                 $interesPorPeriodo = max(0, $capitalPendiente * $tasaPorPeriodo);
             }
 
-            // === CÁLCULO DE INTERÉS DIARIO (SI ESTÁ HABILITADO) ===
-            $interesDiarioHabilitado = (bool) (ConfiguracionSistema::obtener('credito_interes_diario_habilitado', false) || (string) $credito->tipo_interes === 'diario' || (bool) ($credito->interes_diario_habilitado ?? false));
+            // === CÁLCULO DE INTERÉS DIARIO VS MENSUAL ===
+            $modoCalculo = (string) ConfiguracionSistema::obtener('credito_modo_calculo_interes', '');
+            if ($modoCalculo === 'diario') {
+                $interesDiarioHabilitado = true;
+            } elseif ($modoCalculo === 'mensual') {
+                $interesDiarioHabilitado = false;
+            } else {
+                $interesDiarioHabilitado = (bool) (ConfiguracionSistema::obtener('credito_interes_diario_habilitado', false) || (string) $credito->tipo_interes === 'diario' || (bool) ($credito->interes_diario_habilitado ?? false));
+            }
             $diasMinimos = (int) ConfiguracionSistema::obtener('credito_interes_diario_dias_minimos', 1);
             $diasEfectivos = max($diasMinimos, $diasTranscurridos);
 
@@ -124,6 +130,7 @@ class PagoService
                 $interesDiarioDevengado = round($capitalPendiente * $tasaDiaria * $diasEfectivos, 2);
                 $interesTotal = $interesDiarioDevengado;
                 $interesPorPeriodo = $interesDiarioDevengado;
+                $cuotaInteres = $interesDiarioDevengado;
             }
 
             // === DESCUENTO PROMOCIONAL EN INTERESES (LUNES / MARTES / PARAMETRIZABLE) ===
@@ -131,11 +138,21 @@ class PagoService
             $descuentoInteres = $promoInfo['monto_descuento'];
             $interesTotalConDescuento = max(0, round($interesTotal - $descuentoInteres, 2));
 
+            // Descuento promocional aplicado a la cuota actual
+            $descuentoCuotaInteres = 0.0;
+            if ($promoInfo['aplicada'] && $promoInfo['porcentaje_descuento'] > 0 && $cuotaInteres > 0) {
+                $descuentoCuotaInteres = round($cuotaInteres * ($promoInfo['porcentaje_descuento'] / 100), 2);
+            }
+            $cuotaInteresConDescuento = max(0, round($cuotaInteres - $descuentoCuotaInteres, 2));
+            $montoCuotaActual = round($cuotaCapital + $cuotaInteresConDescuento + $cuotaMora + $cuotaGastos, 2);
+
             $minimoRenovacion = $moraTotal + $interesPorPeriodo + $otrosTotal;
             $totalPagar = $capitalPendiente + $interesTotalConDescuento + $moraTotal + $otrosTotal;
             $totalRecalculado = round($capitalPendiente + $interesTotalConDescuento + $moraTotal + $otrosTotal, 2);
             $totalParaLiquidar = round($totalPagar, 2);
             $diferenciaTotal = round($totalParaLiquidar - $totalRecalculado, 2);
+
+            $simulacionesProximas = $this->calcularSimulacionesProximas($credito, $capitalPendiente, $moraTotal, $otrosTotal, $fechaBase);
 
             $debugCuotas = $cuotasPendientes->map(function ($cuota) {
                 return [
@@ -167,7 +184,9 @@ class PagoService
                 'interes_por_periodo' => round($interesPorPeriodo, 2),
                 'monto_cuota_actual' => round($montoCuotaActual, 2),
                 'cuota_capital' => $cuotaCapital,
-                'cuota_interes' => $cuotaInteres,
+                'cuota_interes' => $cuotaInteresConDescuento,
+                'cuota_interes_original' => $cuotaInteres,
+                'descuento_cuota_interes' => $descuentoCuotaInteres,
                 'cuota_mora' => $cuotaMora,
                 'cuota_gastos' => $cuotaGastos,
                 'cuota_numero' => $primeraCuota?->numero_cuota,
@@ -176,7 +195,12 @@ class PagoService
                 'interes_diario_habilitado' => $interesDiarioHabilitado,
                 'dias_efectivos_calculo' => $diasEfectivos,
                 'descuento_promocional' => $descuentoInteres,
+                'descuento_interes' => $descuentoInteres,
+                'porcentaje_descuento_interes' => (float) ($promoInfo['porcentaje_descuento'] ?? 0),
+                'es_dia_promocion' => (bool) ($promoInfo['aplicada'] ?? false),
+                'descripcion_promocion' => $promoInfo['descripcion'] ?? '',
                 'promocion_interes' => $promoInfo,
+                'simulaciones_proximas' => $simulacionesProximas,
                 'debug_calculo' => [
                     'usa_plan_pagos' => true,
                     'fecha_base' => $fechaBase?->format('Y-m-d'),
@@ -240,8 +264,15 @@ class PagoService
         }
 
         // ============== TOTALES ==============
-        // === CÁLCULO DE INTERÉS DIARIO (SI ESTÁ HABILITADO) ===
-        $interesDiarioHabilitado = (bool) (ConfiguracionSistema::obtener('credito_interes_diario_habilitado', false) || (string) $credito->tipo_interes === 'diario' || (bool) ($credito->interes_diario_habilitado ?? false));
+        // === CÁLCULO DE INTERÉS DIARIO VS MENSUAL ===
+        $modoCalculo = (string) ConfiguracionSistema::obtener('credito_modo_calculo_interes', '');
+        if ($modoCalculo === 'diario') {
+            $interesDiarioHabilitado = true;
+        } elseif ($modoCalculo === 'mensual') {
+            $interesDiarioHabilitado = false;
+        } else {
+            $interesDiarioHabilitado = (bool) (ConfiguracionSistema::obtener('credito_interes_diario_habilitado', false) || (string) $credito->tipo_interes === 'diario' || (bool) ($credito->interes_diario_habilitado ?? false));
+        }
         $diasMinimos = (int) ConfiguracionSistema::obtener('credito_interes_diario_dias_minimos', 1);
         $diasEfectivos = max($diasMinimos, $diasTranscurridos);
 
@@ -321,7 +352,12 @@ class PagoService
             'interes_diario_habilitado' => $interesDiarioHabilitado,
             'dias_efectivos_calculo' => $diasEfectivos,
             'descuento_promocional' => $descuentoInteres,
+            'descuento_interes' => $descuentoInteres,
+            'porcentaje_descuento_interes' => (float) ($promoInfo['porcentaje_descuento'] ?? 0),
+            'es_dia_promocion' => (bool) ($promoInfo['aplicada'] ?? false),
+            'descripcion_promocion' => $promoInfo['descripcion'] ?? '',
             'promocion_interes' => $promoInfo,
+            'simulaciones_proximas' => $this->calcularSimulacionesProximas($credito, (float) $credito->capital_pendiente, $moraTotal, $otrosTotal, $fechaBase),
             'debug_calculo' => [
                 'usa_plan_pagos' => false,
                 'fecha_base' => $fechaBase?->format('Y-m-d'),
@@ -349,6 +385,64 @@ class PagoService
     }
 
     /**
+     * Calcula proyecciones de liquidación para el próximo lunes y martes (con descuento si aplica)
+     */
+    public function calcularSimulacionesProximas(CreditoPrendario $credito, float $capitalPendiente, float $moraTotal, float $otrosTotal, ?Carbon $fechaBase = null): array
+    {
+        $fechaBase = $fechaBase ?? $credito->fecha_ultimo_pago ?? $credito->fecha_desembolso ?? $credito->fecha_solicitud ?? Carbon::now();
+        $hoy = Carbon::now()->startOfDay();
+
+        // Próximo lunes y martes de la otra semana / próximos días hábiles de promoción
+        $proximoLunes = $hoy->copy()->next(Carbon::MONDAY)->startOfDay();
+        $proximoMartes = $hoy->copy()->next(Carbon::TUESDAY)->startOfDay();
+
+        $diasMinimos = (int) ConfiguracionSistema::obtener('credito_interes_diario_dias_minimos', 1);
+        $diasLunes = max($diasMinimos, (int) abs($proximoLunes->diffInDays($fechaBase)));
+        $diasMartes = max($diasMinimos, (int) abs($proximoMartes->diffInDays($fechaBase)));
+
+        $tasaDiaria = (($credito->tasa_interes / 100) / 30);
+        $interesBrutoLunes = round($capitalPendiente * $tasaDiaria * $diasLunes, 2);
+        $interesBrutoMartes = round($capitalPendiente * $tasaDiaria * $diasMartes, 2);
+
+        $promoConfigLunes = $this->calcularDescuentoPromocional($interesBrutoLunes, $proximoLunes, $credito);
+        $descuentoLunes = $promoConfigLunes['monto_descuento'];
+        $interesNetoLunes = max(0, round($interesBrutoLunes - $descuentoLunes, 2));
+
+        $promoConfigMartes = $this->calcularDescuentoPromocional($interesBrutoMartes, $proximoMartes, $credito);
+        $descuentoMartes = $promoConfigMartes['monto_descuento'];
+        $interesNetoMartes = max(0, round($interesBrutoMartes - $descuentoMartes, 2));
+
+        return [
+            'lunes' => [
+                'dia' => 'Lunes',
+                'fecha' => $proximoLunes->format('Y-m-d'),
+                'fecha_formateada' => $proximoLunes->format('d/m/Y'),
+                'dias_transcurridos' => $diasLunes,
+                'interes_bruto' => $interesBrutoLunes,
+                'descuento' => $descuentoLunes,
+                'porcentaje_descuento' => $promoConfigLunes['porcentaje_descuento'] ?? 0,
+                'interes_neto' => $interesNetoLunes,
+                'total_liquidar' => round($capitalPendiente + $interesNetoLunes + $moraTotal + $otrosTotal, 2),
+                'aplica_promo' => (bool) ($promoConfigLunes['aplicada'] ?? false),
+                'descripcion_promo' => $promoConfigLunes['descripcion'] ?? '',
+            ],
+            'martes' => [
+                'dia' => 'Martes',
+                'fecha' => $proximoMartes->format('Y-m-d'),
+                'fecha_formateada' => $proximoMartes->format('d/m/Y'),
+                'dias_transcurridos' => $diasMartes,
+                'interes_bruto' => $interesBrutoMartes,
+                'descuento' => $descuentoMartes,
+                'porcentaje_descuento' => $promoConfigMartes['porcentaje_descuento'] ?? 0,
+                'interes_neto' => $interesNetoMartes,
+                'total_liquidar' => round($capitalPendiente + $interesNetoMartes + $moraTotal + $otrosTotal, 2),
+                'aplica_promo' => (bool) ($promoConfigMartes['aplicada'] ?? false),
+                'descripcion_promo' => $promoConfigMartes['descripcion'] ?? '',
+            ],
+        ];
+    }
+
+    /**
      * Evalúa y calcula descuentos promocionales parametrizables por día de la semana sobre intereses
      */
     public function calcularDescuentoPromocional(float $interesBase, Carbon $fechaCalculo, ?CreditoPrendario $credito = null): array
@@ -358,11 +452,12 @@ class PagoService
         $porcentajeDescuento = (float) ConfiguracionSistema::obtener('promocion_interes_porcentaje_descuento', 0);
         $descripcion = (string) ConfiguracionSistema::obtener('promocion_interes_descripcion', 'Descuento especial de inicio de semana');
 
-        // Si el crédito individual tiene un porcentaje pactado específico
-        if ($credito && (float) ($credito->descuento_interes_porcentaje ?? 0) > 0) {
+        $pctCredito = $credito ? (float) ($credito->porcentaje_descuento_interes ?? $credito->descuento_interes_porcentaje ?? 0) : 0;
+        $descuentoPactadoEnCredito = $pctCredito > 0;
+        if ($descuentoPactadoEnCredito) {
             $promoActiva = true;
-            $porcentajeDescuento = (float) $credito->descuento_interes_porcentaje;
-            $descripcion = 'Descuento preferencial del crédito';
+            $porcentajeDescuento = $pctCredito;
+            $descripcion = $credito->descuento_interes_motivo ?? 'Descuento pactado en crédito';
         }
 
         $diaSemanaIngles = strtolower($fechaCalculo->englishDayOfWeek);
@@ -377,7 +472,6 @@ class PagoService
         ];
         $diaSemanaEspanol = $diasMap[$diaSemanaIngles] ?? $diaSemanaIngles;
 
-        // Normalizar lista de días admitidos
         $diasPermitidos = [];
         if (is_array($diasConfig)) {
             foreach ($diasConfig as $dia) {
@@ -386,32 +480,27 @@ class PagoService
                 if (isset($diasMap[$d])) {
                     $diasPermitidos[] = $diasMap[$d];
                 }
-                $reversed = array_search($d, $diasMap);
+                $reversed = array_search($d, $diasMap, true);
                 if ($reversed !== false) {
                     $diasPermitidos[] = $reversed;
                 }
             }
         } elseif (is_string($diasConfig)) {
             $decoded = json_decode($diasConfig, true);
-            if (is_array($decoded)) {
-                foreach ($decoded as $dia) {
-                    $d = strtolower(trim((string) $dia));
-                    $diasPermitidos[] = $d;
-                    if (isset($diasMap[$d])) {
-                        $diasPermitidos[] = $diasMap[$d];
-                    }
-                }
-            } else {
-                $partes = explode(',', strtolower($diasConfig));
-                foreach ($partes as $p) {
-                    $diasPermitidos[] = trim($p);
+            $lista = is_array($decoded) ? $decoded : explode(',', strtolower($diasConfig));
+            foreach ($lista as $dia) {
+                $d = strtolower(trim((string) $dia));
+                $diasPermitidos[] = $d;
+                if (isset($diasMap[$d])) {
+                    $diasPermitidos[] = $diasMap[$d];
                 }
             }
         }
 
-        $aplicaDia = in_array($diaSemanaIngles, $diasPermitidos) || in_array($diaSemanaEspanol, $diasPermitidos);
+        $aplicaDia = in_array($diaSemanaIngles, $diasPermitidos, true)
+            || in_array($diaSemanaEspanol, $diasPermitidos, true);
 
-        if ($promoActiva && $porcentajeDescuento > 0 && $interesBase > 0 && ($aplicaDia || ($credito && (float) ($credito->descuento_interes_porcentaje ?? 0) > 0))) {
+        if ($promoActiva && $porcentajeDescuento > 0 && $interesBase > 0 && ($aplicaDia || $descuentoPactadoEnCredito)) {
             $montoDescuento = round($interesBase * ($porcentajeDescuento / 100), 2);
             return [
                 'aplicada' => true,
@@ -433,7 +522,7 @@ class PagoService
             'monto_descuento' => 0,
             'interes_original' => round($interesBase, 2),
             'interes_con_descuento' => round($interesBase, 2),
-            'descripcion' => null,
+            'descripcion' => '',
         ];
     }
 
@@ -672,11 +761,12 @@ class PagoService
             throw new \Exception("No hay cuotas pendientes para pagar");
         }
 
-        // 2. Calcular total de la cuota (reales pendientes)
-        $totalCuota = ($cuota->capital_pendiente ?? $cuota->capital_proyectado) +
+        // 2. Calcular total de la cuota (reales pendientes con posibles descuentos vigentes)
+        $calculo = $this->calcularDeudaAlDia($credito);
+        $totalCuota = (float) ($calculo['monto_cuota_actual'] ?? (($cuota->capital_pendiente ?? $cuota->capital_proyectado) +
                       ($cuota->interes_pendiente ?? $cuota->interes_proyectado) +
                       ($cuota->mora_pendiente ?? $cuota->mora_proyectada ?? 0) +
-                      ($cuota->otros_cargos_pendientes ?? $cuota->otros_cargos_proyectados ?? 0);
+                      ($cuota->otros_cargos_pendientes ?? $cuota->otros_cargos_proyectados ?? 0)));
 
         // 3. Validar monto suficiente
         if ($monto < ($totalCuota - 0.10)) {
@@ -693,7 +783,7 @@ class PagoService
             $capitalAPagar = (float) $credito->capital_pendiente;
         }
 
-        $interesAPagar = (float) ($cuota->interes_pendiente ?? $cuota->interes_proyectado ?? 0);
+        $interesAPagar = (float) ($calculo['cuota_interes'] ?? ($cuota->interes_pendiente ?? $cuota->interes_proyectado ?? 0));
         $moraAPagar = (float) ($cuota->mora_pendiente ?? $cuota->mora_proyectada ?? 0);
         $otrosAPagar = (float) ($cuota->otros_cargos_pendientes ?? $cuota->otros_cargos_proyectados ?? 0);
 
