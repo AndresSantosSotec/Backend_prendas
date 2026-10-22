@@ -31,23 +31,28 @@ class HandleCors
             'https://digiprenda.inniserver.net',
             'https://avanzadigiprenda.stockgenius-sotecpro.com',
             'https://crediprendasdigi.stockgenius-sotecpro.com',
+            'https://prendamas.stockgenius-sotecpro.com',
         ];
 
-        // Permitir cualquier localhost o subdominio en producción
+        // Permitir localhost, subdominios de la plataforma o PWA standalone ('null')
         $isLocalhost = $origin && (
             preg_match('/^http:\/\/localhost:\d+$/', $origin) ||
             preg_match('/^http:\/\/127\.0\.0\.1:\d+$/', $origin) ||
             preg_match('/^https:\/\/.*\.stockgenius-sotecpro\.com$/', $origin) ||
-            preg_match('/^https:\/\/.*\.inniserver\.net$/', $origin)
+            preg_match('/^https:\/\/.*\.inniserver\.net$/', $origin) ||
+            $origin === 'null'
         );
 
-        $isAllowed = $origin && (in_array($origin, $allowedOrigins) || $isLocalhost);
+        $isAllowed = ($origin && (in_array($origin, $allowedOrigins) || $isLocalhost)) || (!$origin && $request->hasHeader('X-Client-ID'));
+        $allowOriginHeader = $origin ?: '*';
+
+        $corsHeaders = 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Client-ID, X-Sucursal-Activa';
 
         if ($isAllowed && $request->isMethod('OPTIONS')) {
             return response('', 204)
-                ->header('Access-Control-Allow-Origin', $origin)
+                ->header('Access-Control-Allow-Origin', $allowOriginHeader)
                 ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH')
-                ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Client-ID')
+                ->header('Access-Control-Allow-Headers', $corsHeaders)
                 ->header('Access-Control-Allow-Credentials', 'true')
                 ->header('Access-Control-Max-Age', '86400');
         }
@@ -57,18 +62,18 @@ class HandleCors
         if ($isAllowed) {
             // Manejar StreamedResponse y BinaryFileResponse de manera diferente
             if ($response instanceof StreamedResponse || $response instanceof BinaryFileResponse) {
-                $response->headers->set('Access-Control-Allow-Origin', $origin);
+                $response->headers->set('Access-Control-Allow-Origin', $allowOriginHeader);
                 $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-                $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Client-ID');
+                $response->headers->set('Access-Control-Allow-Headers', $corsHeaders);
                 $response->headers->set('Access-Control-Allow-Credentials', 'true');
                 $response->headers->set('Access-Control-Max-Age', '86400');
                 return $response;
             }
 
             return $response
-                ->header('Access-Control-Allow-Origin', $origin)
+                ->header('Access-Control-Allow-Origin', $allowOriginHeader)
                 ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH')
-                ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Client-ID')
+                ->header('Access-Control-Allow-Headers', $corsHeaders)
                 ->header('Access-Control-Allow-Credentials', 'true')
                 ->header('Access-Control-Max-Age', '86400');
         }

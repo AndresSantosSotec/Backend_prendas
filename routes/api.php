@@ -93,8 +93,8 @@ use Illuminate\Support\Facades\DB;
     });
 
 Route::prefix('v1')->group(function () {
-    // 🔒 Rutas públicas de autenticación con rate limiting estricto
-    Route::middleware('throttle:5,1')->group(function () {
+    // 🔒 Rutas públicas de autenticación con rate limiting ampliado (permite PWA y reconexiones)
+    Route::middleware('throttle:60,1')->group(function () {
         Route::post('/auth/login', [AuthController::class, 'login']);
     });
 
