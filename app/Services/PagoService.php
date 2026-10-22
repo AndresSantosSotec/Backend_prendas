@@ -37,7 +37,7 @@ class PagoService
      * @param Carbon|null $fechaCalculo
      * @return array
      */
-    public function calcularDeudaAlDia(CreditoPrendario $credito, ?Carbon $fechaCalculo = null): array
+    public function calcularDeudaAlDia(CreditoPrendario $credito, ?Carbon $fechaCalculo = null, ?float $descuentoPorcentajeManual = null): array
     {
         $fechaCalculo = $fechaCalculo ?? Carbon::now();
         $fechaBase = $credito->fecha_ultimo_pago ?? $credito->fecha_desembolso;
@@ -133,8 +133,22 @@ class PagoService
                 $cuotaInteres = $interesDiarioDevengado;
             }
 
-            // === DESCUENTO PROMOCIONAL EN INTERESES (LUNES / MARTES / PARAMETRIZABLE) ===
-            $promoInfo = $this->calcularDescuentoPromocional($interesTotal, $fechaCalculo, $credito);
+            // === DESCUENTO EN INTERESES (MANUAL EN PAGO O PROMOCIONAL / PACTADO) ===
+            if ($descuentoPorcentajeManual !== null && $descuentoPorcentajeManual >= 0) {
+                $montoDescManual = round($interesTotal * ($descuentoPorcentajeManual / 100), 2);
+                $promoInfo = [
+                    'aplicada' => $descuentoPorcentajeManual > 0,
+                    'dia_semana' => '',
+                    'dia_semana_en' => '',
+                    'porcentaje_descuento' => $descuentoPorcentajeManual,
+                    'monto_descuento' => $montoDescManual,
+                    'interes_original' => round($interesTotal, 2),
+                    'interes_con_descuento' => max(0, round($interesTotal - $montoDescManual, 2)),
+                    'descripcion' => 'Descuento aplicado en el momento del pago',
+                ];
+            } else {
+                $promoInfo = $this->calcularDescuentoPromocional($interesTotal, $fechaCalculo, $credito);
+            }
             $descuentoInteres = $promoInfo['monto_descuento'];
             $interesTotalConDescuento = max(0, round($interesTotal - $descuentoInteres, 2));
 
@@ -761,16 +775,26 @@ class PagoService
             throw new \Exception("No hay cuotas pendientes para pagar");
         }
 
-        // 2. Calcular total de la cuota (reales pendientes con posibles descuentos vigentes)
-        $calculo = $this->calcularDeudaAlDia($credito);
+        // 2. Parámetros de descuento opcional en el pago
+        $pctDescuentoManual = isset($data['porcentaje_descuento']) && $data['porcentaje_descuento'] !== '' ? (float) $data['porcentaje_descuento'] : null;
+        $montoDescuentoManual = isset($data['monto_descuento']) && $data['monto_descuento'] !== '' ? (float) $data['monto_descuento'] : 0.0;
+        $descuentoMotivo = $data['descuento_motivo'] ?? 'Descuento aplicado en pago';
+        $recalcularPlan = !empty($data['recalcular_plan_pagos']);
+
+        // Calcular total de la cuota (con posible descuento enviado en la transacción)
+        $calculo = $this->calcularDeudaAlDia($credito, null, $pctDescuentoManual);
         $totalCuota = (float) ($calculo['monto_cuota_actual'] ?? (($cuota->capital_pendiente ?? $cuota->capital_proyectado) +
                       ($cuota->interes_pendiente ?? $cuota->interes_proyectado) +
                       ($cuota->mora_pendiente ?? $cuota->mora_proyectada ?? 0) +
                       ($cuota->otros_cargos_pendientes ?? $cuota->otros_cargos_proyectados ?? 0)));
 
+        if ($montoDescuentoManual > 0 && ($pctDescuentoManual === null || $pctDescuentoManual <= 0)) {
+            $totalCuota = max(0, round($totalCuota - $montoDescuentoManual, 2));
+        }
+
         // 3. Validar monto suficiente
         if ($monto < ($totalCuota - 0.10)) {
-            throw new \Exception("Monto insuficiente. Total cuota: Q" . number_format($totalCuota, 2));
+            throw new \Exception("Monto insuficiente. Total cuota con descuento: Q" . number_format($totalCuota, 2));
         }
 
         // 4. Registrar movimiento
@@ -784,8 +808,19 @@ class PagoService
         }
 
         $interesAPagar = (float) ($calculo['cuota_interes'] ?? ($cuota->interes_pendiente ?? $cuota->interes_proyectado ?? 0));
+        if ($montoDescuentoManual > 0 && ($pctDescuentoManual === null || $pctDescuentoManual <= 0)) {
+            $interesAPagar = max(0, round($interesAPagar - $montoDescuentoManual, 2));
+        }
         $moraAPagar = (float) ($cuota->mora_pendiente ?? $cuota->mora_proyectada ?? 0);
         $otrosAPagar = (float) ($cuota->otros_cargos_pendientes ?? $cuota->otros_cargos_proyectados ?? 0);
+
+        $textoDesc = '';
+        if ($pctDescuentoManual !== null && $pctDescuentoManual > 0) {
+            $textoDesc = " [Desc. Interés: {$pctDescuentoManual}% - {$descuentoMotivo}]";
+        } elseif ($montoDescuentoManual > 0) {
+            $textoDesc = " [Desc. Interés: Q" . number_format($montoDescuentoManual, 2) . " - {$descuentoMotivo}]";
+        }
+        $obsMovimiento = "PAGO CUOTA #{$cuota->numero_cuota}" . $textoDesc . (!empty($data['observaciones']) ? ' - ' . $data['observaciones'] : '');
 
         $movimiento = CreditoMovimiento::create([
             'credito_prendario_id' => $credito->id,
@@ -802,9 +837,14 @@ class PagoService
             'sucursal_id' => $credito->sucursal_id,
             'numero_movimiento' => Str::upper(Str::random(10)),
             'forma_pago' => $formaPago,
-            'observaciones' => "PAGO CUOTA #{$cuota->numero_cuota} - " . ($data['observaciones'] ?? ''),
+            'observaciones' => $obsMovimiento,
             'estado' => 'activo'
         ]);
+
+        // Si se solicitó recalcular el plan de pagos y se indicó un porcentaje de descuento:
+        if ($recalcularPlan && $pctDescuentoManual !== null && $pctDescuentoManual > 0) {
+            $this->recalcularPlanPagosConDescuento($credito, $pctDescuentoManual, $descuentoMotivo);
+        }
 
         // 5. Marcar cuota como pagada
         $cuota->estado = 'pagada';
@@ -866,17 +906,25 @@ class PagoService
      */
     private function procesarRenovacion(CreditoPrendario $credito, float $monto, array $data, int $periodosRenovar = 1)
     {
-        $calculo = $this->calcularDeudaAlDia($credito);
+        $pctDescuentoManual = isset($data['porcentaje_descuento']) && $data['porcentaje_descuento'] !== '' ? (float) $data['porcentaje_descuento'] : null;
+        $montoDescuentoManual = isset($data['monto_descuento']) && $data['monto_descuento'] !== '' ? (float) $data['monto_descuento'] : 0.0;
+        $descuentoMotivo = $data['descuento_motivo'] ?? 'Descuento aplicado en renovación';
+        $recalcularPlan = !empty($data['recalcular_plan_pagos']);
+
+        $calculo = $this->calcularDeudaAlDia($credito, null, $pctDescuentoManual);
 
         // Calcular monto necesario para N períodos
-        $interesPorPeriodo = $calculo['interes_por_periodo'];
+        $interesPorPeriodo = (float) $calculo['interes_por_periodo'];
+        if ($montoDescuentoManual > 0 && ($pctDescuentoManual === null || $pctDescuentoManual <= 0)) {
+            $interesPorPeriodo = max(0, round($interesPorPeriodo - ($montoDescuentoManual / max(1, $periodosRenovar)), 2));
+        }
         $moraAPagar = (float) $calculo['mora_acumulada'];
         $otrosAPagar = (float) $calculo['otros_acumulados'];
         $interesAPagar = $interesPorPeriodo * $periodosRenovar;
         $minimoNecesario = $moraAPagar + $interesAPagar + $otrosAPagar;
 
         if ($monto < ($minimoNecesario - 0.10)) {
-            throw new \Exception("Monto insuficiente. Necesario para {$periodosRenovar} período(s): Q" . number_format($minimoNecesario, 2));
+            throw new \Exception("Monto insuficiente. Necesario para {$periodosRenovar} período(s) con descuento: Q" . number_format($minimoNecesario, 2));
         }
 
         // Obtener la última cuota para calcular nueva fecha de vencimiento
@@ -902,6 +950,14 @@ class PagoService
         $fechaVencimientoNueva = $fechaBaseNuevasCuotas->copy()->addDays($diasPorPeriodo * $periodosRenovar);
         $fechaVenceFormateada = $fechaVencimientoNueva->format('d/m/Y');
 
+        $textoDesc = '';
+        if ($pctDescuentoManual !== null && $pctDescuentoManual > 0) {
+            $textoDesc = " [Desc. Interés: {$pctDescuentoManual}% - {$descuentoMotivo}]";
+        } elseif ($montoDescuentoManual > 0) {
+            $textoDesc = " [Desc. Interés: Q" . number_format($montoDescuentoManual, 2) . " - {$descuentoMotivo}]";
+        }
+        $obsRenovacion = "RENOVACIÓN {$periodosRenovar} período(s) (Vence: {$fechaVenceFormateada})" . $textoDesc . (!empty($data['observaciones']) ? ' - ' . $data['observaciones'] : '');
+
         // 1. Registrar Movimiento
         $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
         $movimiento = CreditoMovimiento::create([
@@ -919,9 +975,13 @@ class PagoService
             'sucursal_id' => $credito->sucursal_id,
             'numero_movimiento' => Str::upper(Str::random(10)),
             'forma_pago' => $formaPago,
-            'observaciones' => "RENOVACIÓN {$periodosRenovar} período(s) (Vence: {$fechaVenceFormateada}) - " . ($data['observaciones'] ?? ''),
+            'observaciones' => $obsRenovacion,
             'estado' => 'activo'
         ]);
+
+        if ($recalcularPlan && $pctDescuentoManual !== null && $pctDescuentoManual > 0) {
+            $this->recalcularPlanPagosConDescuento($credito, $pctDescuentoManual, $descuentoMotivo);
+        }
 
         // 2. Actualizar contadores del crédito (pero NO el saldo de capital)
         $credito->interes_pagado = (float)$credito->interes_pagado + ($interesPorPeriodo * $periodosRenovar);
@@ -1649,6 +1709,81 @@ class PagoService
     }
 
     /**
+     * Recalcula las cuotas futuras de un crédito cuando se pacta o modifica un descuento en intereses
+     *
+     * @param CreditoPrendario $credito
+     * @param float $nuevoPorcentajeDescuento (0 a 100)
+     * @param string|null $motivo
+     * @return void
+     */
+    public function recalcularPlanPagosConDescuento(CreditoPrendario $credito, float $nuevoPorcentajeDescuento, ?string $motivo = null): void
+    {
+        $nuevoPorcentajeDescuento = max(0, min(100, $nuevoPorcentajeDescuento));
+
+        // Actualizar crédito
+        $credito->porcentaje_descuento_interes = $nuevoPorcentajeDescuento;
+        if (!empty($motivo)) {
+            $credito->descuento_interes_motivo = $motivo;
+        }
+        $credito->save();
+
+        // Obtener cuotas pendientes/futuras (no pagadas completamente)
+        $cuotasPendientes = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+            ->whereIn('estado', ['pendiente', 'renovada', 'vencida', 'en_mora'])
+            ->orderBy('numero_cuota', 'asc')
+            ->get();
+
+        if ($cuotasPendientes->isEmpty()) {
+            return;
+        }
+
+        $tasaBase = (float) $credito->tasa_interes;
+        $tasaPeriodo = $this->calcularTasaPorPeriodo($tasaBase, (string) $credito->tipo_interes);
+
+        foreach ($cuotasPendientes as $cuota) {
+            $capitalProyectado = (float) ($cuota->capital_proyectado ?? $cuota->capital_pendiente ?? 0);
+
+            // Calcular interés base de la cuota según su capital proyectado o referencia
+            $interesBase = round($capitalProyectado * $tasaPeriodo, 2);
+            if ($interesBase <= 0 && (float) $cuota->interes_proyectado > 0) {
+                $capitalReferencia = (float) $credito->capital_pendiente > 0 ? (float) $credito->capital_pendiente : (float) $credito->monto_prestamo;
+                $interesBase = round($capitalReferencia * $tasaPeriodo, 2);
+            }
+
+            $interesConDescuento = $nuevoPorcentajeDescuento > 0 
+                ? max(0, round($interesBase * (1 - ($nuevoPorcentajeDescuento / 100)), 2))
+                : $interesBase;
+
+            $cuota->interes_proyectado = $interesConDescuento;
+            $cuota->interes_pendiente = max(0, round($interesConDescuento - (float) ($cuota->interes_pagado ?? 0), 2));
+
+            $cuota->monto_cuota_proyectado = round(
+                $cuota->capital_proyectado + 
+                $interesConDescuento + 
+                (float) ($cuota->mora_proyectada ?? 0) + 
+                (float) ($cuota->otros_cargos_proyectados ?? 0), 
+                2
+            );
+
+            $cuota->monto_pendiente = round(
+                (float) ($cuota->capital_pendiente ?? $cuota->capital_proyectado) + 
+                $cuota->interes_pendiente + 
+                (float) ($cuota->mora_pendiente ?? 0) + 
+                (float) ($cuota->otros_cargos_pendientes ?? 0), 
+                2
+            );
+
+            $cuota->save();
+        }
+
+        // Actualizar monto de cuota en el crédito
+        $primeraPendiente = $cuotasPendientes->first();
+        if ($primeraPendiente && (float) $primeraPendiente->monto_cuota_proyectado > 0) {
+            $credito->updateQuietly(['monto_cuota' => $primeraPendiente->monto_cuota_proyectado]);
+        }
+    }
+
+    /**
      * ============================================================================
      * LIQUIDACIÓN
      * ============================================================================
@@ -1656,17 +1791,36 @@ class PagoService
      */
     private function procesarLiquidacion(CreditoPrendario $credito, float $monto, array $data)
     {
-        $calculo = $this->calcularDeudaAlDia($credito);
-        $totalDeuda = $calculo['total_para_liquidar'];
+        $pctDescuentoManual = isset($data['porcentaje_descuento']) && $data['porcentaje_descuento'] !== '' ? (float) $data['porcentaje_descuento'] : null;
+        $montoDescuentoManual = isset($data['monto_descuento']) && $data['monto_descuento'] !== '' ? (float) $data['monto_descuento'] : 0.0;
+        $descuentoMotivo = $data['descuento_motivo'] ?? 'Descuento aplicado en liquidación';
+
+        $calculo = $this->calcularDeudaAlDia($credito, null, $pctDescuentoManual);
+        $totalDeuda = (float) $calculo['total_para_liquidar'];
+
+        if ($montoDescuentoManual > 0 && ($pctDescuentoManual === null || $pctDescuentoManual <= 0)) {
+            $totalDeuda = max(0, round($totalDeuda - $montoDescuentoManual, 2));
+        }
 
         if ($monto < ($totalDeuda - 0.10)) {
-            throw new \Exception("Monto insuficiente para liquidar. Total requerido: Q" . number_format($totalDeuda, 2));
+            throw new \Exception("Monto insuficiente para liquidar. Total requerido con descuento: Q" . number_format($totalDeuda, 2));
         }
 
         $pagoCapital = $calculo['capital_pendiente'];
         $pagoInteres = $calculo['interes_acumulado'];
+        if ($montoDescuentoManual > 0 && ($pctDescuentoManual === null || $pctDescuentoManual <= 0)) {
+            $pagoInteres = max(0, round($pagoInteres - $montoDescuentoManual, 2));
+        }
         $pagoMora = $calculo['mora_acumulada'];
         $pagoOtros = $calculo['otros_acumulados'] ?? 0;
+
+        $textoDesc = '';
+        if ($pctDescuentoManual !== null && $pctDescuentoManual > 0) {
+            $textoDesc = " [Desc. Liquidación: {$pctDescuentoManual}% - {$descuentoMotivo}]";
+        } elseif ($montoDescuentoManual > 0) {
+            $textoDesc = " [Desc. Liquidación: Q" . number_format($montoDescuentoManual, 2) . " - {$descuentoMotivo}]";
+        }
+        $obsLiquidacion = "LIQUIDACIÓN TOTAL" . $textoDesc . (!empty($data['observaciones']) ? ' - ' . $data['observaciones'] : '');
 
         // Registrar Movimiento
         $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
@@ -1685,7 +1839,7 @@ class PagoService
             'sucursal_id' => $credito->sucursal_id,
             'numero_movimiento' => Str::upper(Str::random(10)),
             'forma_pago' => $formaPago,
-            'observaciones' => "LIQUIDACIÓN TOTAL - " . ($data['observaciones'] ?? ''),
+            'observaciones' => $obsLiquidacion,
             'estado' => 'activo'
         ]);
 

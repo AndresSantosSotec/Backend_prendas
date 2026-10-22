@@ -329,10 +329,25 @@
     $descuentoCancelacionAnticipada = (float) ($credito->descuento_cancelacion_anticipada ?? \App\Models\ConfiguracionSistema::obtener('prendamas_descuento_cancelacion_anticipada', 50));
     $cancelacionAnticipadaHabilitada = (bool) (\App\Models\ConfiguracionSistema::obtener('prendamas_cancelacion_anticipada_habilitada', true));
 
-    // Cláusula de cancelación anticipada: Opcional y flexible. Solo se activa si viene explícitamente habilitada en la simulación o crédito
+    // Determinar número de cuotas / plazo del crédito
+    $numCuotasDetectado = (int) ($credito->numero_cuotas ?? 0);
+    $coleccionCuotasPlan = collect($planPagos ?? []);
+    if ($numCuotasDetectado <= 0 && $coleccionCuotasPlan->isNotEmpty()) {
+        $numCuotasDetectado = $coleccionCuotasPlan->count();
+    }
+    if ($numCuotasDetectado <= 0 && $plazoDias > 0) {
+        if ($plazoDias >= 75 && $plazoDias <= 105) $numCuotasDetectado = 3;
+        elseif ($plazoDias >= 165 && $plazoDias <= 200) $numCuotasDetectado = 6;
+        elseif ($plazoDias >= 340 && $plazoDias <= 380) $numCuotasDetectado = 12;
+    }
+
+    $esPlazoMultimesPrendamas = in_array($numCuotasDetectado, [3, 6, 12]);
+
+    // Cláusula de cancelación anticipada: Se activa para planes de 3, 6 y 12 meses de Prendamás o si viene explícita
     $aplicaCancelacionAnticipada = $cancelacionAnticipadaHabilitada && (
         !empty($credito->aplica_cancelacion_anticipada) 
         || !empty($credito->incluir_cancelacion_anticipada)
+        || $esPlazoMultimesPrendamas
     );
 
     $fechaGraciaObj = $fechaFinObj->copy()->addDays($diasGracia);
@@ -582,7 +597,10 @@
 
         {{-- NOTA DE GARANTÍA --}}
         <div class="nota-garantia">
-            <strong>NOTA:</strong> Para evitar perdida de su garantía, por favor realice su pago en la fecha indicada o dentro de los días de gracia.
+            <strong>NOTA:</strong> Para evitar pérdida de su garantía, por favor realice su pago en la fecha indicada o dentro de los días de gracia.
+            @if($aplicaCancelacionAnticipada)
+                <br><strong>CANCELACIÓN ANTICIPADA:</strong> Aplica descuento del {{ number_format($descuentoCancelacionAnticipada, 0) }}% sobre intereses faltantes en caso de cancelación anticipada.
+            @endif
         </div>
 
         {{-- FRASE DE RECIBO Y FIRMA DEL CLIENTE --}}
