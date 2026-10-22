@@ -13,6 +13,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Confiar en los proxies inversos de Cloudflare / cPanel para obtener la IP real del cliente
+        $middleware->trustProxies(at: '*');
+
         $middleware->api(prepend: [
             \App\Http\Middleware\HandleCors::class,
             \App\Http\Middleware\SecurityHeaders::class,
