@@ -6,13 +6,14 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Models\Boveda;
+use App\Models\Concerns\MarcaEstadoAnulado;
 use App\Models\User;
 use App\Models\Sucursal;
 use App\Traits\Auditable;
 
 class BovedaMovimiento extends Model
 {
-    use HasFactory, SoftDeletes, Auditable;
+    use HasFactory, SoftDeletes, Auditable, MarcaEstadoAnulado;
 
     protected string $auditoriaModulo = 'boveda';
     public static bool $auditarDeshabilitado = false;

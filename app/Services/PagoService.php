@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\ConfiguracionSistema;
 use App\Models\CreditoPrendario;
 use App\Models\CreditoMovimiento;
 use App\Models\CreditoPlanPago;
@@ -60,7 +61,7 @@ class PagoService
             $moraTotal = 0.0;
             $otrosTotal = 0.0;
             $diasMora = 0;
-            $diasGracia = (int) ($credito->dias_gracia ?? 0);
+            $diasGracia = 0; // Para Créditos Prendarios NO se aplican días de gracia
             $paramMora = ParametrizacionMora::obtenerConfiguracion($credito->sucursal_id);
             $moraService = app(MoraService::class);
 
@@ -87,14 +88,24 @@ class PagoService
                 $diasMora = max($diasMora, $diasMoraCuota);
             }
 
+            // Si el plan de pagos tiene cuotas de solo interés (ej: refrendo o gracia) donde capital es 0,
+            // asegurar que la liquidación total tome el capital pendiente real del crédito
+            if ($capitalPendiente <= 0 && (float) $credito->capital_pendiente > 0) {
+                $capitalPendiente = (float) $credito->capital_pendiente;
+            }
+
             $periodosCobrar = $this->calcularPeriodos($diasTranscurridos, $credito->tipo_interes);
             $primeraCuota = $cuotasPendientes->first();
 
             $cuotaCapital = round((float) ($primeraCuota->capital_pendiente ?? 0), 2);
+            // Si el crédito tiene 1 sola cuota pendiente y su capital estaba en 0 pero el crédito tiene capital pendiente real:
+            if ($cuotaCapital <= 0 && $cuotasPendientes->count() === 1 && (float) $credito->capital_pendiente > 0) {
+                $cuotaCapital = (float) $credito->capital_pendiente;
+            }
+
             $cuotaInteres = round((float) ($primeraCuota->interes_pendiente ?? 0), 2);
             $cuotaMora = round((float) ($primeraCuota->mora_pendiente ?? 0), 2);
             $cuotaGastos = round((float) ($primeraCuota->otros_cargos_pendientes ?? 0), 2);
-            $montoCuotaActual = round($cuotaCapital + $cuotaInteres + $cuotaMora + $cuotaGastos, 2);
 
             $interesPorPeriodo = $cuotaInteres;
             if ($interesPorPeriodo <= 0) {
@@ -102,11 +113,46 @@ class PagoService
                 $interesPorPeriodo = max(0, $capitalPendiente * $tasaPorPeriodo);
             }
 
+            // === CÁLCULO DE INTERÉS DIARIO VS MENSUAL ===
+            $modoCalculo = (string) ConfiguracionSistema::obtener('credito_modo_calculo_interes', '');
+            if ($modoCalculo === 'diario') {
+                $interesDiarioHabilitado = true;
+            } elseif ($modoCalculo === 'mensual') {
+                $interesDiarioHabilitado = false;
+            } else {
+                $interesDiarioHabilitado = (bool) (ConfiguracionSistema::obtener('credito_interes_diario_habilitado', false) || (string) $credito->tipo_interes === 'diario' || (bool) ($credito->interes_diario_habilitado ?? false));
+            }
+            $diasMinimos = (int) ConfiguracionSistema::obtener('credito_interes_diario_dias_minimos', 1);
+            $diasEfectivos = max($diasMinimos, $diasTranscurridos);
+
+            if ($interesDiarioHabilitado) {
+                $tasaDiaria = (($credito->tasa_interes / 100) / 30);
+                $interesDiarioDevengado = round($capitalPendiente * $tasaDiaria * $diasEfectivos, 2);
+                $interesTotal = $interesDiarioDevengado;
+                $interesPorPeriodo = $interesDiarioDevengado;
+                $cuotaInteres = $interesDiarioDevengado;
+            }
+
+            // === DESCUENTO PROMOCIONAL EN INTERESES (LUNES / MARTES / PARAMETRIZABLE) ===
+            $promoInfo = $this->calcularDescuentoPromocional($interesTotal, $fechaCalculo, $credito);
+            $descuentoInteres = $promoInfo['monto_descuento'];
+            $interesTotalConDescuento = max(0, round($interesTotal - $descuentoInteres, 2));
+
+            // Descuento promocional aplicado a la cuota actual
+            $descuentoCuotaInteres = 0.0;
+            if ($promoInfo['aplicada'] && $promoInfo['porcentaje_descuento'] > 0 && $cuotaInteres > 0) {
+                $descuentoCuotaInteres = round($cuotaInteres * ($promoInfo['porcentaje_descuento'] / 100), 2);
+            }
+            $cuotaInteresConDescuento = max(0, round($cuotaInteres - $descuentoCuotaInteres, 2));
+            $montoCuotaActual = round($cuotaCapital + $cuotaInteresConDescuento + $cuotaMora + $cuotaGastos, 2);
+
             $minimoRenovacion = $moraTotal + $interesPorPeriodo + $otrosTotal;
-            $totalPagar = $capitalPendiente + $interesTotal + $moraTotal + $otrosTotal;
-            $totalRecalculado = round($capitalPendiente + $interesTotal + $moraTotal + $otrosTotal, 2);
+            $totalPagar = $capitalPendiente + $interesTotalConDescuento + $moraTotal + $otrosTotal;
+            $totalRecalculado = round($capitalPendiente + $interesTotalConDescuento + $moraTotal + $otrosTotal, 2);
             $totalParaLiquidar = round($totalPagar, 2);
             $diferenciaTotal = round($totalParaLiquidar - $totalRecalculado, 2);
+
+            $simulacionesProximas = $this->calcularSimulacionesProximas($credito, $capitalPendiente, $moraTotal, $otrosTotal, $fechaBase);
 
             $debugCuotas = $cuotasPendientes->map(function ($cuota) {
                 return [
@@ -127,7 +173,8 @@ class PagoService
                 'periodos_cobrados' => $periodosCobrar,
                 'tipo_periodo' => $credito->tipo_interes,
                 'capital_pendiente' => round($capitalPendiente, 2),
-                'interes_acumulado' => round($interesTotal, 2),
+                'interes_acumulado' => round($interesTotalConDescuento, 2),
+                'interes_original' => round($interesTotal, 2),
                 'interes_periodo_actual' => round($interesPorPeriodo, 2),
                 'mora_acumulada' => round($moraTotal, 2),
                 'otros_acumulados' => round($otrosTotal, 2),
@@ -137,19 +184,33 @@ class PagoService
                 'interes_por_periodo' => round($interesPorPeriodo, 2),
                 'monto_cuota_actual' => round($montoCuotaActual, 2),
                 'cuota_capital' => $cuotaCapital,
-                'cuota_interes' => $cuotaInteres,
+                'cuota_interes' => $cuotaInteresConDescuento,
+                'cuota_interes_original' => $cuotaInteres,
+                'descuento_cuota_interes' => $descuentoCuotaInteres,
                 'cuota_mora' => $cuotaMora,
                 'cuota_gastos' => $cuotaGastos,
                 'cuota_numero' => $primeraCuota?->numero_cuota,
                 'fecha_vencimiento' => $credito->fecha_vencimiento?->format('Y-m-d'),
                 'en_mora' => ($diasMora > 0) || ($moraTotal > 0),
+                'interes_diario_habilitado' => $interesDiarioHabilitado,
+                'dias_efectivos_calculo' => $diasEfectivos,
+                'descuento_promocional' => $descuentoInteres,
+                'descuento_interes' => $descuentoInteres,
+                'porcentaje_descuento_interes' => (float) ($promoInfo['porcentaje_descuento'] ?? 0),
+                'es_dia_promocion' => (bool) ($promoInfo['aplicada'] ?? false),
+                'descripcion_promocion' => $promoInfo['descripcion'] ?? '',
+                'promocion_interes' => $promoInfo,
+                'simulaciones_proximas' => $simulacionesProximas,
                 'debug_calculo' => [
                     'usa_plan_pagos' => true,
                     'fecha_base' => $fechaBase?->format('Y-m-d'),
                     'dias_transcurridos' => $diasTranscurridos,
+                    'interes_diario_habilitado' => $interesDiarioHabilitado,
+                    'descuento_promocional' => $descuentoInteres,
                     'cuotas_pendientes_count' => $cuotasPendientes->count(),
                     'capital_total' => round($capitalPendiente, 2),
-                    'interes_total' => round($interesTotal, 2),
+                    'interes_total' => round($interesTotalConDescuento, 2),
+                    'interes_bruto' => round($interesTotal, 2),
                     'mora_total' => round($moraTotal, 2),
                     'otros_total' => round($otrosTotal, 2),
                     'total_para_liquidar' => $totalParaLiquidar,
@@ -175,7 +236,7 @@ class PagoService
         $diasMora = 0;
 
         if ($credito->fecha_vencimiento && $fechaCalculo->gt($credito->fecha_vencimiento)) {
-            $diasGracia = $credito->dias_gracia ?? 0;
+            $diasGracia = 0; // Sin días de gracia en prendario
 
             // Usar parametrización de mora para días laborales
             $paramMora = ParametrizacionMora::obtenerConfiguracion($credito->sucursal_id);
@@ -203,6 +264,23 @@ class PagoService
         }
 
         // ============== TOTALES ==============
+        // === CÁLCULO DE INTERÉS DIARIO VS MENSUAL ===
+        $modoCalculo = (string) ConfiguracionSistema::obtener('credito_modo_calculo_interes', '');
+        if ($modoCalculo === 'diario') {
+            $interesDiarioHabilitado = true;
+        } elseif ($modoCalculo === 'mensual') {
+            $interesDiarioHabilitado = false;
+        } else {
+            $interesDiarioHabilitado = (bool) (ConfiguracionSistema::obtener('credito_interes_diario_habilitado', false) || (string) $credito->tipo_interes === 'diario' || (bool) ($credito->interes_diario_habilitado ?? false));
+        }
+        $diasMinimos = (int) ConfiguracionSistema::obtener('credito_interes_diario_dias_minimos', 1);
+        $diasEfectivos = max($diasMinimos, $diasTranscurridos);
+
+        if ($interesDiarioHabilitado) {
+            $tasaDiaria = (($credito->tasa_interes / 100) / 30);
+            $interesDevengado = round((float) $credito->capital_pendiente * $tasaDiaria * $diasEfectivos, 2);
+        }
+
         // Sumar intereses/mora históricos no pagados
         $interesHistorico = max(0, ($credito->interes_generado ?? 0) - ($credito->interes_pagado ?? 0));
         $moraHistorica = max(0, ($credito->mora_generada ?? 0) - ($credito->mora_pagada ?? 0));
@@ -210,15 +288,20 @@ class PagoService
         $interesTotal = $interesHistorico + $interesDevengado;
         $moraTotal = $moraHistorica + $moraDevengada;
 
+        // === DESCUENTO PROMOCIONAL EN INTERESES (LUNES / MARTES / PARAMETRIZABLE) ===
+        $promoInfo = $this->calcularDescuentoPromocional($interesTotal, $fechaCalculo, $credito);
+        $descuentoInteres = $promoInfo['monto_descuento'];
+        $interesTotalConDescuento = max(0, round($interesTotal - $descuentoInteres, 2));
+
         $otrosTotal = max(0, (float) ($credito->otros_cargos_pendientes ?? 0));
-        $totalPagar = $credito->capital_pendiente + $interesTotal + $moraTotal + $otrosTotal;
-        $totalRecalculado = round((float) $credito->capital_pendiente + $interesTotal + $moraTotal + $otrosTotal, 2);
+        $totalPagar = $credito->capital_pendiente + $interesTotalConDescuento + $moraTotal + $otrosTotal;
+        $totalRecalculado = round((float) $credito->capital_pendiente + $interesTotalConDescuento + $moraTotal + $otrosTotal, 2);
         $totalParaLiquidar = round($totalPagar, 2);
         $diferenciaTotal = round($totalParaLiquidar - $totalRecalculado, 2);
 
         // Interés por un periodo (para cálculo de adelantos y renovación)
-        // Usar tasa convertida al período correcto (mensual, semanal, etc.)
-        $tasaPorPeriodo = $this->calcularTasaPorPeriodo($credito->tasa_interes, $credito->tipo_interes);
+        // Usar tasa convertida al período correcto (mensual, semanal, etc., respetando Prendamás)
+        $tasaPorPeriodo = $this->calcularTasaPorPeriodo($credito->tasa_interes, $credito->tipo_interes, $credito->plan_interes_id, $credito);
         $interesPorPeriodo = $credito->capital_pendiente * $tasaPorPeriodo;
 
         // Renovación = pagar interés de nuevos períodos + mora + otros acumulados
@@ -249,7 +332,8 @@ class PagoService
             'periodos_cobrados' => $periodosCobrar,
             'tipo_periodo' => $credito->tipo_interes,
             'capital_pendiente' => round($credito->capital_pendiente, 2),
-            'interes_acumulado' => round($interesTotal, 2),
+            'interes_acumulado' => round($interesTotalConDescuento, 2),
+            'interes_original' => round($interesTotal, 2),
             'interes_periodo_actual' => round($interesDevengado, 2),
             'mora_acumulada' => round($moraTotal, 2),
             'otros_acumulados' => round($otrosTotal, 2),
@@ -265,15 +349,27 @@ class PagoService
             'cuota_numero' => $primeraCuota?->numero_cuota,
             'fecha_vencimiento' => $credito->fecha_vencimiento?->format('Y-m-d'),
             'en_mora' => $diasMora > 0,
+            'interes_diario_habilitado' => $interesDiarioHabilitado,
+            'dias_efectivos_calculo' => $diasEfectivos,
+            'descuento_promocional' => $descuentoInteres,
+            'descuento_interes' => $descuentoInteres,
+            'porcentaje_descuento_interes' => (float) ($promoInfo['porcentaje_descuento'] ?? 0),
+            'es_dia_promocion' => (bool) ($promoInfo['aplicada'] ?? false),
+            'descripcion_promocion' => $promoInfo['descripcion'] ?? '',
+            'promocion_interes' => $promoInfo,
+            'simulaciones_proximas' => $this->calcularSimulacionesProximas($credito, (float) $credito->capital_pendiente, $moraTotal, $otrosTotal, $fechaBase),
             'debug_calculo' => [
                 'usa_plan_pagos' => false,
                 'fecha_base' => $fechaBase?->format('Y-m-d'),
                 'dias_transcurridos' => $diasTranscurridos,
+                'interes_diario_habilitado' => $interesDiarioHabilitado,
+                'descuento_promocional' => $descuentoInteres,
                 'tasa_mensual' => round((float) $credito->tasa_interes, 4),
                 'tipo_interes' => (string) $credito->tipo_interes,
                 'periodos_cobrados' => $periodosCobrar,
                 'capital_total' => round((float) $credito->capital_pendiente, 2),
-                'interes_total' => round($interesTotal, 2),
+                'interes_total' => round($interesTotalConDescuento, 2),
+                'interes_bruto' => round($interesTotal, 2),
                 'mora_total' => round($moraTotal, 2),
                 'otros_total' => round($otrosTotal, 2),
                 'total_para_liquidar' => $totalParaLiquidar,
@@ -285,6 +381,148 @@ class PagoService
             'opciones_adelanto' => $this->calcularOpcionesRenovacion($credito, $interesPorPeriodo, $minimoRenovacion),
             // Opciones para adelanto de cuotas completas
             'opciones_cuotas_adelanto' => $this->calcularOpcionesCuotasAdelanto($credito),
+        ];
+    }
+
+    /**
+     * Calcula proyecciones de liquidación para el próximo lunes y martes (con descuento si aplica)
+     */
+    public function calcularSimulacionesProximas(CreditoPrendario $credito, float $capitalPendiente, float $moraTotal, float $otrosTotal, ?Carbon $fechaBase = null): array
+    {
+        $fechaBase = $fechaBase ?? $credito->fecha_ultimo_pago ?? $credito->fecha_desembolso ?? $credito->fecha_solicitud ?? Carbon::now();
+        $hoy = Carbon::now()->startOfDay();
+
+        // Próximo lunes y martes de la otra semana / próximos días hábiles de promoción
+        $proximoLunes = $hoy->copy()->next(Carbon::MONDAY)->startOfDay();
+        $proximoMartes = $hoy->copy()->next(Carbon::TUESDAY)->startOfDay();
+
+        $diasMinimos = (int) ConfiguracionSistema::obtener('credito_interes_diario_dias_minimos', 1);
+        $diasLunes = max($diasMinimos, (int) abs($proximoLunes->diffInDays($fechaBase)));
+        $diasMartes = max($diasMinimos, (int) abs($proximoMartes->diffInDays($fechaBase)));
+
+        $tasaDiaria = (($credito->tasa_interes / 100) / 30);
+        $interesBrutoLunes = round($capitalPendiente * $tasaDiaria * $diasLunes, 2);
+        $interesBrutoMartes = round($capitalPendiente * $tasaDiaria * $diasMartes, 2);
+
+        $promoConfigLunes = $this->calcularDescuentoPromocional($interesBrutoLunes, $proximoLunes, $credito);
+        $descuentoLunes = $promoConfigLunes['monto_descuento'];
+        $interesNetoLunes = max(0, round($interesBrutoLunes - $descuentoLunes, 2));
+
+        $promoConfigMartes = $this->calcularDescuentoPromocional($interesBrutoMartes, $proximoMartes, $credito);
+        $descuentoMartes = $promoConfigMartes['monto_descuento'];
+        $interesNetoMartes = max(0, round($interesBrutoMartes - $descuentoMartes, 2));
+
+        return [
+            'lunes' => [
+                'dia' => 'Lunes',
+                'fecha' => $proximoLunes->format('Y-m-d'),
+                'fecha_formateada' => $proximoLunes->format('d/m/Y'),
+                'dias_transcurridos' => $diasLunes,
+                'interes_bruto' => $interesBrutoLunes,
+                'descuento' => $descuentoLunes,
+                'porcentaje_descuento' => $promoConfigLunes['porcentaje_descuento'] ?? 0,
+                'interes_neto' => $interesNetoLunes,
+                'total_liquidar' => round($capitalPendiente + $interesNetoLunes + $moraTotal + $otrosTotal, 2),
+                'aplica_promo' => (bool) ($promoConfigLunes['aplicada'] ?? false),
+                'descripcion_promo' => $promoConfigLunes['descripcion'] ?? '',
+            ],
+            'martes' => [
+                'dia' => 'Martes',
+                'fecha' => $proximoMartes->format('Y-m-d'),
+                'fecha_formateada' => $proximoMartes->format('d/m/Y'),
+                'dias_transcurridos' => $diasMartes,
+                'interes_bruto' => $interesBrutoMartes,
+                'descuento' => $descuentoMartes,
+                'porcentaje_descuento' => $promoConfigMartes['porcentaje_descuento'] ?? 0,
+                'interes_neto' => $interesNetoMartes,
+                'total_liquidar' => round($capitalPendiente + $interesNetoMartes + $moraTotal + $otrosTotal, 2),
+                'aplica_promo' => (bool) ($promoConfigMartes['aplicada'] ?? false),
+                'descripcion_promo' => $promoConfigMartes['descripcion'] ?? '',
+            ],
+        ];
+    }
+
+    /**
+     * Evalúa y calcula descuentos promocionales parametrizables por día de la semana sobre intereses
+     */
+    public function calcularDescuentoPromocional(float $interesBase, Carbon $fechaCalculo, ?CreditoPrendario $credito = null): array
+    {
+        $promoActiva = (bool) ConfiguracionSistema::obtener('promocion_interes_activa', false);
+        $diasConfig = ConfiguracionSistema::obtener('promocion_interes_dias', ['monday', 'tuesday', 'lunes', 'martes']);
+        $porcentajeDescuento = (float) ConfiguracionSistema::obtener('promocion_interes_porcentaje_descuento', 0);
+        $descripcion = (string) ConfiguracionSistema::obtener('promocion_interes_descripcion', 'Descuento especial de inicio de semana');
+
+        $pctCredito = $credito ? (float) ($credito->porcentaje_descuento_interes ?? $credito->descuento_interes_porcentaje ?? 0) : 0;
+        $descuentoPactadoEnCredito = $pctCredito > 0;
+        if ($descuentoPactadoEnCredito) {
+            $promoActiva = true;
+            $porcentajeDescuento = $pctCredito;
+            $descripcion = $credito->descuento_interes_motivo ?? 'Descuento pactado en crédito';
+        }
+
+        $diaSemanaIngles = strtolower($fechaCalculo->englishDayOfWeek);
+        $diasMap = [
+            'monday' => 'lunes',
+            'tuesday' => 'martes',
+            'wednesday' => 'miercoles',
+            'thursday' => 'jueves',
+            'friday' => 'viernes',
+            'saturday' => 'sabado',
+            'sunday' => 'domingo',
+        ];
+        $diaSemanaEspanol = $diasMap[$diaSemanaIngles] ?? $diaSemanaIngles;
+
+        $diasPermitidos = [];
+        if (is_array($diasConfig)) {
+            foreach ($diasConfig as $dia) {
+                $d = strtolower(trim((string) $dia));
+                $diasPermitidos[] = $d;
+                if (isset($diasMap[$d])) {
+                    $diasPermitidos[] = $diasMap[$d];
+                }
+                $reversed = array_search($d, $diasMap, true);
+                if ($reversed !== false) {
+                    $diasPermitidos[] = $reversed;
+                }
+            }
+        } elseif (is_string($diasConfig)) {
+            $decoded = json_decode($diasConfig, true);
+            $lista = is_array($decoded) ? $decoded : explode(',', strtolower($diasConfig));
+            foreach ($lista as $dia) {
+                $d = strtolower(trim((string) $dia));
+                $diasPermitidos[] = $d;
+                if (isset($diasMap[$d])) {
+                    $diasPermitidos[] = $diasMap[$d];
+                }
+            }
+        }
+
+        $aplicaDia = in_array($diaSemanaIngles, $diasPermitidos, true)
+            || in_array($diaSemanaEspanol, $diasPermitidos, true);
+
+        if ($promoActiva && $porcentajeDescuento > 0 && $interesBase > 0 && ($aplicaDia || $descuentoPactadoEnCredito)) {
+            $montoDescuento = round($interesBase * ($porcentajeDescuento / 100), 2);
+            return [
+                'aplicada' => true,
+                'dia_semana' => $diaSemanaEspanol,
+                'dia_semana_en' => $diaSemanaIngles,
+                'porcentaje_descuento' => $porcentajeDescuento,
+                'monto_descuento' => $montoDescuento,
+                'interes_original' => round($interesBase, 2),
+                'interes_con_descuento' => max(0, round($interesBase - $montoDescuento, 2)),
+                'descripcion' => $descripcion,
+            ];
+        }
+
+        return [
+            'aplicada' => false,
+            'dia_semana' => $diaSemanaEspanol,
+            'dia_semana_en' => $diaSemanaIngles,
+            'porcentaje_descuento' => 0,
+            'monto_descuento' => 0,
+            'interes_original' => round($interesBase, 2),
+            'interes_con_descuento' => round($interesBase, 2),
+            'descripcion' => '',
         ];
     }
 
@@ -304,8 +542,13 @@ class PagoService
     /**
      * Convierte la tasa anual a tasa por período
      */
-    private function calcularTasaPorPeriodo(float $tasaMensual, string $tipoInteres): float
+    private function calcularTasaPorPeriodo(float $tasaMensual, string $tipoInteres, $planIdOObjeto = null, ?CreditoPrendario $credito = null): float
     {
+        // Si el tenant o el plan tiene configurado el cálculo directo por período:
+        if (\App\Http\Controllers\CreditoPrendarioController::debeAplicarTasaDirectaPorPeriodo($planIdOObjeto ?? $credito)) {
+            return $tasaMensual / 100;
+        }
+
         switch ($tipoInteres) {
             case 'diario':
                 return ($tasaMensual / 30) / 100;
@@ -518,11 +761,12 @@ class PagoService
             throw new \Exception("No hay cuotas pendientes para pagar");
         }
 
-        // 2. Calcular total de la cuota (reales pendientes)
-        $totalCuota = ($cuota->capital_pendiente ?? $cuota->capital_proyectado) +
+        // 2. Calcular total de la cuota (reales pendientes con posibles descuentos vigentes)
+        $calculo = $this->calcularDeudaAlDia($credito);
+        $totalCuota = (float) ($calculo['monto_cuota_actual'] ?? (($cuota->capital_pendiente ?? $cuota->capital_proyectado) +
                       ($cuota->interes_pendiente ?? $cuota->interes_proyectado) +
                       ($cuota->mora_pendiente ?? $cuota->mora_proyectada ?? 0) +
-                      ($cuota->otros_cargos_pendientes ?? $cuota->otros_cargos_proyectados ?? 0);
+                      ($cuota->otros_cargos_pendientes ?? $cuota->otros_cargos_proyectados ?? 0)));
 
         // 3. Validar monto suficiente
         if ($monto < ($totalCuota - 0.10)) {
@@ -531,10 +775,17 @@ class PagoService
 
         // 4. Registrar movimiento
         $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
-        $capitalAPagar = $cuota->capital_pendiente ?? $cuota->capital_proyectado;
-        $interesAPagar = $cuota->interes_pendiente ?? $cuota->interes_proyectado;
-        $moraAPagar = $cuota->mora_pendiente ?? $cuota->mora_proyectada ?? 0;
-        $otrosAPagar = $cuota->otros_cargos_pendientes ?? $cuota->otros_cargos_proyectados ?? 0;
+        $capitalAPagar = (float) ($cuota->capital_pendiente ?? $cuota->capital_proyectado ?? 0);
+        $cuotasPendientesCount = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
+            ->count();
+        if ($capitalAPagar <= 0 && $cuotasPendientesCount === 1 && (float) $credito->capital_pendiente > 0) {
+            $capitalAPagar = (float) $credito->capital_pendiente;
+        }
+
+        $interesAPagar = (float) ($calculo['cuota_interes'] ?? ($cuota->interes_pendiente ?? $cuota->interes_proyectado ?? 0));
+        $moraAPagar = (float) ($cuota->mora_pendiente ?? $cuota->mora_proyectada ?? 0);
+        $otrosAPagar = (float) ($cuota->otros_cargos_pendientes ?? $cuota->otros_cargos_proyectados ?? 0);
 
         $movimiento = CreditoMovimiento::create([
             'credito_prendario_id' => $credito->id,
@@ -1180,13 +1431,14 @@ class PagoService
         // 2. Calcular deuda total por concepto (prelación)
         $moraTotalPendiente = 0;
         $interesTotalPendiente = 0;
+        $otrosTotalPendiente = 0;
         $capitalTotalPendiente = 0;
 
         foreach ($cuotasPendientes as $cuota) {
             // Recalcular mora en memoria si está vencida (por si no se persigió antes)
             if ($cuota->fecha_vencimiento && now()->gt($cuota->fecha_vencimiento)) {
                 $diasMora = (int) abs(now()->diffInDays($cuota->fecha_vencimiento));
-                $diasGracia = $credito->dias_gracia ?? 0;
+                $diasGracia = 0; // Sin días de gracia en prendario
                 $diasMoraEfectivos = max(0, $diasMora - $diasGracia);
                 if ($diasMoraEfectivos > 0) {
                     $tipoMora = $credito->tipo_mora ?? 'porcentaje';
@@ -1201,15 +1453,19 @@ class PagoService
 
             $moraTotalPendiente += max(0, ($cuota->mora_proyectada ?? 0) - ($cuota->mora_pagada ?? 0));
             $interesTotalPendiente += max(0, $cuota->interes_proyectado - ($cuota->interes_pagado ?? 0));
+            $otrosTotalPendiente += max(0, ($cuota->otros_cargos_pendientes ?? max(0, ($cuota->otros_cargos_proyectados ?? 0) - ($cuota->otros_cargos_pagados ?? 0))));
             $capitalTotalPendiente += max(0, $cuota->capital_proyectado - ($cuota->capital_pagado ?? 0));
         }
 
-        // 3. Aplicar prelación al monto del abono
+        // 3. Aplicar prelación al monto del abono (Mora -> Interés -> Otros Cargos -> Capital)
         $pagoMora = min($monto, $moraTotalPendiente);
         $remanente = $monto - $pagoMora;
 
         $pagoInteres = min($remanente, $interesTotalPendiente);
         $remanente = $remanente - $pagoInteres;
+
+        $pagoOtros = min($remanente, $otrosTotalPendiente);
+        $remanente = $remanente - $pagoOtros;
 
         $pagoCapital = min($remanente, $capitalTotalPendiente);
 
@@ -1224,7 +1480,7 @@ class PagoService
             'capital' => $pagoCapital,
             'interes' => $pagoInteres,
             'mora' => $pagoMora,
-            'otros_cargos' => 0,
+            'otros_cargos' => $pagoOtros,
             'saldo_capital' => $credito->capital_pendiente - $pagoCapital,
             'usuario_id' => Auth::id() ?? 1,
             'sucursal_id' => $credito->sucursal_id,
@@ -1232,6 +1488,7 @@ class PagoService
             'forma_pago' => $formaPago,
             'observaciones' => "ABONO - Mora: Q" . number_format($pagoMora, 2) .
                              ", Interés: Q" . number_format($pagoInteres, 2) .
+                             ", Otros: Q" . number_format($pagoOtros, 2) .
                              ", Capital: Q" . number_format($pagoCapital, 2) .
                              " - " . ($data['observaciones'] ?? ''),
             'estado' => 'activo'
@@ -1252,7 +1509,7 @@ class PagoService
         $credito->save();
 
         // 6. Distribuir el pago entre las cuotas (prelación por cuota)
-        $this->distribuirAbonoPrelacion($cuotasPendientes, $pagoMora, $pagoInteres, $pagoCapital, $credito);
+        $this->distribuirAbonoPrelacion($cuotasPendientes, $pagoMora, $pagoInteres, $pagoOtros, $pagoCapital, $credito);
 
         // 6.5 IMPORTANTE: Si se pagó capital, recalcular cuotas futuras con el nuevo saldo
         if ($pagoCapital > 0.10) {
@@ -1275,12 +1532,13 @@ class PagoService
     /**
      * Distribuye el abono entre cuotas aplicando prelación
      * Primero cubre toda la mora de todas las cuotas,
-     * luego todo el interés, y finalmente el capital
+     * luego todo el interés, luego otros cargos y finalmente el capital
      */
-    private function distribuirAbonoPrelacion($cuotas, float $pagoMora, float $pagoInteres, float $pagoCapital, CreditoPrendario $credito)
+    private function distribuirAbonoPrelacion($cuotas, float $pagoMora, float $pagoInteres, float $pagoOtros, float $pagoCapital, CreditoPrendario $credito)
     {
         $moraRestante = $pagoMora;
         $interesRestante = $pagoInteres;
+        $otrosRestante = $pagoOtros;
         $capitalRestante = $pagoCapital;
 
         foreach ($cuotas as $cuota) {
@@ -1304,7 +1562,17 @@ class PagoService
                 $interesRestante -= $interesAAplicar;
             }
 
-            // 3. Aplicar CAPITAL
+            // 3. Aplicar OTROS CARGOS (Manejo de cuenta / Gastos)
+            $otrosPendiente = max(0, ($cuota->otros_cargos_pendientes ?? max(0, ($cuota->otros_cargos_proyectados ?? 0) - ($cuota->otros_cargos_pagados ?? 0))));
+            $otrosAAplicar = min($otrosRestante, $otrosPendiente);
+
+            if ($otrosAAplicar > 0) {
+                $cuota->otros_cargos_pagados = (float)($cuota->otros_cargos_pagados ?? 0) + $otrosAAplicar;
+                $cuota->otros_cargos_pendientes = max(0, ($cuota->otros_cargos_proyectados ?? 0) - $cuota->otros_cargos_pagados);
+                $otrosRestante -= $otrosAAplicar;
+            }
+
+            // 4. Aplicar CAPITAL
             $capitalPendiente = max(0, $cuota->capital_proyectado - ($cuota->capital_pagado ?? 0));
             $capitalAAplicar = min($capitalRestante, $capitalPendiente);
 
@@ -1314,14 +1582,16 @@ class PagoService
                 $capitalRestante -= $capitalAAplicar;
             }
 
-            // 4. Actualizar totales y estado
+            // 5. Actualizar totales y estado (incluyendo OTROS CARGOS)
             $cuota->monto_total_pagado = ($cuota->capital_pagado ?? 0) +
                                          ($cuota->interes_pagado ?? 0) +
-                                         ($cuota->mora_pagada ?? 0);
+                                         ($cuota->mora_pagada ?? 0) +
+                                         ($cuota->otros_cargos_pagados ?? 0);
 
-            $cuota->monto_pendiente = $cuota->capital_pendiente +
-                                     $cuota->interes_pendiente +
-                                     ($cuota->mora_pendiente ?? 0);
+            $cuota->monto_pendiente = ($cuota->capital_pendiente ?? 0) +
+                                     ($cuota->interes_pendiente ?? 0) +
+                                     ($cuota->mora_pendiente ?? 0) +
+                                     ($cuota->otros_cargos_pendientes ?? 0);
 
             $cuota->saldo_capital_credito = $credito->capital_pendiente;
 
@@ -1336,7 +1606,7 @@ class PagoService
             $cuota->save();
 
             // Si ya no queda nada por aplicar, salir del loop
-            if ($moraRestante <= 0.01 && $interesRestante <= 0.01 && $capitalRestante <= 0.01) {
+            if ($moraRestante <= 0.01 && $interesRestante <= 0.01 && $otrosRestante <= 0.01 && $capitalRestante <= 0.01) {
                 break;
             }
         }

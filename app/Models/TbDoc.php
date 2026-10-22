@@ -1,0 +1,173 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Storage;
+use App\Models\ConfiguracionSistema;
+
+class TbDoc extends Model
+{
+    use HasFactory, SoftDeletes;
+
+    protected $table = 'tb_docs';
+
+    protected $fillable = [
+        'organizacion_code',
+        'sucursal_id',
+        'tipo_documento',
+        'nombre_documento',
+        'plantilla_variante',
+        'vista_pdf',
+        'logo_url',
+        'titulo_personalizado',
+        'subtitulo_personalizado',
+        'encabezado_texto',
+        'pie_pagina_texto',
+        'firmante_1_nombre',
+        'firmante_1_titulo',
+        'firmante_2_nombre',
+        'firmante_2_titulo',
+        'perito_contador_nombre',
+        'perito_contador_registro',
+        'mostrar_logo',
+        'mostrar_firmas',
+        'configuracion_extra',
+        'activo',
+    ];
+
+    protected $casts = [
+        'mostrar_logo' => 'boolean',
+        'mostrar_firmas' => 'boolean',
+        'activo' => 'boolean',
+        'configuracion_extra' => 'array',
+    ];
+
+    /**
+     * Relación con Sucursal
+     */
+    public function sucursal(): BelongsTo
+    {
+        return $this->belongsTo(Sucursal::class, 'sucursal_id');
+    }
+
+    /**
+     * Scope para plantillas activas
+     */
+    public function scopeActivos($query)
+    {
+        return $query->where('activo', true);
+    }
+
+    /**
+     * Scope por tipo de documento
+     */
+    public function scopePorTipo($query, string $tipoDocumento)
+    {
+        return $query->where('tipo_documento', $tipoDocumento);
+    }
+
+    /**
+     * Obtener configuración de plantilla activa para un tipo de documento
+     */
+    public static function obtenerPlantilla(string $tipoDocumento, ?int $sucursalId = null, ?string $orgCode = null): self
+    {
+        $orgCode = $orgCode ?: ConfiguracionSistema::obtener('organizacion_code') ?: env('ORGANIZATION_CODE', '01');
+
+        // 0. Preferencia explícita desde .env o desde configuraciones_sistema (rotación instantánea sin SQL)
+        $variantePreferida = env('DOC_VARIANTE')
+            ?: env('DOC_VARIANTE_DEFAULT')
+            ?: ConfiguracionSistema::obtener('doc_variante_default');
+
+        if (!empty($variantePreferida)) {
+            // A. Buscar con variante preferida y sucursal específica
+            if ($sucursalId) {
+                $docEnv = static::where('organizacion_code', $orgCode)
+                    ->where('sucursal_id', $sucursalId)
+                    ->where('tipo_documento', $tipoDocumento)
+                    ->where('plantilla_variante', $variantePreferida)
+                    ->where('activo', true)
+                    ->orderBy('id', 'desc')
+                    ->first();
+                if ($docEnv) return $docEnv;
+            }
+
+            // B. Buscar con variante preferida a nivel organización general
+            $docEnvGeneral = static::where('organizacion_code', $orgCode)
+                ->whereNull('sucursal_id')
+                ->where('tipo_documento', $tipoDocumento)
+                ->where('plantilla_variante', $variantePreferida)
+                ->where('activo', true)
+                ->orderBy('id', 'desc')
+                ->first();
+            if ($docEnvGeneral) return $docEnvGeneral;
+
+            // C. Fallback de variante preferida en cualquier ámbito activo
+            $docEnvBase = static::where('tipo_documento', $tipoDocumento)
+                ->where('plantilla_variante', $variantePreferida)
+                ->where('activo', true)
+                ->orderBy('id', 'desc')
+                ->first();
+            if ($docEnvBase) return $docEnvBase;
+        }
+
+        // 1. Buscar por sucursal específica si se indica (priorizar plantilla personalizada configurada)
+        if ($sucursalId) {
+            $doc = static::where('organizacion_code', $orgCode)
+                ->where('sucursal_id', $sucursalId)
+                ->where('tipo_documento', $tipoDocumento)
+                ->where('activo', true)
+                ->orderByRaw("CASE WHEN plantilla_variante != 'estandar' THEN 0 ELSE 1 END")
+                ->orderBy('id', 'desc')
+                ->first();
+            if ($doc) return $doc;
+        }
+
+        // 2. Buscar por organización general (sucursal null, priorizar plantilla personalizada configurada)
+        $docGeneral = static::where('organizacion_code', $orgCode)
+            ->whereNull('sucursal_id')
+            ->where('tipo_documento', $tipoDocumento)
+            ->where('activo', true)
+            ->orderByRaw("CASE WHEN plantilla_variante != 'estandar' THEN 0 ELSE 1 END")
+            ->orderBy('id', 'desc')
+            ->first();
+        if ($docGeneral) return $docGeneral;
+
+        // 3. Fallback inteligente: buscar la plantilla activa registrada en BD
+        $docBase = static::where('tipo_documento', $tipoDocumento)
+            ->where('activo', true)
+            ->orderByRaw("CASE WHEN plantilla_variante != 'estandar' THEN 0 ELSE 1 END")
+            ->orderBy('id', 'desc')
+            ->first();
+        if ($docBase) return $docBase;
+
+        // 4. Fallback: plantilla genérica en memoria
+        return new static([
+            'organizacion_code' => $orgCode,
+            'sucursal_id' => $sucursalId,
+            'tipo_documento' => $tipoDocumento,
+            'nombre_documento' => ucwords(str_replace('_', ' ', $tipoDocumento)),
+            'plantilla_variante' => 'estandar',
+            'mostrar_logo' => true,
+            'mostrar_firmas' => true,
+            'activo' => true,
+        ]);
+    }
+
+    /**
+     * Obtener el logo convertido en Data URI (Base64) para renderizado seguro en DomPDF
+     */
+    public function obtenerLogoBase64(): ?string
+    {
+        if (isset($this->mostrar_logo) && !$this->mostrar_logo) {
+            return null;
+        }
+
+        $logoPathOrUrl = $this->logo_url ?: ConfiguracionSistema::obtener('empresa_logo_url');
+
+        return app(\App\Services\LogoResolverService::class)->resolveBase64($logoPathOrUrl);
+    }
+}

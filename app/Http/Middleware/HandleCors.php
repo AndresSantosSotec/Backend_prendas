@@ -30,17 +30,28 @@ class HandleCors
             'http://127.0.0.1:3000',
             'https://digiprenda.inniserver.net',
             'https://avanzadigiprenda.stockgenius-sotecpro.com',
+            'https://crediprendasdigi.stockgenius-sotecpro.com',
         ];
 
-        // Permitir cualquier localhost o 127.0.0.1 con cualquier puerto
+        // Permitir cualquier localhost o subdominio en producción
         $isLocalhost = $origin && (
             preg_match('/^http:\/\/localhost:\d+$/', $origin) ||
-            preg_match('/^http:\/\/127\.0\.0\.1:\d+$/', $origin)
+            preg_match('/^http:\/\/127\.0\.0\.1:\d+$/', $origin) ||
+            preg_match('/^https:\/\/.*\.stockgenius-sotecpro\.com$/', $origin) ||
+            preg_match('/^https:\/\/.*\.inniserver\.net$/', $origin)
         );
 
         $isAllowed = $origin && (in_array($origin, $allowedOrigins) || $isLocalhost);
 
-        // El manejo de OPTIONS lo hará el CORS nativo de Laravel (config/cors.php)
+        if ($isAllowed && $request->isMethod('OPTIONS')) {
+            return response('', 204)
+                ->header('Access-Control-Allow-Origin', $origin)
+                ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH')
+                ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Client-ID')
+                ->header('Access-Control-Allow-Credentials', 'true')
+                ->header('Access-Control-Max-Age', '86400');
+        }
+
         $response = $next($request);
 
         if ($isAllowed) {

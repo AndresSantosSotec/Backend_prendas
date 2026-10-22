@@ -120,13 +120,26 @@ class VentaMultiPrendaService
 
             $prendas = $validacion['prendas'];
 
+            // 1.1 HOTFIX: Liberar prenda_id de ventas canceladas o soft-deleted para evitar colisión con 'unique_prenda_venta'
+            \App\Models\VentaDetalle::withTrashed()
+                ->whereIn('prenda_id', $prendasIds)
+                ->where(function ($query) {
+                    $query->whereNotNull('deleted_at')
+                          ->orWhereHas('venta', function ($q) {
+                              $q->where('estado', 'cancelada');
+                          });
+                })
+                ->update(['prenda_id' => null]);
+
             // 2. Recalcular totales SERVER-SIDE (no confiar en cliente)
-            $totales = $this->calcularTotales($data['items'], $prendas);
+            // Incluir descuento_general enviado desde el frontend para asegurar total_final correcto
+            $descuentoGeneral = (float) ($data['descuento_general'] ?? 0);
+            $totales = $this->calcularTotales($data['items'], $prendas, $descuentoGeneral);
 
             // 3. Validar descuentos por prenda
             foreach ($data['items'] as $item) {
                 $prenda = $prendas->firstWhere('id', $item['prenda_id']);
-                $this->validarDescuento($prenda, $item['descuento'], $item['precio_unitario']);
+                $this->validarDescuento($prenda, (float)($item['descuento'] ?? 0), (float)($item['precio_unitario'] ?? $prenda->precio_venta));
             }
 
             // 3.1. Obtener información del cliente
@@ -365,12 +378,13 @@ class VentaMultiPrendaService
     }
 
     /**
-     * Calcular totales server-side (nunca confiar en frontend)
+     * Calcular totales server-side (nunca confiar en frontend).
+     * Incluye el descuento general aplicado a toda la venta.
      */
-    private function calcularTotales(array $items, $prendas): array
+    private function calcularTotales(array $items, $prendas, float $descuentoGeneral = 0): array
     {
         $subtotal = 0;
-        $totalDescuentos = 0;
+        $totalDescuentosItems = 0;
 
         foreach ($items as $item) {
             $prenda = $prendas->firstWhere('id', $item['prenda_id']);
@@ -378,16 +392,21 @@ class VentaMultiPrendaService
             // Recalcular en servidor
             $precioBase = (float) $prenda->precio_venta;
             $descuento = (float) ($item['descuento'] ?? 0);
-            $subtotalItem = $precioBase - $descuento;
 
             $subtotal += $precioBase;
-            $totalDescuentos += $descuento;
+            $totalDescuentosItems += $descuento;
         }
 
+        // Incluir descuento general (asegurar que no exceda lo que queda luego de descuentos por ítem)
+        $subtotalTrasItemDescuentos = $subtotal - $totalDescuentosItems;
+        $descuentoGeneralReal = min($descuentoGeneral, $subtotalTrasItemDescuentos);
+        $totalDescuentos = $totalDescuentosItems + $descuentoGeneralReal;
+
         return [
-            'subtotal' => $subtotal,
+            'subtotal'         => $subtotal,
             'total_descuentos' => $totalDescuentos,
-            'total_final' => $subtotal - $totalDescuentos,
+            'total_final'      => $subtotal - $totalDescuentos,
+            'descuento_general'=> $descuentoGeneralReal,
         ];
     }
 
@@ -500,7 +519,9 @@ class VentaMultiPrendaService
     }
 
     /**
-     * Determinar estado de venta según pagos y tipo
+     * Determinar estado de venta según pagos y tipo.
+     * Usa round() con 2 decimales para tolerar diferencias de punto flotante
+     * y garantizar que ventas al contado con descuento queden como PAGADA.
      */
     private function determinarEstadoVenta(Venta $venta, float $totalPagado, string $tipoVenta): string
     {
@@ -518,8 +539,9 @@ class VentaMultiPrendaService
             return EstadoVenta::PLAN_PAGOS->value;
         }
 
-        // Contado: depende de si está totalmente pagada
-        if ($totalPagado >= $venta->total_final) {
+        // Contado: comparar con tolerancia de 2 decimales para evitar errores de punto flotante
+        // que pueden ocurrir cuando se aplican descuentos (ej: 150.00 vs 149.9999...)
+        if (round($totalPagado, 2) >= round($venta->total_final, 2)) {
             return EstadoVenta::PAGADA->value;
         }
 
@@ -539,9 +561,10 @@ class VentaMultiPrendaService
                 'estado' => EstadoPrenda::VENDIDA->value,
             ];
 
-            // Registrar fecha de venta solo cuando el pago es inmediatamente completo (contado pagado)
-            if ($estadoVenta === 'pagada') {
-                $datosActualizacion['fecha_venta'] = now();
+            // Registrar fecha de venta cuando el pago es inmediatamente completo (contado pagado)
+            // o cuando la venta es al contado (independiente del monto, ya tiene saldo 0)
+            if (in_array($estadoVenta, ['pagada', 'completada'])) {
+                $datosActualizacion['fecha_venta'] = $venta->fecha_venta ?? now();
             }
 
             $prenda->update($datosActualizacion);
@@ -594,7 +617,7 @@ class VentaMultiPrendaService
                 }
             }
 
-            // Devolver prendas a estado en_venta
+            // Devolver prendas a estado en_venta y liberar prenda_id para permitir reventa
             foreach ($venta->detalles as $detalle) {
                 if ($detalle->prenda) {
                     $detalle->prenda->update([
@@ -602,6 +625,7 @@ class VentaMultiPrendaService
                         'fecha_venta' => null,
                     ]);
                 }
+                $detalle->update(['prenda_id' => null]);
             }
 
             // Cancelar el crédito de venta asociado si existe
@@ -700,7 +724,7 @@ class VentaMultiPrendaService
         $numeroCuotas = $data['numero_cuotas'] ?? 3;
         $tasaInteresMensual = $data['tasa_interes_mensual'] ?? 5;
         $frecuenciaPago = $data['frecuencia_pago'] ?? 'mensual';
-        $diasGracia = $data['dias_gracia'] ?? 0;
+        $diasGracia = isset($data['dias_gracia']) ? (int) $data['dias_gracia'] : 3;
 
         // Gastos adicionales
         $gastoSeguro = $data['gasto_seguro'] ?? 0;

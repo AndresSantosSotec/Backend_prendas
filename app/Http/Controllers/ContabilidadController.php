@@ -767,7 +767,7 @@ class ContabilidadController extends Controller
         $utilidadBruta = $totalIngresos - $totalCostos;
         $utilidadNeta  = $utilidadBruta - $totalGastos;
 
-        $pdf = Pdf::loadView('reportes.contabilidad.estado-resultados', [
+        $datosPlantilla = \App\Services\PdfDocumentoService::obtenerDatosPlantilla('estado_resultados', $sucursalId, [
             'ingresos'      => $ingresos,
             'costos'        => $costos,
             'gastos'        => $gastos,
@@ -782,7 +782,10 @@ class ContabilidadController extends Controller
             'fechaFin'          => $fechaFin,
             'generado_por'      => Auth::user()->name ?? 'Sistema',
             'fecha_generacion'  => now()->format('d/m/Y H:i'),
-        ])->setPaper('letter', 'portrait');
+        ]);
+
+        $vista = \App\Services\PdfDocumentoService::resolverVista('estado_resultados', 'reportes.contabilidad.estado-resultados', $sucursalId);
+        $pdf = Pdf::loadView($vista, $datosPlantilla)->setPaper('letter', 'portrait');
 
         return $pdf->download('estado-resultados-' . $fechaFin . '.pdf');
     }
@@ -939,7 +942,7 @@ class ContabilidadController extends Controller
         $totalPasivoPatrimonio = $totalPasivos + $totalPatrimonio;
         $diferencia            = $totalActivos - $totalPasivoPatrimonio;
 
-        $pdf = Pdf::loadView('reportes.contabilidad.balance-general', [
+        $datosPlantilla = \App\Services\PdfDocumentoService::obtenerDatosPlantilla('balance_general', $sucursalId, [
             'activos'              => $activos,
             'pasivos'              => $pasivos,
             'patrimonio'           => $patrimonio,
@@ -954,7 +957,10 @@ class ContabilidadController extends Controller
             'fechaCorte'        => $fechaCorte,
             'generado_por'      => Auth::user()->name ?? 'Sistema',
             'fecha_generacion'  => now()->format('d/m/Y H:i'),
-        ])->setPaper('letter', 'portrait');
+        ]);
+
+        $vista = \App\Services\PdfDocumentoService::resolverVista('balance_general', 'reportes.contabilidad.balance-general', $sucursalId);
+        $pdf = Pdf::loadView($vista, $datosPlantilla)->setPaper('letter', 'portrait');
 
         return $pdf->download('balance-general-' . $fechaCorte . '.pdf');
     }
@@ -1011,6 +1017,40 @@ class ContabilidadController extends Controller
                     'fin' => $hoy
                 ]
             ]
+        ]);
+    }
+
+    /**
+     * Diagnostic endpoint para verificar la contabilidad en servidores de desarrollo y producción
+     */
+    public function estadoSistema(): JsonResponse
+    {
+        $config = [
+            'auto_asientos' => (bool) config('contabilidad.auto_asientos', false),
+            'auto_desembolso' => (bool) config('contabilidad.auto_asientos_por_operacion.desembolso_credito', false),
+            'auto_pago' => (bool) config('contabilidad.auto_asientos_por_operacion.pago_credito', false),
+            'auto_venta' => (bool) config('contabilidad.auto_asientos_por_operacion.venta_prenda', false),
+            'requiere_aprobacion' => (bool) config('contabilidad.requiere_aprobacion', false),
+            'moneda_defecto' => config('contabilidad.moneda_defecto', 'GTQ'),
+        ];
+
+        $cuentasCount = CtbNomenclatura::count();
+        $polizasCount = CtbTipoPoliza::count();
+        $parametrizacionesCount = \App\Models\Contabilidad\CtbParametrizacionCuenta::count();
+        $totalAsientos = CtbDiario::count();
+        $ultimosAsientos = CtbDiario::latest()->limit(5)->get();
+
+        return response()->json([
+            'success' => true,
+            'contabilidad_activa' => $config['auto_asientos'],
+            'configuracion' => $config,
+            'resumen_base_datos' => [
+                'total_cuentas_nomenclatura' => $cuentasCount,
+                'total_tipos_poliza' => $polizasCount,
+                'total_parametrizaciones' => $parametrizacionesCount,
+                'total_asientos_generados' => $totalAsientos,
+            ],
+            'ultimos_asientos' => $ultimosAsientos,
         ]);
     }
 }

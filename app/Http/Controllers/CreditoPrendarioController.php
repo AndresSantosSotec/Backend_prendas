@@ -13,6 +13,8 @@ use App\Models\CreditoPlanPago;
 use App\Models\IdempotencyKey;
 use App\Models\AuditoriaCredito;
 use App\Models\CodigoPrereservado;
+use App\Models\PlanInteresCategoria;
+use App\Models\ConfiguracionSistema;
 use App\Services\CajaService;
 use App\Services\ContabilidadAutomaticaService;
 use App\Enums\EstadoCredito;
@@ -61,11 +63,20 @@ class CreditoPrendarioController extends Controller
                 $busqueda = $request->busqueda;
                 $query->where(function ($q) use ($busqueda) {
                     $q->where('numero_credito', 'like', "%{$busqueda}%")
+                      ->orWhere('numero_contrato', 'like', "%{$busqueda}%")
+                      ->orWhere('numero_pagare', 'like', "%{$busqueda}%")
                       ->orWhereHas('cliente', function ($q) use ($busqueda) {
                           $q->where('nombres', 'like', "%{$busqueda}%")
                             ->orWhere('apellidos', 'like', "%{$busqueda}%")
                             ->orWhere('dpi', 'like', "%{$busqueda}%")
                             ->orWhere('codigo_cliente', 'like', "%{$busqueda}%");
+                      })
+                      ->orWhereHas('prendas', function ($q) use ($busqueda) {
+                          $q->where('codigo_prenda', 'like', "%{$busqueda}%")
+                            ->orWhere('descripcion', 'like', "%{$busqueda}%")
+                            ->orWhere('marca', 'like', "%{$busqueda}%")
+                            ->orWhere('modelo', 'like', "%{$busqueda}%")
+                            ->orWhere('serie', 'like', "%{$busqueda}%");
                       });
                 });
             }
@@ -88,6 +99,22 @@ class CreditoPrendarioController extends Controller
 
             if ($request->has('fecha_hasta') && $request->fecha_hasta !== '') {
                 $query->where('fecha_solicitud', '<=', $request->fecha_hasta);
+            }
+
+            if ($request->has('fecha_vencimiento_desde') && $request->fecha_vencimiento_desde !== '') {
+                $query->whereDate('fecha_vencimiento', '>=', $request->fecha_vencimiento_desde);
+            }
+
+            if ($request->has('fecha_vencimiento_hasta') && $request->fecha_vencimiento_hasta !== '') {
+                $query->whereDate('fecha_vencimiento', '<=', $request->fecha_vencimiento_hasta);
+            }
+
+            if ($request->has('sucursal_id') && $request->sucursal_id !== '' && $request->sucursal_id !== 'todos') {
+                $query->where('sucursal_id', $request->sucursal_id);
+            }
+
+            if ($request->has('cliente_id') && $request->cliente_id !== '') {
+                $query->where('cliente_id', $request->cliente_id);
             }
 
             // Ordenamiento: Por defecto del más reciente al más antiguo (id desc)
@@ -251,6 +278,8 @@ class CreditoPrendarioController extends Controller
             'monto_aprobado' => 'nullable|numeric|min:0',
             'valor_tasacion' => 'nullable|numeric|min:0',
             'tasa_interes' => 'nullable|numeric|gt:0',
+            'porcentaje_descuento_interes' => 'nullable|numeric|min:0|max:100',
+            'descuento_interes_motivo' => 'nullable|string|max:255',
             'tasa_mora' => 'nullable|numeric|min:0',
             'tipo_mora' => 'nullable|in:porcentaje,monto_fijo',
             'mora_monto_fijo' => 'nullable|numeric|min:0',
@@ -334,80 +363,8 @@ class CreditoPrendarioController extends Controller
             $numeroCredito = $request->numero_credito;
 
             if (!$numeroCredito) {
-                // 🔒 PROTECCIÓN CONTRA RACE CONDITION: Reintentar hasta 5 veces si hay duplicado
-                $intentos = 0;
-                $maxIntentos = 5;
-
-                while ($intentos < $maxIntentos) {
-                    try {
-                        // 🏢 ORGANIZACIÓN: Código configurable desde .env (2 dígitos)
-                        $organizacion = str_pad(env('ORGANIZATION_CODE', '01'), 2, '0', STR_PAD_LEFT);
-
-                        // Generar número de crédito único en formato ORGDDMMYYAACORRELATIVO (sin guiones)
-                        $fecha = now()->format('dmy'); // Día, Mes, Año (2 dígitos cada uno)
-
-                        // Obtener agencia (solo números, sin letras)
-                        $sucursalId = $request->sucursal_id ?? 1;
-                        $agencia = str_pad($sucursalId, 2, '0', STR_PAD_LEFT);
-
-                        // 🔐 BLOQUEO: Usar lockForUpdate para prevenir race condition
-                        $hoy = now()->format('Y-m-d');
-                        $prefijoBusqueda = $organizacion . $fecha . $agencia;
-
-                        $ultimoCredito = CreditoPrendario::withTrashed()
-                            ->whereDate('created_at', $hoy)
-                            ->whereNotNull('numero_credito')
-                            // Solo buscar códigos con el nuevo formato (no inician con CR-)
-                            ->where('numero_credito', 'NOT LIKE', 'CR-%')
-                            ->where('numero_credito', 'LIKE', $prefijoBusqueda . '%')
-                            ->lockForUpdate() // 🔒 Bloqueo para lectura concurrente
-                            ->orderBy('id', 'desc')
-                            ->first();
-
-                        if ($ultimoCredito && $ultimoCredito->numero_credito) {
-                            // Extraer correlativo del formato ORGDDMMYYAACORRELATIVO (últimos 6 dígitos)
-                            $ultimoCorrelativo = (int) substr($ultimoCredito->numero_credito, -6);
-                            $correlativo = $ultimoCorrelativo + 1;
-                        } else {
-                            $correlativo = 1;
-                        }
-
-                        // Formato: ORGDDMMYYAACORRELATIVO (16 dígitos sin guiones)
-                        // Ejemplo: 0102022601000001 = Org:01, 02/02/26, Agencia:01, Correlativo:000001
-                        $numeroCredito = $organizacion . $fecha . $agencia . str_pad($correlativo, 6, '0', STR_PAD_LEFT);
-
-                        // ✅ Verificar que no exista (doble verificación)
-                        $existe = CreditoPrendario::withTrashed()
-                            ->where('numero_credito', $numeroCredito)
-                            ->exists();
-
-                        if ($existe) {
-                            throw new \Exception("Código duplicado detectado: {$numeroCredito}");
-                        }
-
-                        break; // ✅ Código generado exitosamente, salir del loop
-
-                    } catch (\Exception $e) {
-                        $intentos++;
-
-                        if ($intentos >= $maxIntentos) {
-                            Log::error('ERROR CRÍTICO: No se pudo generar código único después de ' . $maxIntentos . ' intentos', [
-                                'error' => $e->getMessage(),
-                                'organizacion' => $organizacion ?? null,
-                                'fecha' => $fecha ?? null,
-                                'agencia' => $agencia ?? null
-                            ]);
-
-                            return response()->json([
-                                'success' => false,
-                                'message' => 'Error al generar código de crédito único. Por favor, intente nuevamente.'
-                            ], 500);
-                        }
-
-                        // Esperar un momento antes de reintentar (backoff exponencial)
-                        usleep(100000 * $intentos); // 100ms, 200ms, 300ms, etc.
-                    }
-                }
+                $sucursalId = $request->sucursal_id ?? 1;
+                $numeroCredito = \App\Models\CodigoPrereservado::generarCodigoCredito((int) $sucursalId);
             }
 
             // Calcular fecha de vencimiento si hay plazo
@@ -485,6 +442,8 @@ class CreditoPrendarioController extends Controller
                 'monto_aprobado' => $request->monto_aprobado ?? $request->monto_solicitado,
                 'valor_tasacion' => $request->valor_tasacion,
                 'tasa_interes' => $tasaInteresFinal,
+                'porcentaje_descuento_interes' => (float) ($request->porcentaje_descuento_interes ?? 0),
+                'descuento_interes_motivo' => $request->descuento_interes_motivo ?? null,
                 'tasa_mora' => $tasaMora,
                 'tipo_mora' => $tipoMora,
                 'mora_monto_fijo' => $moraMontoFijo,
@@ -1234,6 +1193,7 @@ class CreditoPrendarioController extends Controller
                 'nombres' => $credito->cliente->nombres,
                 'apellidos' => $credito->cliente->apellidos,
                 'dpi' => $credito->cliente->dpi,
+                'telefono' => $credito->cliente->telefono,
             ] : null,
             'sucursal' => $credito->sucursal ? [
                 'id' => (string) $credito->sucursal->id,
@@ -1395,8 +1355,8 @@ class CreditoPrendarioController extends Controller
         // Calcular días entre cuotas según tipo de interés
         $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);
 
-        // Calcular tasa de interés por período
-        $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres);
+        // Calcular tasa de interés por período (respeta tasas por período en Prendamás)
+        $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres, $credito->plan_interes_id, $credito);
 
         // Calcular según método de cálculo
         if ($metodoCalculo === 'flat') {
@@ -1504,13 +1464,14 @@ class CreditoPrendarioController extends Controller
                 }
             }
 
-            // Determinar si es cuota de gracia (solo interés, sin capital)
-            $esCuotaGracia = ($numeroCuota === 1 && $diasGracia > 0 && $credito->dias_gracia > 0);
+            // NOTA DE SEGURIDAD: dias_gracia representa días de tolerancia antes de cobrar mora.
+            // NUNCA debe anular el capital de la cuota ni convertirla en cuota de solo interés.
+            $esCuotaGracia = false;
 
-            if ($esCuotaGracia) {
-                // En cuota de gracia, solo se cobra interés, el capital se prorratea en las demás cuotas
-                $capitalProyectado = 0;
-                $montoCuotaProyectado = round($interesProyectado, 2);
+            // Salvaguarda: En la última (o única) cuota, asegurar que absorba todo el saldo de capital restante
+            if ($numeroCuota === $numeroCuotas && $saldoCapital > 0) {
+                $capitalProyectado = round($saldoCapital, 2);
+                $montoCuotaProyectado = round($capitalProyectado + $interesProyectado, 2);
             }
 
             $diasCuota = $diasEntreCuotas;
@@ -1682,10 +1643,78 @@ class CreditoPrendarioController extends Controller
         return $mapeo[$metodoValuacion] ?? 'comparativo';
     }
 
-    private function calcularTasaPorPeriodo(float $tasaInteres, string $tipoInteres): float
+    /**
+     * Determina si se debe aplicar la tasa de interés directamente por período (sin prorratear)
+     * o si se debe prorratear desde una tasa mensual (comportamiento estándar tradicional).
+     * 
+     * Configuración:
+     * - En Avanza y organizaciones estándar: Retorna false (prorrateo mensual: /2 quincenal, /4 semanal).
+     * - En Prendamás o tenants con tasa directa: Retorna true (tasa directa por período: 7.64% quincenal, etc.).
+     */
+    public static function debeAplicarTasaDirectaPorPeriodo($planIdOObjeto = null): bool
     {
-        // La tasa ingresada es la tasa mensual (ej: 15% mensual).
-        // Se divide según el tipo de interés para obtener la tasa por período en decimal.
+        // 1. Configuración del tenant en base de datos (clave configurable)
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('configuraciones_sistema')) {
+                $configVal = ConfiguracionSistema::obtener('credito_tasa_por_periodo_directa', null);
+                if ($configVal !== null) {
+                    return (bool) $configVal;
+                }
+            }
+        } catch (\Throwable) {}
+
+        // 2. Variable de entorno del servidor / instancia
+        if (filter_var(env('CREDITO_TASA_POR_PERIODO_DIRECTA', false), FILTER_VALIDATE_BOOLEAN)) {
+            return true;
+        }
+
+        // 3. Si se pasa un plan de crédito específico, revisar si ese plan pertenece al catálogo Prendamás
+        if ($planIdOObjeto) {
+            $plan = null;
+            if ($planIdOObjeto instanceof CreditoPrendario) {
+                if ($planIdOObjeto->plan_interes_id) {
+                    $plan = PlanInteresCategoria::find($planIdOObjeto->plan_interes_id);
+                }
+            } elseif ($planIdOObjeto instanceof PlanInteresCategoria) {
+                $plan = $planIdOObjeto;
+            } elseif (is_numeric($planIdOObjeto)) {
+                $plan = PlanInteresCategoria::find((int) $planIdOObjeto);
+            }
+
+            if ($plan && (str_starts_with($plan->codigo ?? '', 'PM-') || str_contains(strtolower($plan->nombre ?? ''), 'prendam'))) {
+                return true;
+            }
+        }
+
+        // 4. Identificador de organización por entorno
+        $orgSlug = strtolower(trim((string) (env('ORGANIZATION_SLUG') ?: env('EMPRESA_NOMBRE') ?: env('APP_NAME') ?: '')));
+        if (str_contains($orgSlug, 'prendam')) {
+            return true;
+        }
+
+        // Por defecto: false (comportamiento estándar tradicional para Avanza y nuevos clientes)
+        return false;
+    }
+
+    /**
+     * Alias de retrocompatibilidad
+     */
+    public static function esInstanciaPrendamas($planIdOObjeto = null): bool
+    {
+        return static::debeAplicarTasaDirectaPorPeriodo($planIdOObjeto);
+    }
+
+    private function calcularTasaPorPeriodo(float $tasaInteres, string $tipoInteres, $planIdOObjeto = null, ?CreditoPrendario $credito = null): float
+    {
+        // Si el tenant o el plan tiene configurado el cálculo directo por período:
+        // (ej: Plan Quincenal = 7.64% por quincena, Plan Semanal = 4.03% por semana, Plan Mensual = 15.05% por mes).
+        // NO se divide entre 2 ni entre 4 porque ya es la tasa efectiva del período.
+        if (static::debeAplicarTasaDirectaPorPeriodo($planIdOObjeto ?? $credito)) {
+            return $tasaInteres / 100;
+        }
+
+        // En Avanza y otras organizaciones (comportamiento estándar tradicional):
+        // La tasa ingresada se considera mensual (ej: 15% mensual) y se prorratea.
         switch ($tipoInteres) {
             case 'diario':
                 return ($tasaInteres / 30) / 100;
@@ -1749,6 +1778,11 @@ class CreditoPrendarioController extends Controller
                     'concepto' => $movimiento->concepto,
                     'observaciones' => $movimiento->observaciones,
                     'estado' => $movimiento->estado,
+                    'motivo_reversion' => $movimiento->motivo_reversion,
+                    'fecha_reversion' => $movimiento->fecha_reversion?->toISOString(),
+                    'movimiento_reversa_id' => $movimiento->movimiento_reversa_id
+                        ? (string) $movimiento->movimiento_reversa_id
+                        : null,
                     'usuario' => $movimiento->usuario ? [
                         'id' => (string) $movimiento->usuario->id,
                         'nombre' => $movimiento->usuario->name,
@@ -1904,6 +1938,8 @@ class CreditoPrendarioController extends Controller
                     'sucursal_id' => $credito->sucursal_id,
                     'usuario_id' => Auth::id(),
                     'monto' => $credito->monto_aprobado,
+                    'monto_capital' => $credito->monto_aprobado,
+                    'monto_desembolsado' => $credito->monto_aprobado,
                     'credito_prendario_id' => $credito->id,
                     'movimiento_credito_id' => $movimiento->id,
                     'numero_documento' => $movimiento->numero_movimiento,
@@ -2481,6 +2517,18 @@ class CreditoPrendarioController extends Controller
      */
     public function anularMovimiento(Request $request, string $id, string $movimientoId): JsonResponse
     {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'No autenticado'], 401);
+        }
+
+        if (!in_array($user->rol, ['superadmin', 'administrador']) && !$user->hasPermission('creditos', 'cancelar') && !$user->hasPermission('creditos', 'anular_movimiento')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para anular movimientos de crédito'
+            ], 403);
+        }
+
         $validator = Validator::make($request->all(), [
             'motivo' => 'required|string|max:1000',
             'idempotency_key' => 'required|string|max:255',
@@ -2617,6 +2665,33 @@ class CreditoPrendarioController extends Controller
                 'tipo_cambio' => 1,
             ]);
 
+            $cajaReversion = null;
+            if (in_array($movimiento->tipo_movimiento, ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado', 'pago_interes'], true)) {
+                $cajaReversion = \App\Services\CajaService::revertirPagoCredito(
+                    $movimiento,
+                    $credito,
+                    (string) $request->motivo
+                );
+            }
+
+            // Sincronizar Contabilidad: agrupar el orWhere para no anular otro asiento
+            $diario = \App\Models\Contabilidad\CtbDiario::where(function ($q) use ($movimiento) {
+                $q->where('movimiento_credito_id', $movimiento->id)
+                    ->orWhere('numero_documento', $movimiento->numero_movimiento);
+            })->first();
+
+            if ($diario && $diario->estado !== 'anulado') {
+                try {
+                    app(\App\Services\ContabilidadAutomaticaService::class)->anularAsiento(
+                        $diario->id,
+                        'Anulación de movimiento de crédito #' . $credito->numero_credito . ': ' . $request->motivo,
+                        Auth::id()
+                    );
+                } catch (\Exception $ce) {
+                    Log::warning('No se pudo anular asiento contable automático: ' . $ce->getMessage());
+                }
+            }
+
             // Registrar auditoría
             AuditoriaCredito::registrar(
                 $credito->id,
@@ -2644,9 +2719,17 @@ class CreditoPrendarioController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Movimiento anulado exitosamente',
-                'data' => $resultado
+                'data' => $resultado,
+                'caja' => $cajaReversion,
             ], 200);
 
+        } catch (\RuntimeException $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -2770,6 +2853,7 @@ class CreditoPrendarioController extends Controller
                 'cliente',
                 'sucursal',
                 'gastos',
+                'prendas.categoriaProducto',
                 'planPagos' => function($query) {
                     $query->orderBy('numero_cuota', 'asc');
                 }
@@ -2796,17 +2880,28 @@ class CreditoPrendarioController extends Controller
                 'credito' => $credito,
                 'cliente' => $credito->cliente,
                 'sucursal' => $credito->sucursal,
+                'prendas' => $credito->prendas,
                 'planPagos' => $planPagos,
                 'totalGastos' => $totalGastos,
                 'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
             ];
 
-            $pdf = Pdf::loadView('creditos.plan-pagos', $data);
-            $pdf->setPaper('letter', 'portrait');
+            $variante = request()->query('variante');
+            $formatId = request()->query('format_id') ? (int) request()->query('format_id') : null;
 
-            $nombreArchivo = 'Plan_Pagos_' . ($credito->codigo_credito ?? $credito->numero_credito) . '_' . date('Ymd') . '.pdf';
+            $docService = app(\App\Documents\DocumentService::class);
+            $result = $docService->generate(
+                tipoDocumento: 'plan_pagos',
+                businessData: $data,
+                formatId: $formatId,
+                sucursalId: $credito->sucursal_id,
+                varianteOverride: $variante
+            );
 
-            return $pdf->download($nombreArchivo);
+            return response($result->content, 200, [
+                'Content-Type' => $result->mimeType,
+                'Content-Disposition' => (request()->query('download') ? 'attachment' : 'inline') . '; filename="' . $result->filename . '"',
+            ]);
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             Log::error('Crédito no encontrado para plan de pagos PDF: ' . $id);
@@ -2862,12 +2957,22 @@ class CreditoPrendarioController extends Controller
                 'fechaContrato' => $fechaFormateada,
             ];
 
-            $pdf = Pdf::loadView('creditos.contrato', $data);
-            $pdf->setPaper('letter', 'portrait');
+            $variante = request()->query('variante');
+            $formatId = request()->query('format_id') ? (int) request()->query('format_id') : null;
 
-            $nombreArchivo = 'Contrato_Credito_' . ($credito->codigo_credito ?? $credito->numero_credito) . '_' . date('Ymd') . '.pdf';
+            $docService = app(\App\Documents\DocumentService::class);
+            $result = $docService->generate(
+                tipoDocumento: 'contrato_credito',
+                businessData: $data,
+                formatId: $formatId,
+                sucursalId: $credito->sucursal_id,
+                varianteOverride: $variante
+            );
 
-            return $pdf->download($nombreArchivo);
+            return response($result->content, 200, [
+                'Content-Type' => $result->mimeType,
+                'Content-Disposition' => (request()->query('download') ? 'attachment' : 'inline') . '; filename="' . $result->filename . '"',
+            ]);
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             Log::error('Crédito no encontrado para contrato PDF: ' . $id);
@@ -2973,14 +3078,31 @@ class CreditoPrendarioController extends Controller
                 'barcodeImage' => $barcodeImage,
                 'barcodeValue' => $barcodeValue,
                 'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
+                'esPreliminar' => true,
             ];
 
-            $pdf = Pdf::loadView('creditos.recibo', $data);
-            $pdf->setPaper('letter', 'portrait');
+            try {
+                $docService = app(\App\Documents\DocumentService::class);
+                $result = $docService->generate(
+                    tipoDocumento: 'recibo_pago',
+                    businessData: $data,
+                    formatId: null,
+                    sucursalId: $sucursal?->id
+                );
 
-            $nombreArchivo = 'Recibo_Preliminar_' . $numeroCredito . '_' . date('Ymd') . '.pdf';
+                return response($result->content, 200, [
+                    'Content-Type' => $result->mimeType,
+                    'Content-Disposition' => 'attachment; filename="' . $result->filename . '"',
+                ]);
+            } catch (\Throwable $eDoc) {
+                Log::warning('DocumentService recibo preliminar fallback: ' . $eDoc->getMessage());
+                $pdf = Pdf::loadView('creditos.recibo', $data);
+                $pdf->setPaper('letter', 'portrait');
 
-            return $pdf->download($nombreArchivo);
+                $nombreArchivo = 'Recibo_Preliminar_' . $numeroCredito . '_' . date('Ymd') . '.pdf';
+
+                return $pdf->download($nombreArchivo);
+            }
 
         } catch (\Exception $e) {
             Log::error('Error al generar recibo preliminar: ' . $e->getMessage(), [
@@ -3064,22 +3186,90 @@ class CreditoPrendarioController extends Controller
                 'dias_gracia' => $request->credito['dias_gracia'] ?? 0,
             ]);
 
+            // Calcular plan de pagos preliminar para que el contrato tenga cuotas completas
+            $tasaInteres = (float) ($request->credito['tasa_interes'] ?? 15);
+            $tipoInteres = $request->credito['tipo_interes'] ?? 'mensual';
+            $numeroCuotas = (int) ($request->credito['numero_cuotas'] ?? 1);
+            $montoAprobado = (float) ($request->credito['monto_aprobado'] ?? 0);
+            $diasGracia = (int) ($request->credito['dias_gracia'] ?? 0);
+            $fechaDesembolso = isset($request->credito['fecha_desembolso']) ? Carbon::parse($request->credito['fecha_desembolso']) : Carbon::now();
+            $fechaPrimerPago = isset($request->credito['fecha_primer_pago']) ? Carbon::parse($request->credito['fecha_primer_pago']) : null;
+
+            $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres);
+            $interesPorCuota = round($montoAprobado * $tasaPorPeriodo, 2);
+            $capitalPorCuota = round($montoAprobado / max(1, $numeroCuotas), 2);
+            $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);
+
+            $planPagos = collect([]);
+            $saldoCapital = $montoAprobado;
+
+            for ($i = 1; $i <= $numeroCuotas; $i++) {
+                $fechaBaseCuota = $fechaPrimerPago ? $fechaPrimerPago : $fechaDesembolso;
+                $fechaVencimientoCuota = $this->calcularFechaVencimientoPorCuota(
+                    $fechaBaseCuota,
+                    $i,
+                    $tipoInteres,
+                    $diasEntreCuotas
+                );
+
+                if ($i === 1 && $diasGracia > 0 && !$fechaPrimerPago) {
+                    $fechaVencimientoCuota->addDays($diasGracia);
+                }
+
+                $abonoCapital = ($i === $numeroCuotas) ? $saldoCapital : $capitalPorCuota;
+                $totalCuota = round($abonoCapital + $interesPorCuota, 2);
+
+                $planPagos->push((object)[
+                    'numero_cuota' => $i,
+                    'fecha_vencimiento' => $fechaVencimientoCuota->format('Y-m-d'),
+                    'capital_proyectado' => $abonoCapital,
+                    'interes_proyectado' => $interesPorCuota,
+                    'mora_proyectada' => 0,
+                    'otros_cargos_proyectados' => 0,
+                    'monto_cuota_proyectado' => $totalCuota,
+                    'capital_pendiente' => $abonoCapital,
+                    'interes_pendiente' => $interesPorCuota,
+                    'monto_pendiente' => $totalCuota,
+                    'saldo_capital_credito' => round(max(0, $saldoCapital - $abonoCapital), 2),
+                    'estado' => 'pendiente'
+                ]);
+
+                $saldoCapital -= $abonoCapital;
+            }
+
             $data = [
                 'credito' => (object) $creditoData,
                 'cliente' => (object) $request->cliente,
                 'sucursal' => $sucursal,
                 'prendas' => [(object) $prendaData],
-                'planPagos' => collect([]), // Sin plan de pagos en preliminar
+                'planPagos' => $planPagos,
                 'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
                 'fechaContrato' => $fechaFormateada,
+                'esPreliminar' => true,
             ];
 
-            $pdf = Pdf::loadView('creditos.contrato', $data);
-            $pdf->setPaper('letter', 'portrait');
+            try {
+                $docService = app(\App\Documents\DocumentService::class);
+                $result = $docService->generate(
+                    tipoDocumento: 'contrato_credito',
+                    businessData: $data,
+                    formatId: null,
+                    sucursalId: $sucursal?->id
+                );
 
-            $nombreArchivo = 'Contrato_Preliminar_' . $request->credito['numero_credito'] . '_' . date('Ymd') . '.pdf';
+                return response($result->content, 200, [
+                    'Content-Type' => $result->mimeType,
+                    'Content-Disposition' => 'attachment; filename="' . $result->filename . '"',
+                ]);
+            } catch (\Throwable $eDoc) {
+                Log::warning('DocumentService contrato preliminar fallback: ' . $eDoc->getMessage());
+                $pdf = Pdf::loadView('creditos.contrato', $data);
+                $pdf->setPaper('letter', 'portrait');
 
-            return $pdf->download($nombreArchivo);
+                $nombreArchivo = 'Contrato_Preliminar_' . $request->credito['numero_credito'] . '_' . date('Ymd') . '.pdf';
+
+                return $pdf->download($nombreArchivo);
+            }
 
         } catch (\Exception $e) {
             Log::error('Error al generar contrato preliminar: ' . $e->getMessage(), [
@@ -3149,7 +3339,8 @@ class CreditoPrendarioController extends Controller
             // Cálculo tipo "flat" prendario:
             // Interés total = monto × tasa (fijo, NO se multiplica por cuotas)
             // Interés por cuota = interés total / número de cuotas
-            $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres);
+            $planId = $request->plan_id ?? $request->plan_interes_id;
+            $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres, $planId);
             $interesPorCuota = round($montoAprobado * $tasaPorPeriodo, 2);
             $interesTotal = round($interesPorCuota * $numeroCuotas, 2);
             $capitalPorCuota = round($montoAprobado / $numeroCuotas, 2);
@@ -3325,7 +3516,8 @@ class CreditoPrendarioController extends Controller
             // Cálculo tipo "flat" prendario:
             // Interés total = monto × tasa (fijo, NO se multiplica por cuotas)
             // Interés por cuota = interés total / número de cuotas
-            $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres);
+            $planId = $datosCredito['plan_id'] ?? $datosCredito['plan_interes_id'] ?? null;
+            $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres, $planId);
             $interesPorCuota = round($montoAprobado * $tasaPorPeriodo, 2);
             $interesTotal = round($interesPorCuota * $numeroCuotas, 2);
             $capitalPorCuota = round($montoAprobado / $numeroCuotas, 2);
@@ -3363,8 +3555,13 @@ class CreditoPrendarioController extends Controller
                     'capital_proyectado' => $abonoCapital,
                     'interes_proyectado' => $interesPorCuota,
                     'mora_proyectada' => 0,
+                    'otros_cargos_proyectados' => $gastosEstaCuota,
                     'otros_proyectados' => $gastosEstaCuota,
                     'monto_cuota_proyectado' => $totalCuota,
+                    'capital_pendiente' => $abonoCapital,
+                    'interes_pendiente' => $interesPorCuota,
+                    'monto_pendiente' => $totalCuota,
+                    'saldo_capital_credito' => round(max(0, $saldoCapital - $abonoCapital), 2),
                     'estado' => 'pendiente'
                 ];
 
@@ -3397,21 +3594,56 @@ class CreditoPrendarioController extends Controller
                 'direccion' => $clienteData['direccion'] ?? null,
             ];
 
+            // Preparar prendas si vienen en la petición (para el Estado de Cuenta de 2 páginas de Prendamás)
+            $prendas = [];
+            if ($request->has('prenda')) {
+                $prendaInput = $request->input('prenda');
+                $prendas[] = (object) array_merge($prendaInput, [
+                    'descripcion' => $prendaInput['descripcion_general'] ?? $prendaInput['descripcion'] ?? 'Prenda empeñada',
+                    'valor_tasacion' => $request->input('tasacion.valor_mercado') ?? $request->input('tasacion.valor_comercial') ?? $montoAprobado,
+                ]);
+            } elseif ($request->has('prendas')) {
+                foreach ($request->input('prendas') as $p) {
+                    $prendas[] = (object) array_merge($p, [
+                        'descripcion' => $p['descripcion_general'] ?? $p['descripcion'] ?? 'Prenda empeñada',
+                        'valor_tasacion' => $p['valor_tasacion'] ?? $montoAprobado,
+                    ]);
+                }
+            }
+
             $data = [
                 'credito' => $creditoObj,
                 'cliente' => $clienteObj,
                 'sucursal' => $sucursal,
+                'prendas' => $prendas,
                 'planPagos' => $planPagos,
+                'totalGastos' => $totalGastos,
                 'fechaGeneracion' => now()->format('d/m/Y H:i:s'),
                 'esPreliminar' => true,
             ];
 
-            $pdf = Pdf::loadView('creditos.plan-pagos', $data);
-            $pdf->setPaper('letter', 'portrait');
+            try {
+                $docService = app(\App\Documents\DocumentService::class);
+                $result = $docService->generate(
+                    tipoDocumento: 'plan_pagos',
+                    businessData: $data,
+                    formatId: null,
+                    sucursalId: $sucursal?->id
+                );
 
-            $nombreArchivo = 'Plan_Pagos_Simulacion_' . ($datosCredito['numero_credito'] ?? 'SIM') . '.pdf';
+                return response($result->content, 200, [
+                    'Content-Type' => $result->mimeType,
+                    'Content-Disposition' => 'attachment; filename="' . $result->filename . '"',
+                ]);
+            } catch (\Throwable $eDoc) {
+                Log::warning('DocumentService plan_pagos preliminar fallback: ' . $eDoc->getMessage());
+                $pdf = Pdf::loadView('creditos.plan-pagos', $data);
+                $pdf->setPaper('letter', 'portrait');
 
-            return $pdf->download($nombreArchivo);
+                $nombreArchivo = 'Plan_Pagos_Simulacion_' . ($datosCredito['numero_credito'] ?? 'SIM') . '.pdf';
+
+                return $pdf->download($nombreArchivo);
+            }
 
         } catch (\Exception $e) {
             Log::error('Error al generar plan de pagos preliminar: ' . $e->getMessage(), [

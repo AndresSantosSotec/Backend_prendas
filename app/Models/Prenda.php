@@ -113,6 +113,25 @@ class Prenda extends Model
     }
 
     /**
+     * Venta directa de esta prenda (relación con tabla ventas vía prenda_id)
+     */
+    public function venta()
+    {
+        return $this->hasOne(Venta::class, 'prenda_id')->latest();
+    }
+
+    public function ventaDetalles()
+    {
+        return $this->hasMany(VentaDetalle::class, 'prenda_id');
+    }
+
+    public function ventas()
+    {
+        return $this->belongsToMany(Venta::class, 'venta_detalles', 'prenda_id', 'venta_id')
+            ->withPivot(['total', 'subtotal', 'precio_unitario', 'descuento']);
+    }
+
+    /**
      * Relación con los datos adicionales normalizados (tabla EAV)
      */
     public function datosAdicionalesNormalizados()

@@ -233,10 +233,10 @@
         <table width="100%">
             <tr>
                 <td width="25%" style="text-align: left; vertical-align: middle;">
-                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                    @include('pdf.partials.logo', ['height' => '60px'])
                 </td>
                 <td width="50%" style="text-align: center; vertical-align: middle;">
-                    <div class="empresa">{{ $cotizacion->sucursal->nombre ?? 'AVANZA' }}</div>
+                    <div class="empresa">{{ $cotizacion->sucursal->nombre ?? $empresa['nombre'] ?? config('app.name', 'SISTEMA DE EMPEÑOS') }}</div>
                     <div style="font-size: 10px;">
                         {{ $cotizacion->sucursal->direccion ?? '' }}<br>
                         Tel: {{ $cotizacion->sucursal->telefono ?? '' }}

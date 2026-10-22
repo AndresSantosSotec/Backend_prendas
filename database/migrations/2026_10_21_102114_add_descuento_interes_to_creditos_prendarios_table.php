@@ -1,0 +1,29 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::table('creditos_prendarios', function (Blueprint $table) {
+            $table->decimal('porcentaje_descuento_interes', 5, 2)->default(0)->after('tasa_interes');
+            $table->string('descuento_interes_motivo', 255)->nullable()->after('porcentaje_descuento_interes');
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('creditos_prendarios', function (Blueprint $table) {
+            $table->dropColumn(['porcentaje_descuento_interes', 'descuento_interes_motivo']);
+        });
+    }
+};

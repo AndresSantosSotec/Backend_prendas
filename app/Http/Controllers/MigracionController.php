@@ -78,7 +78,7 @@ class MigracionController extends Controller
 
         try {
             $path = $request->file('file')->store('temp/migraciones');
-            $fullPath = storage_path('app/' . $path);
+            $fullPath = Storage::path($path);
 
             $validation = $this->migracionService->validateImport(
                 $request->modelo,
@@ -112,7 +112,7 @@ class MigracionController extends Controller
         ]);
 
         try {
-            $fullPath = storage_path('app/' . $request->temp_path);
+            $fullPath = Storage::path($request->temp_path);
 
             if (!file_exists($fullPath)) {
                 return response()->json(['success' => false, 'message' => 'El archivo temporal ha expirado.'], 404);

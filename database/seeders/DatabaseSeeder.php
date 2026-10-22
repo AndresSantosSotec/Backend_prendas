@@ -32,6 +32,8 @@ class DatabaseSeeder extends Seeder
             VentaCreditoParametrizacionSeeder::class,
             CreateSuperAdminSeeder::class,
             NuevosModulosPermisosSeeder::class,
+            ConfiguracionSistemaSeeder::class,
+            TbDocSeeder::class,
         ]);
     }
 }

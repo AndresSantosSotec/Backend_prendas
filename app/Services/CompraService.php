@@ -35,13 +35,10 @@ class CompraService
             try {
                 return DB::transaction(function () use ($data) {
                     $user = Auth::user();
-                    $sucursalId = $data['sucursal_id'] ?? $user->sucursal_id;
+                    $sucursalId = $data['sucursal_id'] ?? $data['_sucursal_scope'] ?? $user?->sucursal_id;
 
                     if (!$sucursalId) {
-                        $sucursalId = Sucursal::first()?->id;
-                        if (!$sucursalId) {
-                            throw new \Exception('No se pudo determinar la sucursal');
-                        }
+                        $sucursalId = Sucursal::first()?->id ?? 1;
                     }
 
                     // 1. Obtener datos del cliente (snapshot)
@@ -109,12 +106,23 @@ class CompraService
                         $this->procesarCamposDinamicos($compra, $data['campos_dinamicos']);
                     }
 
-                    // 7. Registrar movimiento de caja si es necesario
+                    // 7. Registrar movimiento de caja si es necesario.
+                    // Una compra en efectivo NO puede quedar registrada sin rebajar caja.
                     if ($compra->genera_egreso_caja) {
-                        $movimiento = $this->registrarEgresoCaja($compra, $sucursalId);
-                        if ($movimiento) {
-                            $compra->update(['movimiento_caja_id' => $movimiento->id]);
+                        $movimiento = $this->registrarEgresoCaja($compra, (int) $sucursalId);
+                        if (!$movimiento) {
+                            throw new \RuntimeException(
+                                "No se pudo registrar el egreso en caja para la compra {$compra->codigo_compra}. " .
+                                'Verifique que exista una caja abierta hoy en la sucursal e intente de nuevo.'
+                            );
                         }
+                        $compra->update(['movimiento_caja_id' => $movimiento->id]);
+                    }
+
+                    if ($compra->genera_egreso_caja && !$compra->movimiento_caja_id) {
+                        throw new \RuntimeException(
+                            "La compra {$compra->codigo_compra} no puede guardarse porque no rebajó efectivo en caja."
+                        );
                     }
 
                     // 8. Log de auditoría
@@ -124,12 +132,16 @@ class CompraService
                         'monto' => $compra->monto_pagado,
                         'cliente' => $compra->cliente_nombre,
                         'usuario' => $user->name ?? $user->username,
+                        'sucursal_id' => $sucursalId,
+                        'metodo_pago' => $compra->metodo_pago,
+                        'genera_egreso_caja' => $compra->genera_egreso_caja,
+                        'movimiento_caja_id' => $compra->movimiento_caja_id,
                     ]);
 
                     // 9. Disparar evento (opcional para hooks futuros)
                     Event::dispatch('compra.registrada', [$compra]);
 
-                    return $compra->load(['cliente', 'prenda', 'categoriaProducto', 'sucursal', 'usuario', 'camposDinamicos']);
+                    return $compra->load(['cliente', 'prenda', 'categoriaProducto', 'sucursal', 'usuario', 'camposDinamicos', 'movimientoCaja']);
                 });
             } catch (QueryException $e) {
                 $intentos++;
@@ -157,9 +169,18 @@ class CompraService
         $prefix = 'CMP-' . str_pad($sucursalId, 3, '0', STR_PAD_LEFT);
 
         // Obtener el número más alto ya utilizado para este prefijo
-        $ultimo = Compra::withTrashed()->where('codigo_compra', 'like', $prefix . '-%')
-            ->selectRaw('MAX(CAST(SUBSTRING_INDEX(codigo_compra, "-", -1) AS UNSIGNED)) as max_num')
-            ->value('max_num');
+        $driver = DB::connection()->getDriverName();
+        if ($driver === 'sqlite') {
+            $ultimo = Compra::withTrashed()
+                ->where('codigo_compra', 'like', $prefix . '-%')
+                ->pluck('codigo_compra')
+                ->map(fn($c) => (int) substr(strrchr($c, "-"), 1))
+                ->max();
+        } else {
+            $ultimo = Compra::withTrashed()->where('codigo_compra', 'like', $prefix . '-%')
+                ->selectRaw('MAX(CAST(SUBSTRING_INDEX(codigo_compra, "-", -1) AS UNSIGNED)) as max_num')
+                ->value('max_num');
+        }
 
         $count = ($ultimo ?? 0) + 1;
 
@@ -181,9 +202,18 @@ class CompraService
         $prefix = 'PRD-CMP-' . str_pad($categoriaId, 2, '0', STR_PAD_LEFT);
 
         // Obtener el número más alto ya utilizado para este prefijo
-        $ultimo = Prenda::withTrashed()->where('codigo_prenda', 'like', $prefix . '-%')
-            ->selectRaw('MAX(CAST(SUBSTRING_INDEX(codigo_prenda, "-", -1) AS UNSIGNED)) as max_num')
-            ->value('max_num');
+        $driver = DB::connection()->getDriverName();
+        if ($driver === 'sqlite') {
+            $ultimo = Prenda::withTrashed()
+                ->where('codigo_prenda', 'like', $prefix . '-%')
+                ->pluck('codigo_prenda')
+                ->map(fn($c) => (int) substr(strrchr($c, "-"), 1))
+                ->max();
+        } else {
+            $ultimo = Prenda::withTrashed()->where('codigo_prenda', 'like', $prefix . '-%')
+                ->selectRaw('MAX(CAST(SUBSTRING_INDEX(codigo_prenda, "-", -1) AS UNSIGNED)) as max_num')
+                ->value('max_num');
+        }
 
         $count = ($ultimo ?? 0) + 1;
 
@@ -232,55 +262,141 @@ class CompraService
      */
     private function procesarCamposDinamicos(Compra $compra, array $camposDinamicos): void
     {
-        // Obtener campos dinámicos de la categoría
-        $categoria = CategoriaProducto::find($compra->categoria_producto_id);
-        if (!$categoria || !$categoria->campos_dinamicos) return;
+        try {
+            // Obtener campos dinámicos de la categoría
+            $categoria = CategoriaProducto::find($compra->categoria_producto_id);
+            if (!$categoria) return;
 
-        $camposDefinicion = $categoria->campos_dinamicos;
+            $camposDefinicion = $categoria->campos_dinamicos ?? $categoria->campos_adicionales;
+            if (!$camposDefinicion) return;
 
-        foreach ($camposDinamicos as $nombreCampo => $valor) {
-            if (empty($valor)) continue;
+            foreach ($camposDinamicos as $nombreCampo => $valor) {
+                if ($valor === null || $valor === '') continue;
 
-            // Buscar la definición del campo en el array de campos de la categoría
-            $campoDef = collect($camposDefinicion)->firstWhere('nombre', $nombreCampo);
-            if (!$campoDef) continue;
+                // Buscar la definición del campo en el array de campos de la categoría
+                $campoDef = collect($camposDefinicion)->firstWhere('nombre', $nombreCampo);
 
-            CompraCampoDinamico::create([
-                'compra_id' => $compra->id,
-                'campo_dinamico_id' => 0, // No usamos ID porque están en JSON
-                'valor' => is_array($valor) ? json_encode($valor) : $valor,
-                'campo_nombre' => $campoDef['nombre'] ?? $nombreCampo,
-                'campo_tipo' => $campoDef['tipo'] ?? 'texto',
-            ]);
+                CompraCampoDinamico::create([
+                    'compra_id' => $compra->id,
+                    'campo_dinamico_id' => 0, // No usamos ID porque están en JSON
+                    'valor' => is_bool($valor) ? ($valor ? '1' : '0') : (is_array($valor) ? json_encode($valor) : (string)$valor),
+                    'campo_nombre' => $campoDef['nombre'] ?? $nombreCampo,
+                    'campo_tipo' => $campoDef['tipo'] ?? 'texto',
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::warning("Hotfix Compra: Error no fatal al guardar campos dinámicos para compra #{$compra->codigo_compra}: " . $e->getMessage());
         }
     }
 
     /**
-     * Registrar egreso en caja
+     * Registrar egreso en la caja vigente de la sucursal.
+     * No usa cajas cerradas, inconsistentes ni de otras sucursales.
      */
-    private function registrarEgresoCaja(Compra $compra, int $sucursalId): MovimientoCaja
+    public function registrarEgresoCaja(Compra $compra, int $sucursalId): ?MovimientoCaja
     {
-        // 🔒 REQUERIR CAJA ABIERTA — lanza excepción si no hay caja, para que el caller haga rollback
-        $caja = CajaService::getCajaAbierta();
+        $caja = CajaService::getCajaAbiertaVigente(
+            Auth::id() ?? $compra->usuario_id,
+            $sucursalId
+        );
 
         if (!$caja) {
-            throw new \Exception('Debe tener una caja abierta para registrar compras en efectivo. Vaya a Caja → Aperturar Caja.');
+            Log::warning("Compra #{$compra->codigo_compra}: no hay caja operativa hoy en sucursal {$sucursalId}.", [
+                'compra_id' => $compra->id,
+                'usuario_compra' => $compra->usuario_id,
+                'auth_id' => Auth::id(),
+            ]);
+            return null;
         }
+
+        $userId = Auth::id() ?? $compra->usuario_id ?? $caja->user_id;
+        $concepto = mb_substr("Compra directa: {$compra->codigo_compra} - {$compra->descripcion}", 0, 250);
+
+        Log::info("Egreso de compra se aplicará a caja operativa", [
+            'codigo_compra' => $compra->codigo_compra,
+            'caja_id' => $caja->id,
+            'caja_user_id' => $caja->user_id,
+            'caja_sucursal_id' => $caja->sucursal_id,
+            'fecha_apertura' => $caja->fecha_apertura,
+            'monto' => $compra->monto_pagado,
+        ]);
 
         return MovimientoCaja::create([
             'caja_id' => $caja->id,
             'tipo' => 'decremento',
-            'monto' => $compra->monto_pagado,
-            'concepto' => "Compra directa: {$compra->codigo_compra} - {$compra->descripcion}",
-            'detalles_movimiento' => json_encode([
+            'monto' => abs((float)$compra->monto_pagado),
+            'concepto' => $concepto,
+            'detalles_movimiento' => [
                 'tipo_operacion' => 'compra_directa',
                 'compra_id' => $compra->id,
                 'codigo_compra' => $compra->codigo_compra,
                 'cliente' => $compra->cliente_nombre,
                 'descripcion' => $compra->descripcion,
-            ]),
+                'monto' => (float)$compra->monto_pagado,
+                'sucursal_id' => $sucursalId,
+            ],
             'estado' => 'aplicado',
-            'user_id' => $compra->usuario_id,
+            'user_id' => $userId,
+        ]);
+    }
+
+    /**
+     * Sincronizar / reparar movimiento de caja para una compra en efectivo que no lo tenga
+     */
+    public function sincronizarEgresoCaja(Compra $compra): ?MovimientoCaja
+    {
+        // Si ya tiene movimiento de caja asociado, devolverlo
+        if ($compra->movimiento_caja_id) {
+            return MovimientoCaja::find($compra->movimiento_caja_id);
+        }
+
+        // Si la compra no genera egreso o no es en efectivo o está cancelada, no hacer nada
+        if (!$compra->genera_egreso_caja || $compra->estado === 'cancelada') {
+            return null;
+        }
+
+        $sucursalId = $compra->sucursal_id ?? 1;
+        $movimiento = $this->registrarEgresoCaja($compra, $sucursalId);
+
+        if ($movimiento) {
+            $compra->update(['movimiento_caja_id' => $movimiento->id]);
+            Log::info("Movimiento de caja sincronizado exitosamente para compra #{$compra->codigo_compra}", [
+                'compra_id' => $compra->id,
+                'movimiento_caja_id' => $movimiento->id,
+                'caja_id' => $movimiento->caja_id,
+                'monto' => $movimiento->monto,
+            ]);
+        }
+
+        return $movimiento;
+    }
+
+    /**
+     * Anular el egreso de caja asociado a una compra (si la caja sigue abierta).
+     */
+    public function anularEgresoCaja(Compra $compra, string $motivo = 'Compra cancelada/eliminada'): void
+    {
+        if (!$compra->movimiento_caja_id) {
+            return;
+        }
+
+        $movimiento = MovimientoCaja::with('caja')->find($compra->movimiento_caja_id);
+        if (!$movimiento || $movimiento->estaAnulado()) {
+            return;
+        }
+
+        $caja = $movimiento->caja;
+        if (!$caja || $caja->estado !== 'abierta' || $caja->fecha_cierre) {
+            Log::warning("No se pudo revertir el egreso de caja de la compra #{$compra->codigo_compra} porque la caja ya está cerrada.", [
+                'compra_id' => $compra->id,
+                'movimiento_caja_id' => $movimiento->id,
+                'caja_id' => $caja?->id,
+            ]);
+            return;
+        }
+
+        $movimiento->marcarAnulado([
+            'observaciones_boveda' => $motivo,
         ]);
     }
 
@@ -289,10 +405,13 @@ class CompraService
      */
     private function obtenerCajaAbiertaId(int $sucursalId): ?int
     {
-        return \App\Models\CajaAperturaCierre::where('sucursal_id', $sucursalId)
-            ->whereNull('fecha_cierre')
-            ->orderBy('created_at', 'desc')
-            ->first()?->id;
+        return CajaService::getCajaAbierta(null, $sucursalId)?->id
+            ?? \App\Models\CajaAperturaCierre::where('sucursal_id', $sucursalId)
+                ->where('estado', 'abierta')
+                ->whereNull('fecha_cierre')
+                ->orderBy('fecha_apertura', 'desc')
+                ->orderBy('id', 'desc')
+                ->first()?->id;
     }
 
     /**
@@ -306,6 +425,7 @@ class CompraService
             'sucursal:id,nombre',
             'usuario:id,name,username',
             'prenda:id,codigo_prenda,estado',
+            'movimientoCaja',
         ]);
 
         // Filtros
@@ -343,11 +463,11 @@ class CompraService
     }
 
     /**
-     * Obtener detalle completo de una compra
+     * Obtener detalle completo de una compra (con auto-reparación si faltaba movimiento de caja)
      */
     public function obtenerDetalle(int $compraId): Compra
     {
-        return Compra::with([
+        $compra = Compra::with([
             'cliente',
             'prenda',
             'categoriaProducto',
@@ -356,5 +476,7 @@ class CompraService
             'movimientoCaja',
             'camposDinamicos',
         ])->findOrFail($compraId);
+
+        return $compra;
     }
 }

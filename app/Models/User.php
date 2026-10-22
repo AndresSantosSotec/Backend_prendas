@@ -158,9 +158,16 @@ class User extends Authenticatable
 
         $permissionIds = [];
 
-        foreach ($permisos as $permiso) {
-            $modulo = $permiso['modulo'];
-            $acciones = $permiso['acciones'] ?? [];
+        foreach ($permisos as $key => $permiso) {
+            if (is_array($permiso) && isset($permiso['modulo'])) {
+                $modulo = $permiso['modulo'];
+                $acciones = $permiso['acciones'] ?? [];
+            } elseif (is_string($key) && is_array($permiso)) {
+                $modulo = $key;
+                $acciones = $permiso;
+            } else {
+                continue;
+            }
 
             foreach ($acciones as $accion) {
                 $permission = Permission::where('modulo', $modulo)
@@ -218,18 +225,29 @@ class User extends Authenticatable
             $roles = [$roles];
         }
 
-        // Normalizar roles (admin -> administrador, etc.)
+        // Normalizar roles a comparar
         $normalizedRoles = array_map(function ($role) {
             return match(strtolower($role)) {
                 'admin' => 'administrador',
                 'gerente', 'manager' => 'gerente',
                 'cajero', 'cashier' => 'cajero',
                 'vendedor', 'seller' => 'vendedor',
+                'contador', 'accountant' => 'contador',
                 default => strtolower($role)
             };
         }, $roles);
 
-        return in_array($this->rol, $normalizedRoles);
+        // Normalizar también el rol actual del usuario
+        $userRole = match(strtolower($this->rol ?? '')) {
+            'admin' => 'administrador',
+            'gerente', 'manager' => 'gerente',
+            'cajero', 'cashier' => 'cajero',
+            'vendedor', 'seller' => 'vendedor',
+            'contador', 'accountant' => 'contador',
+            default => strtolower($this->rol ?? '')
+        };
+
+        return in_array($userRole, $normalizedRoles);
     }
 
     /**

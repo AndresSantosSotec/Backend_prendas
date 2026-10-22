@@ -276,10 +276,15 @@ class CajaController extends Controller
 
             try {
                 return DB::transaction(function () use ($user, $fecha, $request, $boveda) {
+                    $sucursalApertura = $request->sucursal_id 
+                        ?? $request->header('X-Sucursal-Activa') 
+                        ?? $user->sucursal_id 
+                        ?? ($boveda->sucursal_id ?? 1);
+
                     // 1. Crear apertura de caja
                     $caja = CajaAperturaCierre::create([
                         'user_id'          => $user->id,
-                        'sucursal_id'      => $user->sucursal_id ?? 1,
+                        'sucursal_id'      => $sucursalApertura,
                         'fecha_apertura'   => $fecha,
                         'hora_apertura'    => Carbon::now()->toTimeString(),
                         'saldo_inicial'    => $request->saldo_inicial,
@@ -325,9 +330,14 @@ class CajaController extends Controller
 
         // ── MODO DESCONECTADO: apertura normal ────────────────────────────────
         // Nota: se permite abrir nueva caja aunque ya se haya cerrado una el mismo día.
+        $sucursalAperturaDesc = $request->sucursal_id 
+            ?? $request->header('X-Sucursal-Activa') 
+            ?? $user->sucursal_id 
+            ?? 1;
+
         $caja = new CajaAperturaCierre();
         $caja->user_id      = $user->id;
-        $caja->sucursal_id  = $user->sucursal_id ?? 1;
+        $caja->sucursal_id  = $sucursalAperturaDesc;
         $caja->fecha_apertura = $fecha;
         $caja->hora_apertura  = Carbon::now()->toTimeString();
         $caja->saldo_inicial  = $request->saldo_inicial;
@@ -371,14 +381,39 @@ class CajaController extends Controller
         $boveda = null;
         if ($request->boveda_destino_id) {
             // El usuario eligió explícitamente una bóveda
-            $boveda = Boveda::activas()->findOrFail($request->boveda_destino_id);
-        } else {
-            // Auto-seleccionar: buscar bóvedas activas de la sucursal de la caja
-            $bovedasDisponibles = Boveda::activas()->deSucursal($caja->sucursal_id)->get();
-            if ($bovedasDisponibles->count() === 1) {
-                $boveda = $bovedasDisponibles->first();
+            $boveda = Boveda::activas()->find($request->boveda_destino_id);
+        }
+
+        if (!$boveda) {
+            // Auto-seleccionar bóveda destino:
+            // 1. Intentar con la sucursal de la caja o del usuario
+            $sucursalId = $caja->sucursal_id 
+                ?: $request->header('X-Sucursal-Activa') 
+                ?: $user->sucursal_id;
+
+            if ($sucursalId) {
+                $bovedasDisponibles = Boveda::activas()->deSucursal($sucursalId)->get();
+                if ($bovedasDisponibles->isNotEmpty()) {
+                    // Priorizar tipo 'principal', luego 'general', o la primera disponible
+                    $boveda = $bovedasDisponibles->firstWhere('tipo', 'principal')
+                        ?? $bovedasDisponibles->firstWhere('tipo', 'general')
+                        ?? $bovedasDisponibles->first();
+                }
             }
-            // Si hay 0 o más de 1, no se transfiere automáticamente
+
+            // 2. Si no se encontró bóveda por sucursal (ej: usuario admin sin sucursal fija asignada),
+            // buscar entre todas las bóvedas activas del sistema (priorizando 'principal' o 'general')
+            if (!$boveda) {
+                $boveda = Boveda::activas()->principales()->first()
+                    ?? Boveda::activas()->generales()->first()
+                    ?? Boveda::activas()->first();
+            }
+        }
+
+        // Si la caja no tenía sucursal_id pero se asignó a una bóveda, vincularla
+        if (!$caja->sucursal_id && $boveda) {
+            $caja->sucursal_id = $boveda->sucursal_id;
+            $caja->save();
         }
 
         $desglose = null;
@@ -391,7 +426,7 @@ class CajaController extends Controller
         [$cajaCerrada, $movimientoBoveda] = $this->closureService->closeAndTransferToVault($caja, [
             'monto_total_efectivo' => $request->saldo_final_real,
             'desglose_denominaciones' => $desglose,
-            'enviar_a_boveda' => $boveda !== null,
+            'enviar_a_boveda' => $boveda !== null && (float)$request->saldo_final_real > 0,
             'boveda_destino_id' => $boveda?->id,
             'cajero_id' => $caja->user_id,
             'observaciones' => null,
@@ -399,7 +434,7 @@ class CajaController extends Controller
 
         $mensaje = 'Caja cerrada correctamente';
         if ($movimientoBoveda) {
-            $mensaje .= '. Saldo transferido a bóveda automáticamente.';
+            $mensaje .= '. Saldo transferido a bóveda automáticamente (' . ($boveda?->nombre ?? 'Bóveda') . ').';
         }
 
         return response()->json([
@@ -438,7 +473,7 @@ class CajaController extends Controller
         [$cajaCerrada, $movimientoBoveda] = $this->closureService->closeAndTransferToVault($caja, [
             'monto_total_efectivo' => $request->input('monto_total_efectivo'),
             'desglose_denominaciones' => $request->input('desglose_denominaciones', []),
-            'enviar_a_boveda' => $request->boolean('enviar_a_boveda'),
+            'enviar_a_boveda' => $request->boolean('enviar_a_boveda') && (float)$request->input('monto_total_efectivo') > 0,
             'boveda_destino_id' => $request->input('boveda_destino_id'),
             'cajero_id' => $request->input('cajero_id') ?? $caja->user_id,
             'observaciones' => $request->input('observaciones'),
@@ -510,8 +545,19 @@ class CajaController extends Controller
 
                 return DB::transaction(function () use ($user, $request, $caja, $boveda) {
                     if ($request->tipo === 'incremento') {
-                        // Incremento: bóveda → caja (requiere aprobación del encargado de bóveda)
-                        // 1. Crear movimiento de caja en estado pendiente
+                        // Verificar que la bóveda tenga saldo suficiente
+                        if (!$boveda->puedeRetirarMonto($request->monto)) {
+                            return response()->json([
+                                'error' => 'La bóveda origen no cuenta con saldo suficiente para este incremento.',
+                            ], 422);
+                        }
+
+                        // Verificar si la bóveda requiere aprobación
+                        $requiereAprobacion = ($boveda->requiere_aprobacion && !$user->hasPermission('boveda', 'aprobar'));
+                        $estadoBoveda = $requiereAprobacion ? 'pendiente' : 'aprobado';
+                        $estadoCaja = $requiereAprobacion ? 'pendiente' : 'aplicado';
+
+                        // 1. Crear movimiento de caja
                         $movCaja = MovimientoCaja::create([
                             'caja_id'      => $caja->id,
                             'tipo'         => 'incremento',
@@ -519,12 +565,14 @@ class CajaController extends Controller
                             'concepto'     => $request->concepto,
                             'detalles_movimiento' => $request->detalles,
                             'user_id'      => $user->id,
-                            'estado'       => 'pendiente',
+                            'estado'       => $estadoCaja,
                             'boveda_id'    => $boveda->id,
-                            'estado_boveda' => 'pendiente_aprobacion',
+                            'estado_boveda' => $requiereAprobacion ? 'pendiente_aprobacion' : 'aprobado',
+                            'fecha_aprobacion_boveda' => $requiereAprobacion ? null : now(),
+                            'aprobado_por_id' => $requiereAprobacion ? null : $user->id,
                         ]);
 
-                        // 2. Crear movimiento de bóveda en estado pendiente (salida)
+                        // 2. Crear movimiento de bóveda (salida)
                         $movBoveda = BovedaMovimiento::create([
                             'boveda_id'       => $boveda->id,
                             'usuario_id'      => $user->id,
@@ -533,20 +581,29 @@ class CajaController extends Controller
                             'monto'           => $request->monto,
                             'concepto'        => 'Incremento de caja #' . $caja->id . ' — ' . $request->concepto,
                             'referencia'      => 'incremento_caja:' . $movCaja->id,
-                            'estado'          => 'pendiente',
+                            'estado'          => $estadoBoveda,
+                            'aprobado_por'    => $requiereAprobacion ? null : $user->id,
+                            'fecha_aprobacion' => $requiereAprobacion ? null : now(),
                         ]);
 
                         // 3. Enlazar movimiento de bóveda al movimiento de caja
                         $movCaja->boveda_movimiento_id = $movBoveda->id;
                         $movCaja->save();
 
+                        // 4. Si se aplicó de inmediato, actualizar saldo de la bóveda
+                        if (!$requiereAprobacion) {
+                            $boveda->actualizarSaldo();
+                        }
+
                         $movCaja->load('user', 'boveda');
 
                         return response()->json([
-                            'message'             => 'Solicitud de incremento enviada. Pendiente de aprobación del encargado de bóveda.',
+                            'message'             => $requiereAprobacion
+                                ? 'Solicitud de incremento enviada. Pendiente de aprobación del encargado de bóveda.'
+                                : 'Incremento registrado y aplicado correctamente a la caja.',
                             'movimiento'          => $movCaja,
                             'boveda_movimiento'   => $movBoveda,
-                            'requiere_aprobacion' => true,
+                            'requiere_aprobacion' => $requiereAprobacion,
                         ], 201);
 
                     } else {
@@ -654,5 +711,62 @@ class CajaController extends Controller
            ->get();
 
        return response()->json($movimientos);
+    }
+
+    /**
+     * Anular un movimiento de caja (Solo administradores o con permiso gestionar_cajas)
+     */
+    public function anularMovimiento(Request $request, $id)
+    {
+        $user = Auth::user();
+
+        if (!in_array($user->rol, ['superadmin', 'administrador']) && !$user->hasPermission('caja', 'gestionar_cajas') && !$user->hasPermission('caja', 'anular_movimiento')) {
+            return response()->json(['error' => 'No tienes permiso para anular movimientos de caja.'], 403);
+        }
+
+        $request->validate([
+            'motivo' => 'required|string|max:500',
+        ]);
+
+        $movimiento = MovimientoCaja::with(['caja', 'bovedaMovimiento'])->findOrFail($id);
+
+        if ($movimiento->estaAnulado()) {
+            return response()->json(['error' => 'El movimiento ya se encuentra anulado.'], 400);
+        }
+
+        $caja = $movimiento->caja;
+        if (!$caja || $caja->estado !== 'abierta') {
+            return response()->json(['error' => 'Solo se pueden anular movimientos de una caja que se encuentre abierta.'], 400);
+        }
+
+        if (in_array($movimiento->tipo, ['ingreso_pago', 'egreso_desembolso'])) {
+            return response()->json([
+                'error' => 'Los movimientos vinculados a pagos o desembolsos de créditos deben anularse desde el módulo de Créditos para mantener la coherencia del saldo y plan de pagos.'
+            ], 422);
+        }
+
+        return DB::transaction(function () use ($movimiento, $caja, $user, $request) {
+            // Si tiene movimiento de bóveda enlazado, anularlo y recalcular saldo de bóveda
+            if ($movimiento->boveda_movimiento_id && $movimiento->bovedaMovimiento) {
+                $bovMov = $movimiento->bovedaMovimiento;
+                $estadoAnteriorBoveda = $bovMov->estado;
+                $bovMov->marcarAnulado();
+
+                if ($estadoAnteriorBoveda === 'aprobado' && $bovMov->boveda) {
+                    $bovMov->boveda->actualizarSaldo();
+                }
+            }
+
+            $movimiento->marcarAnulado([
+                'observaciones_boveda' => 'Anulado por ' . $user->name . ': ' . $request->motivo,
+            ]);
+
+            Log::info("Movimiento de caja #{$movimiento->id} anulado por usuario #{$user->id}: {$request->motivo}");
+
+            return response()->json([
+                'message' => 'Movimiento de caja anulado correctamente',
+                'movimiento' => $movimiento,
+            ]);
+        });
     }
 }

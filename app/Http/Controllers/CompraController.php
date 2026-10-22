@@ -78,6 +78,16 @@ class CompraController extends Controller
             'campos_dinamicos' => 'nullable|array',
         ]);
 
+        $metodoPago = $request->input('metodo_pago', 'efectivo');
+        $sucursalId = $request->input('sucursal_id') ?? $request->input('_sucursal_scope') ?? Auth::user()?->sucursal_id;
+
+        if ($metodoPago === 'efectivo' && !\App\Services\CajaService::tieneCajaAbiertaVigente(Auth::id(), $sucursalId)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No hay una caja abierta en la sucursal para realizar compras en efectivo. Por favor, apertura una caja en el módulo de Caja antes de continuar.',
+            ], 422);
+        }
+
         try {
             $compra = $this->compraService->procesarCompraDirecta($request->all());
 
@@ -88,8 +98,8 @@ class CompraController extends Controller
                     'usuario_id' => Auth::id(),
                     'monto' => $compra->monto_pagado,
                     'compra_id' => $compra->id,
-                    'numero_documento' => $compra->numero_compra,
-                    'glosa' => "Compra directa #{$compra->numero_compra} - {$compra->descripcion}",
+                    'numero_documento' => $compra->codigo_compra,
+                    'glosa' => "Compra directa #{$compra->codigo_compra} - {$compra->descripcion}",
                     'fecha_documento' => $compra->fecha_compra,
                 ]);
             } catch (\Exception $contError) {
@@ -106,7 +116,7 @@ class CompraController extends Controller
             Log::error('Error al registrar compra directa: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Error al procesar la compra',
+                'message' => $e->getMessage() ?: 'Error al procesar la compra',
                 'error' => config('app.debug') ? $e->getMessage() : null
             ], 400);
         }
@@ -154,6 +164,11 @@ class CompraController extends Controller
                 'estado' => 'cancelada',
                 'observaciones' => ($compra->observaciones ?? '') . "\n[CANCELADA] " . ($request->input('motivo') ?? 'Sin motivo especificado')
             ]);
+
+            $this->compraService->anularEgresoCaja(
+                $compra,
+                'Compra cancelada: ' . ($request->input('motivo') ?? 'Sin motivo especificado')
+            );
 
             // Eliminar la prenda del inventario (soft delete) — como si nunca hubiera ingresado
             if ($compra->prenda) {
@@ -292,6 +307,8 @@ class CompraController extends Controller
                     'message' => 'No se puede eliminar una compra cuya prenda ya fue vendida'
                 ], 422);
             }
+
+            $this->compraService->anularEgresoCaja($compra, 'Compra eliminada');
 
             // Eliminar la prenda asociada si existe
             if ($compra->prenda) {
@@ -558,6 +575,55 @@ class CompraController extends Controller
         }
         
         return trim($text1) . ' espacio ' . trim($text2) . ' espacio ' . trim($text3);
+    }
+
+    /**
+     * Sincronizar movimiento de caja para una compra existente en efectivo
+     * POST /compras/{id}/sincronizar-caja
+     */
+    public function sincronizarCaja($id)
+    {
+        try {
+            $compra = $this->compraService->obtenerDetalle($id);
+
+            if ($compra->movimiento_caja_id) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'La compra ya cuenta con su movimiento de caja registrado.',
+                    'data' => new CompraResource($compra)
+                ]);
+            }
+
+            if (!$compra->genera_egreso_caja) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Esta compra no fue registrada con método de pago en efectivo, por lo que no genera egreso en caja.'
+                ], 422);
+            }
+
+            $movimiento = $this->compraService->sincronizarEgresoCaja($compra);
+
+            if (!$movimiento) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se pudo sincronizar el egreso en caja porque no se encontró ninguna caja abierta activa en la sucursal.'
+                ], 422);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Egreso en caja sincronizado exitosamente.',
+                'data' => new CompraResource($compra->fresh())
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error al sincronizar caja para compra: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al sincronizar el movimiento de caja',
+                'error' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
+        }
     }
 }
 

@@ -130,7 +130,7 @@
         <table width="100%">
             <tr>
                 <td width="25%" style="text-align: left; vertical-align: middle;">
-                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                    @include('pdf.partials.logo', ['height' => '60px'])
                 </td>
                 <td width="50%" style="text-align: center; vertical-align: middle;">
                     <h1>CONSOLIDACIÓN DE BÓVEDAS</h1>
@@ -235,7 +235,7 @@
     @endif
 
     <div class="footer">
-        <p>Avanza - Sistema de Gestión de Empeños</p>
+        <p>{{ config('app.name', 'Sistema de Gestión de Empeños') }}</p>
         <p>Documento generado el {{ $fecha_generacion }}</p>
     </div>
 </body>

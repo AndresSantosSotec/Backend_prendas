@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Auth;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Illuminate\Http\JsonResponse;
 
 class PrendaController extends Controller
 {
@@ -24,7 +25,13 @@ class PrendaController extends Controller
      */
     public function reporte(Request $request) {
         try {
-            $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal', 'sucursal']);
+            $query = Prenda::with([
+                'categoriaProducto',
+                'creditoPrendario.cliente',
+                'creditoPrendario.sucursal',
+                'sucursal',
+                'ventas' => fn ($query) => $query->where('estado', 'plan_pagos'),
+            ]);
 
             // Búsqueda
             if ($request->has('busqueda') && !empty($request->busqueda)) {
@@ -45,7 +52,20 @@ class PrendaController extends Controller
 
             // Filtro por estado
             if ($request->has('estado') && !empty($request->estado) && $request->estado !== 'todos') {
-                $query->where('estado', $request->estado);
+                if ($request->estado === 'en_custodia') {
+                    $query->where(function ($query) {
+                        $query->where('estado', 'en_custodia')
+                            ->orWhereHas('ventas', function ($ventaQuery) {
+                                $ventaQuery->where('estado', 'plan_pagos');
+                            });
+                    });
+                } elseif ($request->estado === 'disponibles') {
+                    $query->whereIn('estado', ['en_custodia', 'en_venta']);
+                } elseif (in_array($request->estado, ['vendida', 'vendido'])) {
+                    $query->whereIn('estado', ['vendida', 'vendido']);
+                } else {
+                    $query->where('estado', $request->estado);
+                }
             }
 
              // Filtro por categoría
@@ -60,17 +80,22 @@ class PrendaController extends Controller
                 });
             }
 
-            // Filtro por rango de fechas
+            // Filtro por rango de fechas:
+            // Si se filtra por estado 'vendida', usar fecha_venta.
+            // Para cualquier otro estado (en_custodia, en_venta, etc.), usar fecha_ingreso.
+            $estadoFiltro = $request->estado ?? '';
+            $columnaFecha = in_array($estadoFiltro, ['vendida', 'vendido']) ? 'fecha_venta' : 'fecha_ingreso';
+
             if ($request->has('fecha_desde') && !empty($request->fecha_desde)) {
-                $query->where('fecha_ingreso', '>=', $request->fecha_desde);
+                $query->whereDate($columnaFecha, '>=', $request->fecha_desde);
             }
 
             if ($request->has('fecha_hasta') && !empty($request->fecha_hasta)) {
-                $query->where('fecha_ingreso', '<=', $request->fecha_hasta);
+                $query->whereDate($columnaFecha, '<=', $request->fecha_hasta);
             }
 
-            // Ordenamiento
-            $query->orderBy('fecha_ingreso', 'desc');
+            // Ordenamiento: por fecha_venta si se filtra vendidas, si no por fecha_ingreso
+            $query->orderBy($columnaFecha, 'desc');
 
             $prendas = $query->get();
             $format = $request->input('format', 'pdf');
@@ -108,7 +133,13 @@ class PrendaController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal']);
+        $query = Prenda::with([
+            'categoriaProducto',
+            'creditoPrendario.cliente',
+            'creditoPrendario.sucursal',
+            'venta', // Para obtener fecha_venta desde la tabla ventas si falta en la prenda
+            'ventas' => fn ($query) => $query->where('estado', 'plan_pagos'),
+        ]);
 
         // Búsqueda
         if ($request->has('busqueda') && !empty($request->busqueda)) {
@@ -128,29 +159,55 @@ class PrendaController extends Controller
         }
 
         // Filtro por estado
-        if ($request->has('estado') && !empty($request->estado)) {
-            $query->where('estado', $request->estado);
+        if ($request->has('estado') && !empty($request->estado) && $request->estado !== 'todos') {
+            if ($request->estado === 'en_custodia') {
+                $query->where(function ($query) {
+                    $query->where('estado', 'en_custodia')
+                        ->orWhereHas('ventas', function ($ventaQuery) {
+                            $ventaQuery->where('estado', 'plan_pagos');
+                        });
+                });
+            } elseif ($request->estado === 'disponibles') {
+                $query->whereIn('estado', ['en_custodia', 'en_venta']);
+            } elseif (in_array($request->estado, ['vendida', 'vendido'])) {
+                $query->whereIn('estado', ['vendida', 'vendido']);
+            } else {
+                $query->where('estado', $request->estado);
+            }
         }
 
         // Filtro por categoría
-        if ($request->has('categoria') && !empty($request->categoria)) {
+        if ($request->has('categoria') && !empty($request->categoria) && $request->categoria !== 'todos') {
             $query->where('categoria_producto_id', $request->categoria);
         }
 
         // Filtro por sucursal
-        if ($request->has('sucursal') && !empty($request->sucursal)) {
+        if ($request->has('sucursal') && !empty($request->sucursal) && $request->sucursal !== 'todos') {
             $query->whereHas('creditoPrendario', function ($q) use ($request) {
                 $q->where('sucursal_id', $request->sucursal);
             });
         }
 
-        // Filtro por rango de fechas
+        // Filtro por rango de fechas de ingreso:
+        // Si se filtra por estado 'vendida', usar fecha_venta. Para otros estados, usar fecha_ingreso.
+        $estadoFiltro = $request->estado ?? '';
+        $columnaFecha = in_array($estadoFiltro, ['vendida', 'vendido']) ? 'fecha_venta' : 'fecha_ingreso';
+
         if ($request->has('fecha_desde') && !empty($request->fecha_desde)) {
-            $query->where('fecha_ingreso', '>=', $request->fecha_desde);
+            $query->whereDate($columnaFecha, '>=', $request->fecha_desde);
         }
 
         if ($request->has('fecha_hasta') && !empty($request->fecha_hasta)) {
-            $query->where('fecha_ingreso', '<=', $request->fecha_hasta);
+            $query->whereDate($columnaFecha, '<=', $request->fecha_hasta);
+        }
+
+        // Filtro por rango de fechas de venta (independiente del estado)
+        if ($request->has('fecha_venta_desde') && !empty($request->fecha_venta_desde)) {
+            $query->whereDate('fecha_venta', '>=', $request->fecha_venta_desde);
+        }
+
+        if ($request->has('fecha_venta_hasta') && !empty($request->fecha_venta_hasta)) {
+            $query->whereDate('fecha_venta', '<=', $request->fecha_venta_hasta);
         }
 
         // Ordenamiento
@@ -366,109 +423,276 @@ class PrendaController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, string $id)
+    public function update(Request $request, string $id): JsonResponse
     {
-        $prenda = Prenda::findOrFail($id);
+        try {
+            $prenda = Prenda::find($id);
+            if (!$prenda) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "La prenda con ID {$id} no fue encontrada",
+                ], 404);
+            }
 
-        // VALIDACIÓN: No permitir editar prendas con estado 'pagada' o 'recuperada'
-        // Solo se pueden eliminar, no editar (para mantener integridad con créditos)
-        if (in_array($prenda->estado, ['pagada', 'recuperada'])) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No se puede editar una prenda con estado "' . $prenda->estado . '". Solo se puede eliminar.',
-                'errors' => ['estado' => ['Prenda no editable en estado actual']]
-            ], 422);
-        }
+            // VALIDACIÓN: No permitir editar prendas con estado 'pagada' o 'recuperada'
+            // Solo se pueden eliminar, no editar (para mantener integridad con créditos)
+            if (in_array($prenda->estado, ['pagada', 'recuperada'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se puede editar una prenda con estado "' . $prenda->estado . '". Solo se puede eliminar.',
+                    'errors' => ['estado' => ['Prenda no editable en estado actual']]
+                ], 422);
+            }
 
-        // Log para debugging
-        Log::info('UPDATE PRENDA - Request data:', [
-            'prenda_id' => $id,
-            'all_data' => $request->all(),
-            'precio_venta' => $request->input('precio_venta'),
-            'ubicacion_fisica' => $request->input('ubicacion_fisica'),
-        ]);
+            // Log para debugging
+            Log::info('UPDATE PRENDA - Request data:', [
+                'prenda_id' => $id,
+                'all_data' => $request->all(),
+                'precio_venta' => $request->input('precio_venta'),
+                'ubicacion_fisica' => $request->input('ubicacion_fisica'),
+            ]);
 
-        $validator = Validator::make($request->all(), [
-            'descripcion' => 'sometimes|string|max:500',
-            'valor_tasacion' => 'sometimes|numeric|min:0',
-            'valor_prestamo' => 'sometimes|numeric|min:0',
-            'valor_venta' => 'sometimes|numeric|min:0',
-            'precio_venta' => 'sometimes|numeric|min:0',
-            'ubicacion_fisica' => 'sometimes|string|max:255',
-            'estado' => 'sometimes|in:en_custodia,recuperada,en_venta,vendida,perdida,dañada,en_evaluacion,extraviada,danada',
-        ]);
+            // Normalizar ubicación desde cualquier variante que envíe el cliente
+            $ubicacionInput = $request->input('ubicacion_fisica')
+                ?? $request->input('ubicacion_bodega')
+                ?? $request->input('ubicacion_detalle')
+                ?? $request->input('ubicacion');
 
-        if ($validator->fails()) {
-            Log::error('UPDATE PRENDA - Validation failed:', $validator->errors()->toArray());
-            return response()->json([
-                'success' => false,
-                'message' => 'Error de validación',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
+            $validator = Validator::make($request->all(), [
+                'descripcion' => 'sometimes|string|max:500',
+                'descripcion_general' => 'sometimes|string|max:500',
+                'categoria_producto_id' => 'sometimes|nullable|exists:categoria_productos,id',
+                'categoria_id' => 'sometimes|nullable|exists:categoria_productos,id',
+                'valor_tasacion' => 'sometimes|numeric|min:0',
+                'valor_prestamo' => 'sometimes|numeric|min:0',
+                'valor_venta' => 'sometimes|numeric|min:0',
+                'precio_venta' => 'sometimes|numeric|min:0',
+                'ubicacion_fisica' => 'sometimes|nullable|string|max:255',
+                'ubicacion_bodega' => 'sometimes|nullable|string|max:255',
+                'ubicacion_detalle' => 'sometimes|nullable|string|max:255',
+                'ubicacion' => 'sometimes|nullable|string|max:255',
+                'estado' => 'sometimes|in:en_custodia,recuperada,en_venta,vendida,perdida,dañada,en_evaluacion,extraviada,danada',
+            ]);
 
-        // 🔒 VALIDACIÓN ESPECIAL: Si se está cambiando a "en_venta", verificar estado del crédito
-        if ($request->has('estado') && $request->estado === 'en_venta' && $prenda->credito_prendario_id) {
-            $prenda->load('creditoPrendario');
+            if ($validator->fails()) {
+                Log::error('UPDATE PRENDA - Validation failed:', $validator->errors()->toArray());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error de validación',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
 
-            if ($prenda->creditoPrendario) {
-                $estadoCredito = $prenda->creditoPrendario->estado;
-                $estadosPermitidos = ['vencido', 'en_mora', 'cancelado', 'incobrable'];
+            // 🔒 VALIDACIÓN ESPECIAL: Si se está cambiando a "en_venta", verificar estado del crédito
+            if ($request->has('estado') && $request->estado === 'en_venta' && $prenda->credito_prendario_id) {
+                $prenda->load('creditoPrendario');
 
-                // ⚠️ LÓGICA FLEXIBLE: Permitir si está vencido AUNQUE el estado sea "vigente"
-                $fechaVencimiento = $prenda->creditoPrendario->fecha_vencimiento;
-                $estaVencidoPorFecha = $fechaVencimiento && $fechaVencimiento->isPast();
+                if ($prenda->creditoPrendario) {
+                    $estadoCredito = $prenda->creditoPrendario->estado;
+                    $estadosPermitidos = ['vencido', 'en_mora', 'cancelado', 'incobrable'];
 
-                if (!in_array($estadoCredito, $estadosPermitidos) && !$estaVencidoPorFecha) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => "No se puede marcar en venta. El crédito está '{$estadoCredito}' y no ha vencido. Primero cambie el estado del crédito a 'vencido' o espere a la fecha de vencimiento.",
-                        'credito_estado' => $estadoCredito,
-                        'fecha_vencimiento' => $fechaVencimiento?->format('Y-m-d'),
-                    ], 422);
-                }
+                    // ⚠️ LÓGICA FLEXIBLE: Permitir si está vencido AUNQUE el estado sea "vigente"
+                    $fechaVencimiento = $prenda->creditoPrendario->fecha_vencimiento;
+                    $estaVencidoPorFecha = $fechaVencimiento && $fechaVencimiento->isPast();
 
-                // ✅ Si está vencido por fecha pero aún dice "vigente", actualizar automáticamente
-                if ($estadoCredito === 'vigente' && $estaVencidoPorFecha) {
-                    $prenda->creditoPrendario->update([
-                        'estado' => 'vencido',
-                        'fecha_vencimiento' => $fechaVencimiento
-                    ]);
+                    if (!in_array($estadoCredito, $estadosPermitidos) && !$estaVencidoPorFecha) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => "No se puede marcar en venta. El crédito está '{$estadoCredito}' y no ha vencido. Primero cambie el estado del crédito a 'vencido' o espere a la fecha de vencimiento.",
+                            'credito_estado' => $estadoCredito,
+                            'fecha_vencimiento' => $fechaVencimiento?->format('Y-m-d'),
+                        ], 422);
+                    }
 
-                    Log::info('UPDATE PRENDA - Crédito actualizado automáticamente a vencido', [
-                        'credito_id' => $prenda->creditoPrendario->id,
-                        'fecha_vencimiento' => $fechaVencimiento
-                    ]);
+                    // ✅ Si está vencido por fecha pero aún dice "vigente", actualizar automáticamente
+                    if ($estadoCredito === 'vigente' && $estaVencidoPorFecha) {
+                        $prenda->creditoPrendario->update([
+                            'estado' => 'vencido',
+                            'fecha_vencimiento' => $fechaVencimiento
+                        ]);
+
+                        Log::info('UPDATE PRENDA - Crédito actualizado automáticamente a vencido', [
+                            'credito_id' => $prenda->creditoPrendario->id,
+                            'fecha_vencimiento' => $fechaVencimiento
+                        ]);
+                    }
                 }
             }
+
+            // Armar datos a actualizar permitiendo nombres alternativos
+            $dataToUpdate = [];
+
+            if ($request->has('descripcion')) {
+                $dataToUpdate['descripcion'] = $request->input('descripcion');
+            } elseif ($request->has('descripcion_general')) {
+                $dataToUpdate['descripcion'] = $request->input('descripcion_general');
+            }
+
+            if ($request->has('categoria_producto_id')) {
+                $dataToUpdate['categoria_producto_id'] = $request->input('categoria_producto_id');
+            } elseif ($request->has('categoria_id')) {
+                $dataToUpdate['categoria_producto_id'] = $request->input('categoria_id');
+            }
+
+            if ($request->has('valor_tasacion')) {
+                $dataToUpdate['valor_tasacion'] = $request->input('valor_tasacion');
+            }
+            if ($request->has('valor_prestamo')) {
+                $dataToUpdate['valor_prestamo'] = $request->input('valor_prestamo');
+            }
+            if ($request->has('valor_venta')) {
+                $dataToUpdate['valor_venta'] = $request->input('valor_venta');
+            }
+            if ($request->has('precio_venta')) {
+                $dataToUpdate['precio_venta'] = $request->input('precio_venta');
+            }
+            if ($request->has('estado')) {
+                $dataToUpdate['estado'] = $request->input('estado');
+            }
+
+            // Mapear cualquier campo de ubicación
+            if (
+                $request->has('ubicacion_fisica') ||
+                $request->has('ubicacion_bodega') ||
+                $request->has('ubicacion_detalle') ||
+                $request->has('ubicacion') ||
+                $ubicacionInput !== null
+            ) {
+                $dataToUpdate['ubicacion_fisica'] = $ubicacionInput;
+            }
+
+            if ($request->has('seccion_almacen') || $request->has('seccion')) {
+                $dataToUpdate['seccion'] = $request->input('seccion_almacen') ?? $request->input('seccion');
+            }
+            if ($request->has('estante')) {
+                $dataToUpdate['estante'] = $request->input('estante');
+            }
+
+            Log::info('UPDATE PRENDA - Data to update:', $dataToUpdate);
+
+            $prenda->update($dataToUpdate);
+
+            Log::info('UPDATE PRENDA - After update:', [
+                'precio_venta' => $prenda->precio_venta,
+                'ubicacion_fisica' => $prenda->ubicacion_fisica,
+            ]);
+
+            $prendaFresh = $prenda->fresh();
+            if ($prendaFresh) {
+                $prendaFresh->loadMissing(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal']);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Prenda actualizada exitosamente',
+                'data' => new PrendaResource($prendaFresh ?? $prenda),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Error al actualizar prenda:', [
+                'prenda_id' => $id,
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al actualizar la prenda: ' . $e->getMessage(),
+            ], 500);
         }
-
-        // Actualizar solo los campos que vienen en el request
-        $dataToUpdate = $request->only([
-            'descripcion',
-            'valor_tasacion',
-            'valor_prestamo',
-            'valor_venta',
-            'precio_venta',
-            'ubicacion_fisica',
-            'estado',
-        ]);
-
-        Log::info('UPDATE PRENDA - Data to update:', $dataToUpdate);
-
-        $prenda->update($dataToUpdate);
-
-        Log::info('UPDATE PRENDA - After update:', [
-            'precio_venta' => $prenda->precio_venta,
-            'ubicacion_fisica' => $prenda->ubicacion_fisica,
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Prenda actualizada exitosamente',
-            'data' => new PrendaResource($prenda->fresh()->load(['categoriaProducto', 'creditoPrendario.cliente'])),
-        ]);
     }
+
+    /**
+     * Actualizar la ubicación física de una prenda específicamente
+     */
+     public function actualizarUbicacion(Request $request, string $id): JsonResponse
+     {
+         try {
+             $prenda = Prenda::find($id);
+             if (!$prenda) {
+                 return response()->json([
+                     'success' => false,
+                     'message' => "La prenda con ID {$id} no fue encontrada",
+                 ], 404);
+             }
+
+             $validator = Validator::make($request->all(), [
+                 'ubicacion_fisica' => 'nullable|string|max:255',
+                 'ubicacion_bodega' => 'nullable|string|max:255',
+                 'ubicacion_detalle' => 'nullable|string|max:255',
+                 'ubicacion' => 'nullable|string|max:255',
+                 'seccion_almacen' => 'nullable|string|max:50',
+                 'seccion' => 'nullable|string|max:50',
+                 'estante' => 'nullable|string|max:50',
+                 'caja' => 'nullable|string|max:50',
+             ]);
+
+             if ($validator->fails()) {
+                 return response()->json([
+                     'success' => false,
+                     'message' => 'Error de validación',
+                     'errors' => $validator->errors(),
+                 ], 422);
+             }
+
+             $ubicacion = $request->input('ubicacion_fisica')
+                 ?? $request->input('ubicacion_bodega')
+                 ?? $request->input('ubicacion_detalle')
+                 ?? $request->input('ubicacion');
+
+             // Si enviaron seccion, estante o caja pero no texto de ubicación
+             if (!$ubicacion && ($request->filled('seccion_almacen') || $request->filled('seccion'))) {
+                 $sec = $request->input('seccion_almacen') ?? $request->input('seccion');
+                 $est = $request->input('estante');
+                 $caj = $request->input('caja');
+                 $partes = array_filter([$sec ? "Sección {$sec}" : null, $est ? "Estante {$est}" : null, $caj ? "Caja {$caj}" : null]);
+                 $ubicacion = implode(', ', $partes);
+             }
+
+             if ($ubicacion !== null && trim($ubicacion) === '') {
+                 $ubicacion = null;
+             }
+
+             $prenda->ubicacion_fisica = $ubicacion;
+
+             if ($request->has('seccion_almacen') || $request->has('seccion')) {
+                 $prenda->seccion = $request->input('seccion_almacen') ?? $request->input('seccion');
+             }
+             if ($request->has('estante')) {
+                 $prenda->estante = $request->input('estante');
+             }
+
+             $prenda->save();
+
+             Log::info('UBICACION PRENDA ACTUALIZADA:', [
+                 'prenda_id' => $prenda->id,
+                 'ubicacion_fisica' => $prenda->ubicacion_fisica,
+             ]);
+
+             $prendaFresh = $prenda->fresh();
+             if ($prendaFresh) {
+                 $prendaFresh->loadMissing(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal']);
+             }
+
+             return response()->json([
+                 'success' => true,
+                 'message' => 'Ubicación de la prenda actualizada exitosamente',
+                 'data' => new PrendaResource($prendaFresh ?? $prenda),
+             ]);
+         } catch (\Throwable $e) {
+             Log::error('Error al actualizar ubicación de prenda:', [
+                 'prenda_id' => $id,
+                 'error' => $e->getMessage(),
+                 'file' => $e->getFile(),
+                 'line' => $e->getLine(),
+             ]);
+
+             return response()->json([
+                 'success' => false,
+                 'message' => 'Error al actualizar la ubicación de la prenda: ' . $e->getMessage(),
+             ], 500);
+         }
+     }
 
     /**
      * Remove the specified resource from storage.

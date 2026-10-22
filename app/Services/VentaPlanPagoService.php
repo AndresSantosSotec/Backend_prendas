@@ -63,7 +63,7 @@ class VentaPlanPagoService
             $fechaPrimeraCuota = isset($config['fecha_primera_cuota'])
                 ? Carbon::parse($config['fecha_primera_cuota'])
                 : null;
-            $diasGracia = (int) ($config['dias_gracia'] ?? 0);
+            $diasGracia = isset($config['dias_gracia']) ? (int) $config['dias_gracia'] : 3;
             $tasaMora = (float) ($config['tasa_mora'] ?? 2.0); // % mensual por defecto
             $cajaId = $config['caja_id'] ?? null;
 

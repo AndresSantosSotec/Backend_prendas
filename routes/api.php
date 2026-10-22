@@ -29,6 +29,8 @@ use App\Http\Controllers\ParametrizacionCuentasController;
 use App\Http\Controllers\NomenclaturaController;
 use App\Http\Controllers\DiarioContableController;
 use App\Http\Controllers\ConfiguracionSistemaController;
+use App\Http\Controllers\DocumentoConfiguracionController;
+use App\Http\Controllers\CumplimientoController;
 use Illuminate\Support\Facades\DB;
 
 /*
@@ -243,6 +245,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/bovedas-movimientos/pendientes', [BovedaController::class, 'movimientosPendientes']);
             Route::post('/bovedas-movimientos/{id}/aprobar', [BovedaController::class, 'aprobarMovimiento']);
             Route::post('/bovedas-movimientos/{id}/rechazar', [BovedaController::class, 'rechazarMovimiento']);
+            Route::post('/bovedas-movimientos/{id}/anular', [BovedaController::class, 'anularMovimiento']);
             Route::put('/bovedas-movimientos/{id}', [BovedaController::class, 'actualizarMovimiento']);
 
             // Recibos - rutas sin parámetro ID primero
@@ -266,6 +269,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/creditos-prendarios', [CreditoPrendarioController::class, 'store']);
             Route::put('/creditos-prendarios/{id}', [CreditoPrendarioController::class, 'update']);
             Route::patch('/creditos-prendarios/{id}', [CreditoPrendarioController::class, 'update']);
+            Route::post('/creditos-prendarios/{id}/desembolsar', [CreditoPrendarioController::class, 'desembolsar']);
             Route::post('/credigos-prendarios/{id}/desembolsar', [CreditoPrendarioController::class, 'desembolsar']);
             Route::post('/creditos-prendarios/{id}/pagar', [CreditoPrendarioController::class, 'pagar']);
             Route::post('/creditos-prendarios/{id}/aprobar', [CreditoPrendarioController::class, 'aprobar']);
@@ -288,14 +292,6 @@ Route::prefix('v1')->group(function () {
             Route::post('/creditos-prendarios/{credito_id}/refrendos/validar', [\App\Http\Controllers\RefrendoController::class, 'validar']);
             Route::post('/creditos-prendarios/{credito_id}/refrendos/calcular', [\App\Http\Controllers\RefrendoController::class, 'calcular']);
             Route::post('/creditos-prendarios/{credito_id}/refrendos', [\App\Http\Controllers\RefrendoController::class, 'store']);
-
-            // ========== REMATES (Sistema de Remates de Contratos Vencidos) ==========
-            Route::get('/remates', [\App\Http\Controllers\RemateController::class, 'index']);
-            Route::get('/remates/candidatos', [\App\Http\Controllers\RemateController::class, 'candidatos']);
-            Route::get('/remates/estadisticas', [\App\Http\Controllers\RemateController::class, 'estadisticas']);
-            Route::post('/remates', [\App\Http\Controllers\RemateController::class, 'store']);
-            Route::get('/remates/{id}', [\App\Http\Controllers\RemateController::class, 'show']);
-            Route::post('/remates/{id}/cancelar', [\App\Http\Controllers\RemateController::class, 'cancelar']);
 
             // ========== TRANSFERENCIAS INTER-SUCURSALES ==========
             Route::get('/transferencias-prendas', [\App\Http\Controllers\TransferenciaPrendaController::class, 'index']);
@@ -340,6 +336,8 @@ Route::prefix('v1')->group(function () {
             Route::post('/prendas', [PrendaController::class, 'store']);
             Route::put('/prendas/{id}', [PrendaController::class, 'update']);
             Route::patch('/prendas/{id}', [PrendaController::class, 'update']); // Permitir PATCH también
+            Route::put('/prendas/{id}/ubicacion', [PrendaController::class, 'actualizarUbicacion']);
+            Route::patch('/prendas/{id}/ubicacion', [PrendaController::class, 'actualizarUbicacion']);
             Route::delete('/prendas/{id}', [PrendaController::class, 'destroy']);
             Route::post('/prendas/{id}/foto', [PrendaController::class, 'uploadPhoto']);
             Route::post('/prendas/{id}/recuperar', [PrendaController::class, 'marcarRecuperada']);
@@ -398,6 +396,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/compras/{id}/cancelar', [CompraController::class, 'cancel']);
             Route::get('/compras/{id}/recibo-pdf', [CompraController::class, 'generarReciboPDF']);
             Route::get('/compras/{id}/contrato-pdf', [CompraController::class, 'generarContratoPDF']);
+            Route::post('/compras/{id}/sincronizar-caja', [CompraController::class, 'sincronizarCaja']);
 
             // Reportes de Compras
             Route::get('/reportes/compras/pdf', [ReporteComprasController::class, 'generarPDF']);
@@ -434,6 +433,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/cajas/{id}/detalle', [CajaController::class, 'detalleCaja']);
             Route::get('/cajas/{id}/movimientos', [CajaController::class, 'getMovimientos']);
             Route::post('/cajas/movimientos', [CajaController::class, 'registrarMovimiento']);
+            Route::post('/cajas/movimientos/{id}/anular', [CajaController::class, 'anularMovimiento']);
 
             // Integración Caja-Bóveda: aprobación de movimientos pendientes (modo integrado)
             Route::get('/boveda/movimientos-caja-pendientes', [BovedaController::class, 'movimientosCajaPendientes']);
@@ -475,12 +475,23 @@ Route::prefix('v1')->group(function () {
             Route::patch('/recibos/{id}', [ReciboController::class, 'update']);
             Route::delete('/recibos/{id}', [ReciboController::class, 'destroy']);
 
-            // ========== CONFIGURACIONES DEL SISTEMA ==========
-            Route::get('/configuraciones-sistema', [ConfiguracionSistemaController::class, 'index']);
-            Route::get('/configuraciones-sistema/cash-vault-integration', [ConfiguracionSistemaController::class, 'cashVaultIntegration']);
-            Route::post('/configuraciones-sistema/cash-vault-integration/toggle', [ConfiguracionSistemaController::class, 'toggleCashVaultIntegration']);
-            Route::get('/configuraciones-sistema/{clave}', [ConfiguracionSistemaController::class, 'show']);
-            Route::put('/configuraciones-sistema', [ConfiguracionSistemaController::class, 'update']);
+            // ========== CONFIGURACIONES DEL SISTEMA Y PLANTILLAS (EXCLUSIVO SUPERADMIN) ==========
+            Route::middleware(['superadmin'])->group(function () {
+                Route::get('/configuraciones-sistema', [ConfiguracionSistemaController::class, 'index']);
+                Route::get('/configuraciones-sistema/cash-vault-integration', [ConfiguracionSistemaController::class, 'cashVaultIntegration']);
+                Route::post('/configuraciones-sistema/cash-vault-integration/toggle', [ConfiguracionSistemaController::class, 'toggleCashVaultIntegration']);
+                Route::get('/configuraciones-sistema/{clave}', [ConfiguracionSistemaController::class, 'show']);
+                Route::put('/configuraciones-sistema', [ConfiguracionSistemaController::class, 'update']);
+
+                // Plantillas de documentos, logos e identidad de empresa (TB_DOCS)
+                Route::get('/configuracion/documentos', [DocumentoConfiguracionController::class, 'index']);
+                Route::post('/configuracion/documentos', [DocumentoConfiguracionController::class, 'store']);
+                Route::put('/configuracion/documentos/{id}', [DocumentoConfiguracionController::class, 'updateDocumento']);
+                Route::post('/configuracion/logo', [DocumentoConfiguracionController::class, 'subirLogo']);
+                Route::post('/configuracion/seleccionar-logo', [DocumentoConfiguracionController::class, 'seleccionarLogo']);
+                Route::post('/configuracion/empresa', [DocumentoConfiguracionController::class, 'updateEmpresa']);
+                Route::get('/configuracion/documentos/{id}/preview', [DocumentoConfiguracionController::class, 'preview']);
+            });
 
         }); // FIN DEL GRUPO DE RUTAS CON SCOPE DE SUCURSAL
     });
@@ -512,6 +523,9 @@ Route::prefix('v1')->group(function () {
 
         // ==================== CONTABILIDAD ====================
         Route::prefix('contabilidad')->group(function () {
+            // Estado y diagnóstico de contabilidad
+            Route::get('/estado-sistema', [ContabilidadController::class, 'estadoSistema']);
+
             // Dashboard contable
             Route::get('/dashboard', [ContabilidadController::class, 'dashboard']);
 
@@ -526,7 +540,12 @@ Route::prefix('v1')->group(function () {
 
             // Libro Diario (Asientos)
             Route::get('/diario', [ContabilidadController::class, 'diario']);
-            Route::get('/diario/{id}', [ContabilidadController::class, 'verAsiento']);
+            Route::post('/diario', [DiarioContableController::class, 'store']);
+            Route::get('/diario/{id}', [DiarioContableController::class, 'show']);
+            Route::get('/diario/{id}/pdf', [DiarioContableController::class, 'descargarPdf']);
+            Route::put('/diario/{id}', [DiarioContableController::class, 'update']);
+            Route::delete('/diario/{id}', [DiarioContableController::class, 'destroy']);
+            Route::post('/diario/{id}/anular', [DiarioContableController::class, 'anular']);
 
             // Balance de comprobación
             Route::get('/balance-comprobacion', [ContabilidadController::class, 'balanceComprobacion']);
@@ -562,7 +581,11 @@ Route::prefix('v1')->group(function () {
             // ========== ASIENTOS CONTABLES ==========
             Route::prefix('asientos')->group(function () {
                 Route::get('/', [DiarioContableController::class, 'index']);
+                Route::post('/', [DiarioContableController::class, 'store']);
                 Route::get('/{id}', [DiarioContableController::class, 'show']);
+                Route::get('/{id}/pdf', [DiarioContableController::class, 'descargarPdf']);
+                Route::put('/{id}', [DiarioContableController::class, 'update']);
+                Route::delete('/{id}', [DiarioContableController::class, 'destroy']);
                 Route::post('/{id}/anular', [DiarioContableController::class, 'anular']);
                 Route::post('/manual', [DiarioContableController::class, 'registrarManual']);
                 Route::get('/estadisticas', [DiarioContableController::class, 'estadisticas']);
@@ -576,6 +599,17 @@ Route::prefix('v1')->group(function () {
                 Route::put('/{id}', [\App\Http\Controllers\ParametrizacionMoraController::class, 'update']);
                 Route::delete('/{id}', [\App\Http\Controllers\ParametrizacionMoraController::class, 'destroy']);
             });
+        });
+
+        // ========== CUMPLIMIENTO REGULATORIO (IVE) ==========
+        Route::prefix('cumplimiento')->group(function () {
+            Route::get('/resumen', [CumplimientoController::class, 'resumen']);
+            Route::get('/configuracion', [CumplimientoController::class, 'configuracion']);
+            Route::get('/reportes/rte', [CumplimientoController::class, 'reporteRTE']);
+            Route::get('/reportes/alertas', [CumplimientoController::class, 'alertas']);
+            Route::get('/reportes/kyc-clientes', [CumplimientoController::class, 'kycClientes']);
+            Route::get('/reportes/consolidado-mensual', [CumplimientoController::class, 'consolidadoMensual']);
+            Route::get('/exportar/{tipo}', [CumplimientoController::class, 'exportar']);
         });
 
         // ========== MIGRACIONES (SOLO SUPERADMIN) ==========

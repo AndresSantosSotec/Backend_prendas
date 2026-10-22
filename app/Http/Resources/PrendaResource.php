@@ -27,12 +27,23 @@ class PrendaResource extends JsonResource
             'precioMinimo' => (float) ($this->valor_venta * 0.8) ?? 0, // 20% de descuento máximo
             'descuentoMaximo' => 20,
             'estado' => $this->mapearEstado($this->estado),
+            'enPlanPagos' => $this->relationLoaded('ventas') && $this->ventas->isNotEmpty(),
             'fechaIngreso' => $this->fecha_ingreso ? $this->fecha_ingreso->toISOString() : null,
-            'fechaVenta' => $this->fecha_venta ? $this->fecha_venta->toISOString() : null,
-            'fechaPasaVenta' => $this->fecha_venta ? $this->fecha_venta->toISOString() : null,
+            'fechaVenta' => $this->fecha_venta
+                ? $this->fecha_venta->toISOString()
+                : ($this->venta?->created_at?->toISOString() ?? null),
+            'fechaPasaVenta' => $this->fecha_venta
+                ? $this->fecha_venta->toISOString()
+                : ($this->venta?->created_at?->toISOString() ?? null),
             'creditoId' => $this->credito_prendario_id,
             'tasadorId' => $this->tasador_id,
             'ubicacionBodega' => $this->ubicacion_fisica ?? ($this->seccion ? "{$this->seccion}-{$this->estante}" : null),
+            'ubicacion_fisica' => $this->ubicacion_fisica,
+            'ubicacion_detalle' => $this->ubicacion_fisica ?? ($this->seccion ? "{$this->seccion}-{$this->estante}" : null),
+            'ubicacion_bodega' => $this->ubicacion_fisica,
+            'seccion_almacen' => $this->seccion,
+            'seccion' => $this->seccion,
+            'estante' => $this->estante,
             'sucursal' => $this->creditoPrendario && $this->creditoPrendario->sucursal ? $this->creditoPrendario->sucursal->nombre : null,
             'codigoQR' => $this->codigo_prenda,
             'marca' => $this->marca,

@@ -18,7 +18,6 @@ return [
     'paths' => ['api/*', 'sanctum/csrf-cookie'],
 
     'allowed_methods' => ['*'],
-//asdfjasldfk
     'allowed_origins' => [
         'http://localhost:5000',
         'http://localhost:5173',
@@ -29,11 +28,14 @@ return [
         'http://127.0.0.1:3000',
         'https://digiprenda.inniserver.net',
         'https://avanzadigiprenda.stockgenius-sotecpro.com',
+        'https://crediprendasdigi.stockgenius-sotecpro.com',
     ],
 
     'allowed_origins_patterns' => [
         '/^http:\/\/localhost:\d+$/',
         '/^http:\/\/127\.0\.0\.1:\d+$/',
+        '/^https:\/\/.*\.stockgenius-sotecpro\.com$/',
+        '/^https:\/\/.*\.inniserver\.net$/',
     ],
 
     'allowed_headers' => ['*'],

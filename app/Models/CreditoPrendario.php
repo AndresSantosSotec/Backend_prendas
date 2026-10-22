@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Schema;
 use App\Traits\Auditable;
 
 class CreditoPrendario extends Model
@@ -38,6 +39,16 @@ class CreditoPrendario extends Model
                 throw new \Exception("No se puede modificar el estado de un crédito que ya está {$estadoOriginal}. El crédito #{$credito->numero_credito} no puede ser editado.");
             }
         });
+
+        static::saving(function ($credito) {
+            static $tieneDescuento = null;
+            if ($tieneDescuento === null) {
+                $tieneDescuento = Schema::hasColumn('creditos_prendarios', 'porcentaje_descuento_interes');
+            }
+            if (!$tieneDescuento) {
+                unset($credito->porcentaje_descuento_interes, $credito->descuento_interes_motivo);
+            }
+        });
     }
 
     protected $fillable = [
@@ -69,6 +80,8 @@ class CreditoPrendario extends Model
         'mora_generada',
         'mora_pagada',
         'tasa_interes',
+        'porcentaje_descuento_interes',
+        'descuento_interes_motivo',
         'tasa_mora',
         'tipo_mora',
         'mora_monto_fijo',
@@ -119,6 +132,7 @@ class CreditoPrendario extends Model
         'mora_generada' => 'decimal:2',
         'mora_pagada' => 'decimal:2',
         'tasa_interes' => 'decimal:2',
+        'porcentaje_descuento_interes' => 'decimal:2',
         'tasa_mora' => 'decimal:2',
         'tipo_mora' => 'string',
         'mora_monto_fijo' => 'decimal:2',
@@ -197,14 +211,6 @@ class CreditoPrendario extends Model
     public function refrendos()
     {
         return $this->hasMany(Refrendo::class, 'credito_id')->orderBy('numero_refrendo', 'asc');
-    }
-
-    /**
-     * Relación: Remates del crédito
-     */
-    public function remates()
-    {
-        return $this->hasMany(\App\Models\Remate::class, 'credito_id')->orderByDesc('fecha_remate');
     }
 
     /**

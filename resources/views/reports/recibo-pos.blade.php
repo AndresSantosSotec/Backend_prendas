@@ -193,10 +193,10 @@
         <table width="100%">
             <tr>
                 <td width="25%" style="text-align: left; vertical-align: middle;">
-                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                    @include('pdf.partials.logo', ['height' => '50px'])
                 </td>
                 <td width="50%" style="text-align: center; vertical-align: middle;">
-                    <div class="empresa">{{ $venta->sucursal->nombre ?? 'AVANZA' }}
+                    <div class="empresa">{{ $venta->sucursal->nombre ?? $empresa['nombre'] ?? config('app.name', 'SISTEMA DE EMPEÑOS') }}</div>
                 </td>
                 <td width="25%"></td>
             </tr>

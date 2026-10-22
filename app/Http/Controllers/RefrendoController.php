@@ -494,6 +494,27 @@ class RefrendoController extends Controller
                 $refrendo->save();
             }
 
+            // Registrar asiento contable automático del refrendo/renovación
+            try {
+                $contabilidadService = app(\App\Services\ContabilidadAutomaticaService::class);
+                $contabilidadService->registrarAsiento('credito_refrendo', [
+                    'sucursal_id' => $sucursalId,
+                    'usuario_id' => $usuario->id,
+                    'credito_prendario_id' => $credito->id,
+                    'refrendo_id' => $refrendo->id,
+                    'monto_total_pagado' => $montoPagado,
+                    'monto_interes_adeudado' => $calculo['interes_adeudado'] ?? 0,
+                    'monto_mora_adeudado' => $calculo['mora_adeudada'] ?? 0,
+                    'monto_capital_pagado' => $abonoCapital ?? 0,
+                    'numero_documento' => $refrendo->numero_refrendo,
+                    'glosa' => "Refrendo #{$refrendo->numero_refrendo} crédito #{$credito->numero_credito}",
+                    'fecha_documento' => now(),
+                    'forma_pago' => $metodoPago ?? 'efectivo',
+                ]);
+            } catch (\Exception $contError) {
+                Log::warning('Error al registrar asiento contable para refrendo: ' . $contError->getMessage());
+            }
+
             DB::commit();
 
             // Cargar relaciones para respuesta

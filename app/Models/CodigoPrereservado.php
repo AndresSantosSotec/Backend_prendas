@@ -61,25 +61,22 @@ class CodigoPrereservado extends Model
         // Agencia (2 dígitos)
         $agencia = str_pad($sucursalId, 2, '0', STR_PAD_LEFT);
 
-        // Prefijo de búsqueda para el día
-        $prefijoBusqueda = $organizacion . $fecha . $agencia;
-        $hoy = now()->format('Y-m-d');
-
-        // 🔐 Buscar último correlativo del día con lockForUpdate para prevenir race condition
+        // 🔐 Buscar último correlativo continuo (sin reiniciar por día)
+        // Buscamos el último crédito con formato de 16 dígitos
         $ultimoCredito = CreditoPrendario::withTrashed()
-            ->whereDate('created_at', $hoy)
             ->whereNotNull('numero_credito')
             ->where('numero_credito', 'NOT LIKE', 'CR-%')
-            ->where('numero_credito', 'LIKE', $prefijoBusqueda . '%')
-            ->lockForUpdate()
+            ->whereRaw('LENGTH(numero_credito) = 16')
             ->orderBy('id', 'desc')
+            ->lockForUpdate()
             ->first();
 
         // También buscar en códigos prereservados
-        $ultimoReservado = self::whereDate('created_at', $hoy)
-            ->where('codigo_credito', 'LIKE', $prefijoBusqueda . '%')
-            ->lockForUpdate()
+        $ultimoReservado = self::whereNotNull('codigo_credito')
+            ->where('codigo_credito', 'NOT LIKE', 'CR-%')
+            ->whereRaw('LENGTH(codigo_credito) = 16')
             ->orderBy('id', 'desc')
+            ->lockForUpdate()
             ->first();
 
         // Obtener el correlativo más alto entre créditos y códigos reservados
@@ -94,18 +91,25 @@ class CodigoPrereservado extends Model
             $correlativoReservado = (int) substr($ultimoReservado->codigo_credito, -6);
         }
 
-        $correlativo = max($correlativoCredito, $correlativoReservado) + 1;
+        // Asegurar que si los registros anteriores tenían correlativo reiniciado diariamente (menor a total emitido),
+        // arranque a partir del conteo total histórico de créditos para no chocar ni retroceder
+        $totalHistorico = CreditoPrendario::withTrashed()->count();
+
+        $ultimoCorrelativo = max($correlativoCredito, $correlativoReservado, $totalHistorico);
+        $correlativo = $ultimoCorrelativo + 1;
 
         // Formato final: ORGDDMMYYAACORRELATIVO (16 dígitos)
         $codigo = $organizacion . $fecha . $agencia . str_pad($correlativo, 6, '0', STR_PAD_LEFT);
 
-        // ✅ Verificar que no exista (doble verificación)
+        // ✅ Verificar que no exista (doble verificación de colisión)
         $existe = self::where('codigo_credito', $codigo)->exists() ||
                   CreditoPrendario::withTrashed()->where('numero_credito', $codigo)->exists();
 
-        if ($existe) {
-            // Si existe, reintentar con siguiente correlativo
-            return self::generarCodigoCredito($sucursalId);
+        while ($existe) {
+            $correlativo++;
+            $codigo = $organizacion . $fecha . $agencia . str_pad($correlativo, 6, '0', STR_PAD_LEFT);
+            $existe = self::where('codigo_credito', $codigo)->exists() ||
+                      CreditoPrendario::withTrashed()->where('numero_credito', $codigo)->exists();
         }
 
         return $codigo;

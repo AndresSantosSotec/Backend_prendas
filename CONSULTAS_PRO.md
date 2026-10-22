@@ -463,7 +463,152 @@ WHERE credito_prendario_id = 89;
 COMMIT;
 ```
 
+### 5.5 Corregir Capital en 0.00 en Plan de Pagos / Cuota Única de Crédito
+Si un crédito tiene saldo de capital pendiente (ej: Q299.98 en `creditos_prendarios`), pero su cuota activa en `credito_plan_pagos` tiene `capital_proyectado` = 0.00 y `capital_pendiente` = 0.00, el apartado de **Liquidar** mostrará un saldo a liquidar incorrecto (solo sumando interés y otros cargos sin incluir el capital).
+
+#### A. Consulta de Diagnóstico (Identificar Créditos Afectados)
+```sql
+-- 1. Diagnosticar un crédito específico por su código
+SELECT 
+    cp.id AS credito_id,
+    cp.numero_credito,
+    cp.estado AS estado_credito,
+    cp.capital_pendiente AS capital_credito,
+    cpp.id AS cuota_id,
+    cpp.numero_cuota,
+    cpp.estado AS estado_cuota,
+    cpp.capital_proyectado,
+    cpp.capital_pendiente AS capital_cuota_pendiente,
+    cpp.interes_pendiente,
+    cpp.otros_cargos_pendientes,
+    cpp.monto_pendiente
+FROM creditos_prendarios cp
+JOIN credito_plan_pagos cpp ON cp.id = cpp.credito_prendario_id
+WHERE cp.numero_credito = '0104072601000004' -- Cambiar por el código deseado
+  AND cpp.deleted_at IS NULL;
+
+-- 2. Detectar TODOS los créditos en el sistema con descuadre de capital en sus cuotas
+SELECT 
+    cp.id AS credito_id,
+    cp.numero_credito,
+    cp.capital_pendiente AS capital_credito_pendiente,
+    COALESCE(SUM(cpp.capital_pendiente), 0) AS total_capital_cuotas_pendientes,
+    COUNT(cpp.id) AS cuotas_pendientes_count
+FROM creditos_prendarios cp
+JOIN credito_plan_pagos cpp ON cp.id = cpp.credito_prendario_id
+WHERE cp.capital_pendiente > 0
+  AND cpp.estado IN ('pendiente', 'vencida', 'en_mora', 'pagada_parcial')
+  AND cpp.deleted_at IS NULL
+GROUP BY cp.id, cp.numero_credito, cp.capital_pendiente
+HAVING total_capital_cuotas_pendientes = 0 OR ABS(cp.capital_pendiente - total_capital_cuotas_pendientes) > 0.01;
+```
+
+#### B. Consulta de Reparación para un Crédito Específico
+```sql
+START TRANSACTION;
+
+-- Reasignar el capital pendiente del crédito a su cuota activa/pendiente y recalcular montos totales
+UPDATE credito_plan_pagos cpp
+JOIN creditos_prendarios cp ON cp.id = cpp.credito_prendario_id
+SET 
+    cpp.capital_proyectado     = cp.capital_pendiente + COALESCE(cpp.capital_pagado, 0),
+    cpp.capital_pendiente      = cp.capital_pendiente,
+    cpp.monto_cuota_proyectado = (cp.capital_pendiente + COALESCE(cpp.capital_pagado, 0))
+                                + COALESCE(cpp.interes_proyectado, 0)
+                                + COALESCE(cpp.mora_proyectada, 0)
+                                + COALESCE(cpp.otros_cargos_proyectados, 0),
+    cpp.monto_pendiente        = cp.capital_pendiente
+                                + COALESCE(cpp.interes_pendiente, 0)
+                                + COALESCE(cpp.mora_pendiente, 0)
+                                + COALESCE(cpp.otros_cargos_pendientes, 0),
+    cpp.observaciones          = CONCAT(COALESCE(cpp.observaciones, ''), ' | Capital reasignado por soporte el ', NOW())
+WHERE cp.numero_credito = '0104072601000004' -- Código del crédito a reparar
+  AND cpp.estado IN ('pendiente', 'vencida', 'en_mora', 'pagada_parcial')
+  AND cpp.deleted_at IS NULL;
+
+COMMIT;
+```
+
+#### C. Consulta de Reparación Masiva (Todos los Créditos en 0.00 Capital de Cuota)
+```sql
+START TRANSACTION;
+
+-- Ajustar automáticamente todas las cuotas pendientes que tengan capital = 0 cuando el crédito tiene capital pendiente
+UPDATE credito_plan_pagos cpp
+JOIN creditos_prendarios cp ON cp.id = cpp.credito_prendario_id
+SET 
+    cpp.capital_proyectado     = cp.capital_pendiente + COALESCE(cpp.capital_pagado, 0),
+    cpp.capital_pendiente      = cp.capital_pendiente,
+    cpp.monto_cuota_proyectado = (cp.capital_pendiente + COALESCE(cpp.capital_pagado, 0))
+                                + COALESCE(cpp.interes_proyectado, 0)
+                                + COALESCE(cpp.mora_proyectada, 0)
+                                + COALESCE(cpp.otros_cargos_proyectados, 0),
+    cpp.monto_pendiente        = cp.capital_pendiente
+                                + COALESCE(cpp.interes_pendiente, 0)
+                                + COALESCE(cpp.mora_pendiente, 0)
+                                + COALESCE(cpp.otros_cargos_pendientes, 0),
+    cpp.observaciones          = CONCAT(COALESCE(cpp.observaciones, ''), ' | Capital reasignado automáticamente por soporte')
+WHERE cp.capital_pendiente > 0
+  AND cpp.capital_pendiente = 0
+  AND cpp.estado IN ('pendiente', 'vencida', 'en_mora', 'pagada_parcial')
+  AND cpp.deleted_at IS NULL;
+
+COMMIT;
+```
+
+### 5.6 Reajustar Crédito donde un Abono de Capital Marcó Cuotas en Pagada dejando Gastos/Otros Pendientes
+Ocurre cuando un cliente realiza un abono parcial de dinero (ej: Q70.50 de un total de Q107.52). La función de **ABONO** amortiza todo el capital y los intereses a Q0.00, lo que causa que el sistema marque las cuotas como `PAGADA` y el crédito como cancelado, dejando los gastos/manejo de cuenta pendientes sin cobrar (ej: los Q37.02 faltantes).
+
+#### A. Consulta de Diagnóstico
+```sql
+SELECT 
+    cp.id AS credito_id,
+    cp.numero_credito,
+    cp.estado AS estado_credito,
+    cp.capital_pendiente,
+    cp.capital_pagado,
+    cpp.id AS cuota_id,
+    cpp.numero_cuota,
+    cpp.estado AS estado_cuota,
+    cpp.otros_cargos_proyectados,
+    cpp.otros_cargos_pagados,
+    cpp.otros_cargos_pendientes,
+    cpp.monto_pendiente
+FROM creditos_prendarios cp
+JOIN credito_plan_pagos cpp ON cp.id = cpp.credito_prendario_id
+WHERE cp.numero_credito = '0119072601000001'
+  AND cpp.deleted_at IS NULL
+ORDER BY cpp.numero_cuota ASC;
+```
+
+#### B. Consulta de Reparación (Reactivar Saldo Pendiente de Q37.02 en Cuota 4)
+```sql
+START TRANSACTION;
+
+-- 1. Mantener el crédito en estado 'vigente' para no permitir la entrega de la prenda hasta cobrar el saldo
+UPDATE creditos_prendarios 
+SET 
+    estado = 'vigente',
+    fecha_cancelacion = NULL
+WHERE numero_credito = '0119072601000001';
+
+-- 2. Reactivar la última cuota (Cuota 4) registrando los Q37.02 pendientes de otros cargos / manejo de cuenta
+UPDATE credito_plan_pagos
+SET 
+    estado = 'pendiente',
+    fecha_pago = NULL,
+    otros_cargos_pendientes = 37.02,
+    monto_pendiente = 37.02,
+    observaciones = CONCAT(COALESCE(observaciones, ''), ' | Reajustado por soporte tras abono parcial de Q70.50. Quedan Q37.02 pendientes.')
+WHERE credito_prendario_id = (SELECT id FROM creditos_prendarios WHERE numero_credito = '0119072601000001' LIMIT 1)
+  AND numero_cuota = 4;
+
+COMMIT;
+```
+
 ---
+
+
 
 ## 🔍 6. Diagnósticos, Logs y Auditoría
 

@@ -232,13 +232,22 @@ class ReciboController extends Controller
             return response()->json(['error' => 'No tienes permisos para ver este recibo'], 403);
         }
 
-        $pdf = Pdf::loadView('pdf.recibo', [
-            'recibo' => $recibo
+        $variante = request()->query('variante');
+        $formatId = request()->query('format_id') ? (int) request()->query('format_id') : null;
+
+        $docService = app(\App\Documents\DocumentService::class);
+        $result = $docService->generate(
+            tipoDocumento: 'recibo_pago',
+            businessData: ['recibo' => $recibo],
+            formatId: $formatId,
+            sucursalId: $recibo->sucursal_id,
+            varianteOverride: $variante
+        );
+
+        return response($result->content, 200, [
+            'Content-Type' => $result->mimeType,
+            'Content-Disposition' => 'inline; filename="' . $result->filename . '"',
         ]);
-
-        $pdf->setPaper('letter', 'portrait');
-
-        return $pdf->stream("recibo-{$recibo->numero_recibo}.pdf");
     }
 
     /**

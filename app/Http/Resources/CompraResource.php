@@ -91,6 +91,7 @@ class CompraResource extends JsonResource
                 ];
             }),
 
+            'movimiento_caja_id' => $this->movimiento_caja_id,
             'movimiento_caja' => $this->whenLoaded('movimientoCaja', function () {
                 return $this->movimientoCaja ? [
                     'id' => $this->movimientoCaja->id,

@@ -83,8 +83,8 @@ class CashRegisterClosureService
 
             $movimientoBoveda = null;
 
-            // Si se solicita transferencia a bóveda, registrar movimiento de ingreso por cierre diario
-            if ($enviarABoveda && $bovedaDestinoId) {
+            // Si se solicita transferencia a bóveda, registrar movimiento de ingreso por cierre diario (solo si monto > 0)
+            if ($enviarABoveda && $bovedaDestinoId && $montoContado > 0) {
                 /** @var Boveda $boveda */
                 $boveda = Boveda::lockForUpdate()->findOrFail($bovedaDestinoId);
 

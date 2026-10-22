@@ -309,6 +309,11 @@ class ClienteController extends Controller
                             'id' => (string) $p->id,
                             'codigo_prenda' => $p->codigo_prenda,
                             'descripcion' => $p->descripcion,
+                            'ubicacion_fisica' => $p->ubicacion_fisica,
+                            'ubicacion_detalle' => $p->ubicacion_fisica ?? ($p->seccion ? "{$p->seccion}-{$p->estante}" : null),
+                            'ubicacionBodega' => $p->ubicacion_fisica ?? ($p->seccion ? "{$p->seccion}-{$p->estante}" : null),
+                            'seccion' => $p->seccion,
+                            'estante' => $p->estante,
                             'eliminado' => $p->trashed(), // Indicar si la prenda fue eliminada
                         ];
                     })->values(),

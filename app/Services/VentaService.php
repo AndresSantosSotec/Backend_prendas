@@ -295,6 +295,11 @@ class VentaService
                 ]);
             }
 
+            // Liberar prenda_id en los detalles para permitir su reventa
+            if (method_exists($venta, 'detalles')) {
+                $venta->detalles()->update(['prenda_id' => null]);
+            }
+
             // Marcar venta como cancelada
             $venta->update([
                 'estado' => 'cancelada',

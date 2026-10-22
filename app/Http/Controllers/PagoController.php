@@ -30,7 +30,8 @@ class PagoController extends Controller
             app(\App\Services\MoraService::class)->recalcularMoraCredito($credito);
             $credito->refresh();
 
-            $calculo = $this->pagoService->calcularDeudaAlDia($credito);
+            $fechaCalculo = $request->filled('fecha_calculo') ? \Carbon\Carbon::parse($request->input('fecha_calculo')) : null;
+            $calculo = $this->pagoService->calcularDeudaAlDia($credito, $fechaCalculo);
 
             return response()->json([
                 'success' => true,
@@ -108,9 +109,16 @@ class PagoController extends Controller
             $prendas  = $credito->prendas;
             $sucursal = $credito->sucursal;
 
-            $pdf = Pdf::loadView('creditos.recibo_pago', compact(
-                'credito', 'movimiento', 'cliente', 'prendas', 'sucursal'
-            ));
+            $datosPlantilla = \App\Services\PdfDocumentoService::obtenerDatosPlantilla('recibo_pago', $sucursal?->id, [
+                'credito'    => $credito,
+                'movimiento' => $movimiento,
+                'cliente'    => $cliente,
+                'prendas'    => $prendas,
+                'sucursal'   => $sucursal,
+            ]);
+
+            $vista = \App\Services\PdfDocumentoService::resolverVista('recibo_pago', 'creditos.recibo_pago', $sucursal?->id);
+            $pdf = Pdf::loadView($vista, $datosPlantilla);
             $pdf->setPaper('letter', 'portrait');
 
             $filename = 'Recibo_Pago_' . ($movimiento->numero_movimiento ?? $movimientoId) . '.pdf';

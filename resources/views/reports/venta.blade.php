@@ -29,11 +29,11 @@
         <table width="100%">
             <tr>
                 <td width="25%" style="text-align: left; vertical-align: middle;">
-                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                    @include('pdf.partials.logo', ['height' => '50px'])
                 </td>
                 <td width="50%" style="text-align: center; vertical-align: middle;">
-                    <h1>AVANZA</h1>
-        <p>{{ $venta->sucursal->nombre ?? 'Tienda Principal' }}</p>
+                    <h1>{{ $empresa['nombre'] ?? $venta->sucursal->nombre ?? config('app.name', 'SISTEMA DE EMPEÑOS') }}</h1>
+        <p>{{ $venta->sucursal->nombre ?? 'Sede Central' }}</p>
         <p>{{ $venta->sucursal->direccion ?? '' }}</p>
         <p>Documento: {{ $venta->tipo_documento }} - {{ $venta->codigo_venta }}</p>
                 </td>

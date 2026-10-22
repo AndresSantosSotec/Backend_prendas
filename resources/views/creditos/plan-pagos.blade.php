@@ -157,11 +157,11 @@
         <table width="100%">
             <tr>
                 <td width="25%" style="text-align: left; vertical-align: middle;">
-                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(resource_path('logos/avanza_logo.png'))) }}" alt="Logo" style="height: 80px;">
+                    @include('pdf.partials.logo', ['height' => '60px'])
                 </td>
                 <td width="50%" style="text-align: center; vertical-align: middle;">
-                    <div class="brand-title">{{ $sucursal->nombre ?? 'Avanza' }}</div>
-                    <div class="brand-subtitle">{{ $sucursal->direccion ?? 'Sistema de Gestión de Créditos' }}</div>
+                    <div class="brand-title">{{ $empresa['nombre'] ?? $sucursal->nombre ?? config('app.name', 'Sistema de Gestión de Empeños') }}</div>
+                    <div class="brand-subtitle">{{ $sucursal->direccion ?? $empresa['direccion'] ?? 'Sistema de Gestión de Créditos' }}</div>
                 </td>
                 <td width="25%"></td>
             </tr>
