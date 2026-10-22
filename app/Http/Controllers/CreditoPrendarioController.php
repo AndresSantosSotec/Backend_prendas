@@ -1370,8 +1370,17 @@ class CreditoPrendarioController extends Controller
             //   2 cuotas: interés total = Q150, por cuota = Q75.00
             //   3 cuotas: interés total = Q150, por cuota = Q50.00
 
-            $interesPorCuota = $montoAprobado * $tasaPorPeriodo;
-            $interesTotal = $interesPorCuota * $numeroCuotas;
+            // Descuento pactado al crédito sobre los intereses
+            $pctDescuento = (float) ($credito->porcentaje_descuento_interes ?? 0);
+
+            $interesBasePorCuota = $montoAprobado * $tasaPorPeriodo;
+            if ($pctDescuento > 0) {
+                $descuentoPorCuota = round($interesBasePorCuota * ($pctDescuento / 100), 2);
+                $interesPorCuota = max(0, round($interesBasePorCuota - $descuentoPorCuota, 2));
+            } else {
+                $interesPorCuota = round($interesBasePorCuota, 2);
+            }
+            $interesTotal = round($interesPorCuota * $numeroCuotas, 2);
 
             // Capital por cuota = Monto / Número_cuotas
             $capitalPorCuota = $montoAprobado / $numeroCuotas;
@@ -1444,15 +1453,15 @@ class CreditoPrendarioController extends Controller
                 // Si es la última cuota, ajustar para evitar desfases por redondeo
                 if ($numeroCuota === $numeroCuotas) {
                     $capitalProyectado = round($saldoCapital, 2);
-                    // Mantener el interés por cuota constante
-                    // No recalcular para mantener consistencia con la fórmula flat
+                    $interesProyectado = max(0, round($interesTotal - $totalInteres, 2));
                 }
 
                 // Cuota = Capital_por_cuota + Interés_por_cuota
                 $montoCuotaProyectado = round($capitalProyectado + $interesProyectado, 2);
             } else {
                 // Método FRANCESA: Amortización
-                $interesProyectado = round($saldoCapital * $tasaPorPeriodo, 2);
+                $tasaEfectiva = $pctDescuento > 0 ? max(0, $tasaPorPeriodo * (1 - ($pctDescuento / 100))) : $tasaPorPeriodo;
+                $interesProyectado = round($saldoCapital * $tasaEfectiva, 2);
 
                 // Si es la última cuota, ajustar para evitar desfases por redondeo
                 if ($numeroCuota === $numeroCuotas) {
@@ -1515,6 +1524,11 @@ class CreditoPrendarioController extends Controller
             $saldoCapital -= $capitalProyectado;
             $totalCapital += $capitalProyectado;
             $totalInteres += $interesProyectado;
+        }
+
+        // Sincronizar monto_cuota en el crédito para que refleje el plan generado con descuento
+        if ($credito->monto_cuota != $cuotaPeriodo) {
+            $credito->updateQuietly(['monto_cuota' => $cuotaPeriodo]);
         }
     }
 
@@ -3299,6 +3313,9 @@ class CreditoPrendarioController extends Controller
                 'tasa_interes' => 'required|numeric|gt:0',
                 'tipo_interes' => 'required|string',
                 'numero_cuotas' => 'required|integer|min:1',
+                'porcentaje_descuento_interes' => 'nullable|numeric|min:0|max:100',
+                'porcentaje_descuento' => 'nullable|numeric|min:0|max:100',
+                'descuento_interes_motivo' => 'nullable|string|max:255',
                 'plazo_dias' => 'nullable|integer',
                 'fecha_desembolso' => 'nullable|date',
                 'fecha_primer_pago' => 'nullable|date|after_or_equal:fecha_desembolso',
@@ -3341,8 +3358,22 @@ class CreditoPrendarioController extends Controller
             // Interés por cuota = interés total / número de cuotas
             $planId = $request->plan_id ?? $request->plan_interes_id;
             $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres, $planId);
-            $interesPorCuota = round($montoAprobado * $tasaPorPeriodo, 2);
-            $interesTotal = round($interesPorCuota * $numeroCuotas, 2);
+            $interesBasePorCuota = $montoAprobado * $tasaPorPeriodo;
+            $interesOriginalTotal = round($interesBasePorCuota * $numeroCuotas, 2);
+
+            // Descuento en intereses (si aplica)
+            $pctDescuento = (float) ($request->porcentaje_descuento_interes ?? $request->porcentaje_descuento ?? 0);
+            $descuentoTotal = 0;
+            if ($pctDescuento > 0) {
+                $descuentoPorCuota = round($interesBasePorCuota * ($pctDescuento / 100), 2);
+                $interesPorCuota = max(0, round($interesBasePorCuota - $descuentoPorCuota, 2));
+                $descuentoTotal = round($interesOriginalTotal * ($pctDescuento / 100), 2);
+                $interesTotal = max(0, round($interesOriginalTotal - $descuentoTotal, 2));
+            } else {
+                $interesPorCuota = round($interesBasePorCuota, 2);
+                $interesTotal = $interesOriginalTotal;
+            }
+
             $capitalPorCuota = round($montoAprobado / $numeroCuotas, 2);
 
             $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);
@@ -3416,6 +3447,9 @@ class CreditoPrendarioController extends Controller
                     'total_a_pagar' => $totalAPagar,
                     'numero_cuotas' => $numeroCuotas,
                     'gastos_detalle' => $gastosDetalle,
+                    'porcentaje_descuento_interes' => $pctDescuento,
+                    'descuento_interes_total' => round($descuentoTotal, 2),
+                    'interes_original_total' => round($interesOriginalTotal, 2),
                     // Valores mensuales para mostrar en UI
                     'interes_mensual' => $interesMensual,
                     'capital_mensual' => $capitalMensual,
@@ -3447,6 +3481,8 @@ class CreditoPrendarioController extends Controller
                 'credito.numero_credito' => 'required|string',
                 'credito.monto_aprobado' => 'required|numeric',
                 'credito.tasa_interes' => 'required|numeric|gt:0',
+                'credito.porcentaje_descuento_interes' => 'nullable|numeric|min:0|max:100',
+                'credito.descuento_interes_motivo' => 'nullable|string|max:255',
                 'credito.tipo_interes' => 'required|string',
                 'credito.numero_cuotas' => 'required|integer|min:1',
                 'credito.gas_ids' => 'nullable|array',
@@ -3518,8 +3554,27 @@ class CreditoPrendarioController extends Controller
             // Interés por cuota = interés total / número de cuotas
             $planId = $datosCredito['plan_id'] ?? $datosCredito['plan_interes_id'] ?? null;
             $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres, $planId);
-            $interesPorCuota = round($montoAprobado * $tasaPorPeriodo, 2);
-            $interesTotal = round($interesPorCuota * $numeroCuotas, 2);
+            $interesBasePorCuota = $montoAprobado * $tasaPorPeriodo;
+            $interesOriginalTotal = round($interesBasePorCuota * $numeroCuotas, 2);
+
+            // Descuento en intereses pactado al crédito
+            $pctDescuento = (float) (
+                $datosCredito['porcentaje_descuento_interes'] 
+                ?? $request->input('porcentaje_descuento_interes') 
+                ?? $datosCredito['porcentaje_descuento'] 
+                ?? 0
+            );
+
+            if ($pctDescuento > 0) {
+                $descuentoPorCuota = round($interesBasePorCuota * ($pctDescuento / 100), 2);
+                $interesPorCuota = max(0, round($interesBasePorCuota - $descuentoPorCuota, 2));
+                $descuentoTotal = round($interesOriginalTotal * ($pctDescuento / 100), 2);
+                $interesTotal = max(0, round($interesOriginalTotal - $descuentoTotal, 2));
+            } else {
+                $interesPorCuota = round($interesBasePorCuota, 2);
+                $interesTotal = $interesOriginalTotal;
+            }
+
             $capitalPorCuota = round($montoAprobado / $numeroCuotas, 2);
 
             $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);
@@ -3541,25 +3596,27 @@ class CreditoPrendarioController extends Controller
                 }
 
                 $abonoCapital = $capitalPorCuota;
+                $interesEstaCuota = $interesPorCuota;
                 if ($i === $numeroCuotas) {
                     $abonoCapital = $saldoCapital;
+                    $interesEstaCuota = max(0, round($interesTotal - ($interesPorCuota * ($numeroCuotas - 1)), 2));
                 }
 
                 $gastosEstaCuota = (float) ($gastosPorCuota[$i - 1] ?? 0);
 
-                $totalCuota = $abonoCapital + $interesPorCuota + $gastosEstaCuota;
+                $totalCuota = $abonoCapital + $interesEstaCuota + $gastosEstaCuota;
 
                 $cuota = (object)[
                     'numero_cuota' => $i,
                     'fecha_vencimiento' => $fechaVencimiento->format('Y-m-d'),
                     'capital_proyectado' => $abonoCapital,
-                    'interes_proyectado' => $interesPorCuota,
+                    'interes_proyectado' => $interesEstaCuota,
                     'mora_proyectada' => 0,
                     'otros_cargos_proyectados' => $gastosEstaCuota,
                     'otros_proyectados' => $gastosEstaCuota,
                     'monto_cuota_proyectado' => $totalCuota,
                     'capital_pendiente' => $abonoCapital,
-                    'interes_pendiente' => $interesPorCuota,
+                    'interes_pendiente' => $interesEstaCuota,
                     'monto_pendiente' => $totalCuota,
                     'saldo_capital_credito' => round(max(0, $saldoCapital - $abonoCapital), 2),
                     'estado' => 'pendiente'
@@ -3574,6 +3631,8 @@ class CreditoPrendarioController extends Controller
                 'codigo_credito' => $datosCredito['numero_credito'],
                 'monto_aprobado' => $montoAprobado,
                 'tasa_interes' => $tasaInteres,
+                'porcentaje_descuento_interes' => $pctDescuento,
+                'descuento_interes_motivo' => $datosCredito['descuento_interes_motivo'] ?? $request->input('descuento_interes_motivo') ?? null,
                 'tipo_interes' => $tipoInteres,
                 'numero_cuotas' => $numeroCuotas,
                 'fecha_desembolso' => $fechaDesembolso->format('Y-m-d')

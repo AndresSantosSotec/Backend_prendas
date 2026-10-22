@@ -203,7 +203,12 @@
             </div>
             <div class="info-item">
                 <span class="info-label">Tasa de Interés</span>
-                <span class="info-value">{{ number_format($credito->tasa_interes ?? 0, 2) }}% </span>
+                <span class="info-value">
+                    {{ number_format($credito->tasa_interes ?? 0, 2) }}%
+                    @if(!empty($credito->porcentaje_descuento_interes) && $credito->porcentaje_descuento_interes > 0)
+                        <span style="color: #166534; font-size: 8px; font-weight: bold;">(Descuento: -{{ number_format($credito->porcentaje_descuento_interes, 0) }}%)</span>
+                    @endif
+                </span>
             </div>
             @if(isset($credito->tipo_interes) && $credito->tipo_interes !== 'mensual')
             <div class="info-item">

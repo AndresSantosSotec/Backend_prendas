@@ -427,6 +427,10 @@
     if ($interesesAPagar <= 0) {
         $tasa = (float) ($credito->tasa_interes ?? 13.44);
         $interesesAPagar = round(($montoPrincipal * $tasa) / 100, 2);
+        $pctDescCredito = (float) ($credito->porcentaje_descuento_interes ?? 0);
+        if ($pctDescCredito > 0) {
+            $interesesAPagar = max(0, round($interesesAPagar * (1 - ($pctDescCredito / 100)), 2));
+        }
         if ($interesesAPagar <= 0) {
             $interesesAPagar = 265.00;
         }
@@ -553,6 +557,11 @@
                 <tr>
                     <td style="font-weight: bold; text-transform: uppercase;">
                         INTERESES A PAGAR:
+                        @if(!empty($credito->porcentaje_descuento_interes) && $credito->porcentaje_descuento_interes > 0)
+                            <div style="font-size: 7.5pt; color: #166534; font-weight: normal; text-transform: none;">
+                                Con {{ number_format($credito->porcentaje_descuento_interes, 0) }}% de descuento aplicado
+                            </div>
+                        @endif
                     </td>
                     <td style="text-align: right; font-weight: bold; font-size: 10pt;">
                         Q{{ number_format($interesesAPagar, 2) }}
@@ -631,7 +640,12 @@
             </td>
             <td width="20%">
                 <span class="p2-label">Tasa de Interés</span>
-                <span class="p2-val">{{ number_format($credito->tasa_interes ?? 13.44, 2) }}%</span>
+                <span class="p2-val">
+                    {{ number_format($credito->tasa_interes ?? 13.44, 2) }}%
+                    @if(!empty($credito->porcentaje_descuento_interes) && $credito->porcentaje_descuento_interes > 0)
+                        <span style="color: #166534; font-size: 7.5pt;">(-{{ number_format($credito->porcentaje_descuento_interes, 0) }}%)</span>
+                    @endif
+                </span>
             </td>
         </tr>
         <tr>
