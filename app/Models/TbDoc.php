@@ -136,10 +136,10 @@ class TbDoc extends Model
             ->first();
         if ($docGeneral) return $docGeneral;
 
-        // 3. Fallback inteligente: buscar la plantilla activa registrada en BD
+        // 3. Fallback inteligente: buscar la plantilla neutra estándar en BD
         $docBase = static::where('tipo_documento', $tipoDocumento)
             ->where('activo', true)
-            ->orderByRaw("CASE WHEN plantilla_variante != 'estandar' THEN 0 ELSE 1 END")
+            ->where('plantilla_variante', 'estandar')
             ->orderBy('id', 'desc')
             ->first();
         if ($docBase) return $docBase;

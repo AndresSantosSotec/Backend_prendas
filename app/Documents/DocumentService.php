@@ -86,17 +86,31 @@ final class DocumentService
         $logoBase64 = $doc->obtenerLogoBase64();
 
         // PRIORIDAD ABSOLUTA: Lo que esté en la base de datos (configuraciones_sistema) manda sobre .env
-        $empresaNombre = ConfiguracionSistema::obtener('empresa_nombre') ?: env('APP_NAME', 'PRENDAMÁS+');
-        $razonSocial = ConfiguracionSistema::obtener('empresa_razon_social') ?: 'GRUPO JUMERC, SOCIEDAD ANÓNIMA';
-        $direccion = ConfiguracionSistema::obtener('empresa_direccion') ?: '15 Avenida 4-60 zona 3 Quetzaltenango.';
-        $telefono = ConfiguracionSistema::obtener('empresa_telefono') ?: '7934-0485';
-        $whatsapp = ConfiguracionSistema::obtener('empresa_whatsapp') ?: '3996-6178';
-        $nit = ConfiguracionSistema::obtener('empresa_nit') ?: 'C/F';
-        $email = ConfiguracionSistema::obtener('empresa_email') ?: 'contacto@ejemplo.com';
-        $repNombre = ConfiguracionSistema::obtener('representante_legal_nombre') ?: 'MANUEL FRANCISCO GARCÍA ROBLES';
-        $repTitulo = ConfiguracionSistema::obtener('representante_legal_titulo') ?: 'ADMINISTRADOR ÚNICO Y REPRESENTANTE LEGAL';
-        $repDpi = ConfiguracionSistema::obtener('representante_legal_dpi') ?: '2182 74416 0801';
-        $horarioAtencion = ConfiguracionSistema::obtener('horario_atencion') ?: 'Lunes a viernes: 8:00 AM – 5:00 PM | SÁBADO: CERRADO | Domingo: 9:00 AM – 12:30 PM';
+        $orgCode = $doc->organizacion_code ?: ConfiguracionSistema::obtener('organizacion_code') ?: env('ORGANIZATION_CODE', '01');
+        $esAvanza = strtoupper(trim($orgCode)) === 'AVANZA';
+
+        $empresaNombre = ConfiguracionSistema::obtener('empresa_nombre') 
+            ?: env('EMPRESA_NOMBRE', env('APP_NAME', $esAvanza ? 'EMPEÑOS AVANZA' : 'PRENDAMÁS+'));
+        $razonSocial = ConfiguracionSistema::obtener('empresa_razon_social') 
+            ?: env('EMPRESA_RAZON_SOCIAL', $esAvanza ? 'GRUPO VALOR, SOCIEDAD ANÓNIMA' : 'GRUPO JUMERC, SOCIEDAD ANÓNIMA');
+        $direccion = ConfiguracionSistema::obtener('empresa_direccion') 
+            ?: env('EMPRESA_DIRECCION', $esAvanza ? '11 calle 1-08 barrio Quirio Castaño, Esquipulas, Chiquimula.' : '15 Avenida 4-60 zona 3 Quetzaltenango.');
+        $telefono = ConfiguracionSistema::obtener('empresa_telefono') 
+            ?: env('EMPRESA_TELEFONO', $esAvanza ? '2200-0000' : '7934-0485');
+        $whatsapp = ConfiguracionSistema::obtener('empresa_whatsapp') 
+            ?: env('EMPRESA_WHATSAPP', $esAvanza ? '3996-6178' : '3996-6178');
+        $nit = ConfiguracionSistema::obtener('empresa_nit') 
+            ?: env('EMPRESA_NIT', 'C/F');
+        $email = ConfiguracionSistema::obtener('empresa_email') 
+            ?: env('EMPRESA_EMAIL', $esAvanza ? 'contacto@empeniosavanza.com' : 'contacto@prendamas.gt');
+        $repNombre = ConfiguracionSistema::obtener('representante_legal_nombre') 
+            ?: env('REPRESENTANTE_LEGAL_NOMBRE', $esAvanza ? 'REPRESENTANTE LEGAL' : 'MANUEL FRANCISCO GARCÍA ROBLES');
+        $repTitulo = ConfiguracionSistema::obtener('representante_legal_titulo') 
+            ?: env('REPRESENTANTE_LEGAL_TITULO', $esAvanza ? 'ADMINISTRADOR Y REPRESENTANTE LEGAL' : 'ADMINISTRADOR ÚNICO Y REPRESENTANTE LEGAL');
+        $repDpi = ConfiguracionSistema::obtener('representante_legal_dpi') 
+            ?: env('REPRESENTANTE_LEGAL_DPI', $esAvanza ? '' : '2182 74416 0801');
+        $horarioAtencion = ConfiguracionSistema::obtener('horario_atencion') 
+            ?: env('HORARIO_ATENCION', $esAvanza ? 'Lunes a viernes: 8:00 AM – 5:00 PM | Sábado: 8:00 AM – 1:00 PM' : 'Lunes a viernes: 8:00 AM – 5:00 PM | SÁBADO: CERRADO | Domingo: 9:00 AM – 12:30 PM');
 
         $empresa = [
             'nombre' => $empresaNombre,

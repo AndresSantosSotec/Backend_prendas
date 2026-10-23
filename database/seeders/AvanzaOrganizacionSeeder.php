@@ -39,7 +39,7 @@ class AvanzaOrganizacionSeeder extends Seeder
         $this->command->info('1. Verificando parámetros del sistema...');
 
         $configuracionesAvanza = [
-            // Identidad y Organización
+            // Identidad y Organización de Avanza
             'organizacion_code' => [
                 'valor' => $orgCode,
                 'tipo' => 'string',
@@ -52,11 +52,89 @@ class AvanzaOrganizacionSeeder extends Seeder
                 'grupo' => 'organizacion',
                 'descripcion' => 'Nombre comercial de la empresa',
             ],
+            'empresa_razon_social' => [
+                'valor' => 'GRUPO VALOR, SOCIEDAD ANÓNIMA',
+                'tipo' => 'string',
+                'grupo' => 'organizacion',
+                'descripcion' => 'Razón social legal para contratos de Avanza',
+            ],
+            'empresa_nit' => [
+                'valor' => 'C/F',
+                'tipo' => 'string',
+                'grupo' => 'organizacion',
+                'descripcion' => 'NIT de la empresa',
+            ],
+            'empresa_direccion' => [
+                'valor' => '11 calle 1-08 barrio Quirio Castaño, Esquipulas, Chiquimula.',
+                'tipo' => 'string',
+                'grupo' => 'organizacion',
+                'descripcion' => 'Dirección de sede central Avanza',
+            ],
+            'empresa_telefono' => [
+                'valor' => '2200-0000',
+                'tipo' => 'string',
+                'grupo' => 'organizacion',
+                'descripcion' => 'Teléfono de atención',
+            ],
+            'empresa_whatsapp' => [
+                'valor' => '3996-6178',
+                'tipo' => 'string',
+                'grupo' => 'organizacion',
+                'descripcion' => 'WhatsApp de atención al cliente',
+            ],
+            'empresa_email' => [
+                'valor' => 'contacto@empeniosavanza.com',
+                'tipo' => 'string',
+                'grupo' => 'organizacion',
+                'descripcion' => 'Correo de contacto',
+            ],
+            'horario_atencion' => [
+                'valor' => 'Lunes a viernes: 8:00 AM – 5:00 PM | Sábado: 8:00 AM – 1:00 PM',
+                'tipo' => 'string',
+                'grupo' => 'organizacion',
+                'descripcion' => 'Horario de atención al público',
+            ],
+            'municipio_contrato' => [
+                'valor' => 'Esquipulas',
+                'tipo' => 'string',
+                'grupo' => 'organizacion',
+                'descripcion' => 'Municipio legal para contratos',
+            ],
+            'departamento_contrato' => [
+                'valor' => 'Chiquimula',
+                'tipo' => 'string',
+                'grupo' => 'organizacion',
+                'descripcion' => 'Departamento legal para contratos',
+            ],
             'logo_activo' => [
                 'valor' => 'avanza_logo.png',
                 'tipo' => 'string',
                 'grupo' => 'organizacion',
                 'descripcion' => 'Logo oficial activo para contratos y comprobantes',
+            ],
+            'representante_legal_nombre' => [
+                'valor' => 'REPRESENTANTE LEGAL',
+                'tipo' => 'string',
+                'grupo' => 'organizacion',
+                'descripcion' => 'Nombre del Representante Legal',
+            ],
+            'representante_legal_titulo' => [
+                'valor' => 'ADMINISTRADOR Y REPRESENTANTE LEGAL',
+                'tipo' => 'string',
+                'grupo' => 'organizacion',
+                'descripcion' => 'Cargo legal',
+            ],
+            'representante_legal_dpi' => [
+                'valor' => '',
+                'tipo' => 'string',
+                'grupo' => 'organizacion',
+                'descripcion' => 'DPI del Representante',
+            ],
+            'perito_contador_nombre' => [
+                'valor' => 'PERITO CONTADOR',
+                'tipo' => 'string',
+                'grupo' => 'organizacion',
+                'descripcion' => 'Perito contador de la empresa',
             ],
 
             // Reglas de Cobro de Intereses y Tasas de Avanza
@@ -114,6 +192,16 @@ class AvanzaOrganizacionSeeder extends Seeder
             ],
         ];
 
+        // Claves de identidad que siempre deben sincronizarse al tenant Avanza
+        $clavesIdentidad = [
+            'organizacion_code', 'empresa_nombre', 'empresa_razon_social',
+            'empresa_direccion', 'empresa_nit', 'empresa_telefono', 'empresa_whatsapp',
+            'empresa_email', 'horario_atencion', 'municipio_contrato', 'departamento_contrato',
+            'logo_activo', 'representante_legal_nombre', 'representante_legal_titulo',
+            'representante_legal_dpi', 'perito_contador_nombre',
+            'credito_tasa_por_periodo_directa', 'promocion_interes_activa'
+        ];
+
         foreach ($configuracionesAvanza as $clave => $item) {
             $existente = ConfiguracionSistema::where('clave', $clave)->first();
             if (!$existente) {
@@ -127,10 +215,9 @@ class AvanzaOrganizacionSeeder extends Seeder
                 ]);
                 $this->command->info("  [+] Creado parámetro: {$clave} = {$item['valor']}");
             } else {
-                // Para claves críticas de Avanza actualizamos el valor asegurando compatibilidad
-                if (in_array($clave, ['organizacion_code', 'logo_activo', 'credito_tasa_por_periodo_directa', 'promocion_interes_activa'])) {
+                if (in_array($clave, $clavesIdentidad)) {
                     $existente->update(['valor' => $item['valor']]);
-                    $this->command->comment("  [~] Actualizado parámetro crítico: {$clave} = {$item['valor']}");
+                    $this->command->comment("  [~] Actualizado parámetro para Avanza: {$clave} = {$item['valor']}");
                 } else {
                     $this->command->comment("  [✓] Parámetro existente conservado: {$clave}");
                 }
@@ -189,10 +276,12 @@ class AvanzaOrganizacionSeeder extends Seeder
             $documentosBase = [
                 [
                     'tipo_documento' => 'contrato_credito',
-                    'nombre_documento' => 'Contrato de Empeño Avanza',
+                    'nombre_documento' => 'Contrato de Préstamo Prendario Avanza',
+                    'plantilla_variante' => 'estandar',
+                    'vista_pdf' => 'creditos.contrato',
                     'titulo_personalizado' => 'CONTRATO DE MUTUO CON GARANTÍA PRENDARIA',
                     'subtitulo_personalizado' => 'EMPEÑOS AVANZA',
-                    'encabezado_texto' => 'Contrato formal de empeño con garantía prendaria.',
+                    'encabezado_texto' => 'Contrato formal de mutuo con garantía prendaria.',
                     'pie_pagina_texto' => 'Empeños Avanza - Soluciones financieras a tu alcance',
                     'firmante_1_nombre' => 'DEUDOR / CLIENTE',
                     'firmante_1_titulo' => 'FIRMA DEL CLIENTE',
@@ -203,11 +292,30 @@ class AvanzaOrganizacionSeeder extends Seeder
                     'activo' => true,
                 ],
                 [
+                    'tipo_documento' => 'plan_pagos',
+                    'nombre_documento' => 'Plan de Pagos Avanza',
+                    'plantilla_variante' => 'estandar',
+                    'vista_pdf' => 'creditos.plan-pagos',
+                    'titulo_personalizado' => 'PLAN DE PAGOS DE CRÉDITO',
+                    'subtitulo_personalizado' => 'EMPEÑOS AVANZA',
+                    'encabezado_texto' => 'Detalle proyectado de cuotas, capital, intereses y vencimientos.',
+                    'pie_pagina_texto' => 'Empeños Avanza - Las fechas de pago son estrictas para evitar recargos.',
+                    'firmante_1_nombre' => 'DEUDOR / CLIENTE',
+                    'firmante_1_titulo' => 'FIRMA DEL CLIENTE',
+                    'firmante_2_nombre' => 'REPRESENTANTE LEGAL',
+                    'firmante_2_titulo' => 'EMPEÑOS AVANZA',
+                    'mostrar_logo' => true,
+                    'mostrar_firmas' => true,
+                    'activo' => true,
+                ],
+                [
                     'tipo_documento' => 'recibo_pago',
-                    'nombre_documento' => 'Recibo de Pago de Cuota / Liquidación',
+                    'nombre_documento' => 'Recibo de Pago de Cuota / Liquidación Avanza',
+                    'plantilla_variante' => 'estandar',
+                    'vista_pdf' => 'creditos.recibo',
                     'titulo_personalizado' => 'COMPROBANTE DE PAGO',
                     'subtitulo_personalizado' => 'EMPEÑOS AVANZA',
-                    'encabezado_texto' => 'Comprobante de abono o cancelación de crédito.',
+                    'encabezado_texto' => 'Comprobante oficial de abono o cancelación de crédito.',
                     'pie_pagina_texto' => 'Gracias por su pago puntual en Empeños Avanza.',
                     'firmante_1_nombre' => 'CAJERO',
                     'firmante_1_titulo' => 'FIRMA DE CAJA',
@@ -218,7 +326,7 @@ class AvanzaOrganizacionSeeder extends Seeder
             ];
 
             foreach ($documentosBase as $doc) {
-                TbDoc::firstOrCreate(
+                TbDoc::updateOrCreate(
                     [
                         'organizacion_code' => $orgCode,
                         'tipo_documento' => $doc['tipo_documento'],
@@ -226,25 +334,38 @@ class AvanzaOrganizacionSeeder extends Seeder
                     $doc
                 );
             }
-            $this->command->info('  [✓] Plantillas TbDoc verificadas correctamente.');
+            $this->command->info('  [✓] Plantillas TbDoc de Avanza registradas y actualizadas.');
         }
 
         // =========================================================================
-        // 4. SUCURSAL BASE (SOLO CREA SI NO EXISTE NINGUNA)
+        // 4. RESTAURACIÓN DE SUCURSAL ESQUIPULAS (CASA MATRIZ AVANZA)
         // =========================================================================
-        if (Sucursal::count() === 0) {
-            Sucursal::create([
-                'nombre' => 'Agencia Central Avanza',
-                'codigo' => 'AG-01',
-                'direccion' => 'Ciudad de Guatemala',
-                'telefono' => '2200-0000',
-                'municipio' => 'Guatemala',
-                'departamento' => 'Guatemala',
+        $sucursalEsquipulas = Sucursal::where('codigo', 'ESQ-001')->first() ?: Sucursal::find(1);
+        if ($sucursalEsquipulas) {
+            $sucursalEsquipulas->update([
+                'codigo' => 'ESQ-001',
+                'nombre' => 'Esquipulas',
+                'direccion' => '11 calle 1-08 barrio Quirio Castaño',
+                'ciudad' => 'Esquipulas',
+                'departamento' => 'Chiquimula',
+                'municipio' => 'Esquipulas',
+                'descripcion' => 'Sucursal Esquipulas - Casa Matriz',
                 'activa' => true,
             ]);
-            $this->command->info('  [+] Sucursal inicial creada (no existía ninguna).');
-        } else {
-            $this->command->comment('  [✓] Sucursales existentes conservadas intactas.');
+            $this->command->info('  [✓] Sucursal Esquipulas restaurada correctamente con su dirección y código.');
+        } elseif (Sucursal::count() === 0) {
+            Sucursal::create([
+                'nombre' => 'Esquipulas',
+                'codigo' => 'ESQ-001',
+                'direccion' => '11 calle 1-08 barrio Quirio Castaño',
+                'ciudad' => 'Esquipulas',
+                'departamento' => 'Chiquimula',
+                'municipio' => 'Esquipulas',
+                'descripcion' => 'Sucursal Esquipulas - Casa Matriz',
+                'telefono' => '2200-0000',
+                'activa' => true,
+            ]);
+            $this->command->info('  [+] Sucursal Esquipulas creada.');
         }
 
         $this->command->info('====================================================');
