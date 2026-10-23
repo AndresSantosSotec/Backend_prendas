@@ -13,13 +13,14 @@ final class ReciboStandardRenderer implements DocumentRenderer
     {
         $vista = !empty($config?->vista_pdf) && view()->exists($config->vista_pdf)
             ? $config->vista_pdf
-            : (view()->exists('creditos.recibo') ? 'creditos.recibo' : 'creditos.recibo_pago');
+            : (view()->exists('creditos.recibo_pago') ? 'creditos.recibo_pago' : 'creditos.recibo');
 
         $pdf = Pdf::loadView($vista, $data);
         $pdf->setPaper('letter', 'portrait');
 
-        $numeroRecibo = $data['recibo']['numero_recibo'] ?? ($data['recibo']->numero_recibo ?? 'REC-' . time());
-        $filename = 'Recibo_' . preg_replace('/[^A-Za-z0-9_\-]/', '_', (string) $numeroRecibo) . '.pdf';
+        $numeroRecibo = $data['movimiento']->numero_movimiento 
+            ?? ($data['recibo']['numero_recibo'] ?? ($data['recibo']->numero_recibo ?? 'REC-' . time()));
+        $filename = 'Recibo_Pago_' . preg_replace('/[^A-Za-z0-9_\-]/', '_', (string) $numeroRecibo) . '.pdf';
 
         return new DocumentResult(
             content: $pdf->output(),
