@@ -46,7 +46,9 @@ class PagoService
             $fechaBase = $credito->fecha_solicitud ?? Carbon::now();
         }
 
-        $diasTranscurridos = max(1, abs($fechaCalculo->diffInDays($fechaBase)));
+        $fechaCalculoDay = $fechaCalculo->copy()->startOfDay();
+        $fechaBaseDay = Carbon::parse($fechaBase)->startOfDay();
+        $diasTranscurridos = (int) max(1, abs($fechaCalculoDay->diffInDays($fechaBaseDay)));
 
         // Si existe plan de pagos, usar saldos pendientes reales para mantener coherencia
         // entre el detalle del crédito y el modal de registro de pago.
@@ -115,15 +117,14 @@ class PagoService
 
             // === CÁLCULO DE INTERÉS DIARIO VS MENSUAL ===
             $modoCalculo = (string) ConfiguracionSistema::obtener('credito_modo_calculo_interes', '');
-            if ($modoCalculo === 'diario') {
-                $interesDiarioHabilitado = true;
-            } elseif ($modoCalculo === 'mensual') {
+            if ($modoCalculo === 'mensual') {
                 $interesDiarioHabilitado = false;
             } else {
-                $interesDiarioHabilitado = (bool) (ConfiguracionSistema::obtener('credito_interes_diario_habilitado', false) || (string) $credito->tipo_interes === 'diario' || (bool) ($credito->interes_diario_habilitado ?? false));
+                // En créditos prendarios los intereses siempre se devengan y calculan diariamente
+                $interesDiarioHabilitado = true;
             }
             $diasMinimos = (int) ConfiguracionSistema::obtener('credito_interes_diario_dias_minimos', 1);
-            $diasEfectivos = max($diasMinimos, $diasTranscurridos);
+            $diasEfectivos = (int) max($diasMinimos, $diasTranscurridos);
 
             if ($interesDiarioHabilitado) {
                 $tasaDiaria = (($credito->tasa_interes / 100) / 30);
@@ -280,15 +281,14 @@ class PagoService
         // ============== TOTALES ==============
         // === CÁLCULO DE INTERÉS DIARIO VS MENSUAL ===
         $modoCalculo = (string) ConfiguracionSistema::obtener('credito_modo_calculo_interes', '');
-        if ($modoCalculo === 'diario') {
-            $interesDiarioHabilitado = true;
-        } elseif ($modoCalculo === 'mensual') {
+        if ($modoCalculo === 'mensual') {
             $interesDiarioHabilitado = false;
         } else {
-            $interesDiarioHabilitado = (bool) (ConfiguracionSistema::obtener('credito_interes_diario_habilitado', false) || (string) $credito->tipo_interes === 'diario' || (bool) ($credito->interes_diario_habilitado ?? false));
+            // En créditos prendarios los intereses siempre se devengan y calculan diariamente
+            $interesDiarioHabilitado = true;
         }
         $diasMinimos = (int) ConfiguracionSistema::obtener('credito_interes_diario_dias_minimos', 1);
-        $diasEfectivos = max($diasMinimos, $diasTranscurridos);
+        $diasEfectivos = (int) max($diasMinimos, $diasTranscurridos);
 
         if ($interesDiarioHabilitado) {
             $tasaDiaria = (($credito->tasa_interes / 100) / 30);
@@ -399,72 +399,22 @@ class PagoService
     }
 
     /**
-     * Calcula proyecciones de liquidación para el próximo lunes y martes (con descuento si aplica)
+     * Proyecciones de liquidación para días futuros (retirado a solicitud del cliente)
      */
     public function calcularSimulacionesProximas(CreditoPrendario $credito, float $capitalPendiente, float $moraTotal, float $otrosTotal, ?Carbon $fechaBase = null): array
     {
-        $fechaBase = $fechaBase ?? $credito->fecha_ultimo_pago ?? $credito->fecha_desembolso ?? $credito->fecha_solicitud ?? Carbon::now();
-        $hoy = Carbon::now()->startOfDay();
-
-        // Próximo lunes y martes de la otra semana / próximos días hábiles de promoción
-        $proximoLunes = $hoy->copy()->next(Carbon::MONDAY)->startOfDay();
-        $proximoMartes = $hoy->copy()->next(Carbon::TUESDAY)->startOfDay();
-
-        $diasMinimos = (int) ConfiguracionSistema::obtener('credito_interes_diario_dias_minimos', 1);
-        $diasLunes = max($diasMinimos, (int) abs($proximoLunes->diffInDays($fechaBase)));
-        $diasMartes = max($diasMinimos, (int) abs($proximoMartes->diffInDays($fechaBase)));
-
-        $tasaDiaria = (($credito->tasa_interes / 100) / 30);
-        $interesBrutoLunes = round($capitalPendiente * $tasaDiaria * $diasLunes, 2);
-        $interesBrutoMartes = round($capitalPendiente * $tasaDiaria * $diasMartes, 2);
-
-        $promoConfigLunes = $this->calcularDescuentoPromocional($interesBrutoLunes, $proximoLunes, $credito);
-        $descuentoLunes = $promoConfigLunes['monto_descuento'];
-        $interesNetoLunes = max(0, round($interesBrutoLunes - $descuentoLunes, 2));
-
-        $promoConfigMartes = $this->calcularDescuentoPromocional($interesBrutoMartes, $proximoMartes, $credito);
-        $descuentoMartes = $promoConfigMartes['monto_descuento'];
-        $interesNetoMartes = max(0, round($interesBrutoMartes - $descuentoMartes, 2));
-
-        return [
-            'lunes' => [
-                'dia' => 'Lunes',
-                'fecha' => $proximoLunes->format('Y-m-d'),
-                'fecha_formateada' => $proximoLunes->format('d/m/Y'),
-                'dias_transcurridos' => $diasLunes,
-                'interes_bruto' => $interesBrutoLunes,
-                'descuento' => $descuentoLunes,
-                'porcentaje_descuento' => $promoConfigLunes['porcentaje_descuento'] ?? 0,
-                'interes_neto' => $interesNetoLunes,
-                'total_liquidar' => round($capitalPendiente + $interesNetoLunes + $moraTotal + $otrosTotal, 2),
-                'aplica_promo' => (bool) ($promoConfigLunes['aplicada'] ?? false),
-                'descripcion_promo' => $promoConfigLunes['descripcion'] ?? '',
-            ],
-            'martes' => [
-                'dia' => 'Martes',
-                'fecha' => $proximoMartes->format('Y-m-d'),
-                'fecha_formateada' => $proximoMartes->format('d/m/Y'),
-                'dias_transcurridos' => $diasMartes,
-                'interes_bruto' => $interesBrutoMartes,
-                'descuento' => $descuentoMartes,
-                'porcentaje_descuento' => $promoConfigMartes['porcentaje_descuento'] ?? 0,
-                'interes_neto' => $interesNetoMartes,
-                'total_liquidar' => round($capitalPendiente + $interesNetoMartes + $moraTotal + $otrosTotal, 2),
-                'aplica_promo' => (bool) ($promoConfigMartes['aplicada'] ?? false),
-                'descripcion_promo' => $promoConfigMartes['descripcion'] ?? '',
-            ],
-        ];
+        return [];
     }
 
     /**
-     * Evalúa y calcula descuentos promocionales parametrizables por día de la semana sobre intereses
+     * Evalúa y calcula descuentos promocionales parametrizables sobre intereses (siempre que estén configurados o pactados en el crédito)
      */
     public function calcularDescuentoPromocional(float $interesBase, Carbon $fechaCalculo, ?CreditoPrendario $credito = null): array
     {
         $promoActiva = (bool) ConfiguracionSistema::obtener('promocion_interes_activa', false);
-        $diasConfig = ConfiguracionSistema::obtener('promocion_interes_dias', ['monday', 'tuesday', 'lunes', 'martes']);
+        $diasConfig = ConfiguracionSistema::obtener('promocion_interes_dias', []);
         $porcentajeDescuento = (float) ConfiguracionSistema::obtener('promocion_interes_porcentaje_descuento', 0);
-        $descripcion = (string) ConfiguracionSistema::obtener('promocion_interes_descripcion', 'Descuento especial de inicio de semana');
+        $descripcion = (string) ConfiguracionSistema::obtener('promocion_interes_descripcion', '');
 
         $pctCredito = $credito ? (float) ($credito->porcentaje_descuento_interes ?? $credito->descuento_interes_porcentaje ?? 0) : 0;
         $descuentoPactadoEnCredito = $pctCredito > 0;

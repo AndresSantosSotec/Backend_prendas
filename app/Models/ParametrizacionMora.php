@@ -62,16 +62,23 @@ class ParametrizacionMora extends Model
      */
     public static function obtenerConfiguracion(?string $sucursalId = null): ?self
     {
-        // Primero buscar configuración de la sucursal específica
-        if ($sucursalId) {
-            $config = static::where('sucursal_id', $sucursalId)->where('activo', true)->first();
-            if ($config) {
-                return $config;
+        try {
+            if (!\Illuminate\Support\Facades\Schema::hasTable('parametrizacion_mora')) {
+                return null;
             }
-        }
+            // Primero buscar configuración de la sucursal específica
+            if ($sucursalId) {
+                $config = static::where('sucursal_id', $sucursalId)->where('activo', true)->first();
+                if ($config) {
+                    return $config;
+                }
+            }
 
-        // Fallback: configuración global (sin sucursal)
-        return static::whereNull('sucursal_id')->where('activo', true)->first();
+            // Fallback: configuración global (sin sucursal)
+            return static::whereNull('sucursal_id')->where('activo', true)->first();
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     /**

@@ -145,16 +145,16 @@ class AvanzaOrganizacionSeeder extends Seeder
                 'descripcion' => 'Avanza aplica prorrateo mensual estándar (/2 quincenal, /4 semanal). Debe ser false.',
             ],
             'credito_modo_calculo_interes' => [
-                'valor' => 'mensual',
+                'valor' => 'diario',
                 'tipo' => 'string',
                 'grupo' => 'creditos',
-                'descripcion' => 'Modalidad de cálculo de interés: mensual (período cerrado) o diario (prorrateo)',
+                'descripcion' => 'Modalidad de cálculo de interés: siempre diario (prorrateo por días exactos)',
             ],
             'credito_interes_diario_habilitado' => [
-                'valor' => 'false',
+                'valor' => 'true',
                 'tipo' => 'boolean',
                 'grupo' => 'creditos',
-                'descripcion' => 'Habilitar cálculo diario proporcional si se requiere en créditos especiales',
+                'descripcion' => 'Cálculo diario siempre habilitado en empeños',
             ],
             'credito_interes_diario_dias_minimos' => [
                 'valor' => '1',
