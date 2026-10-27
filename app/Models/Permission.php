@@ -38,6 +38,7 @@ class Permission extends Model
                     'creditos.anular_movimiento' => 'Permite anular pagos y movimientos de créditos prendarios con reversión automática',
                     'caja.anular_movimiento' => 'Permite anular movimientos manuales y transacciones de caja',
                     'boveda.anular_movimiento' => 'Permite anular movimientos y transferencias de bóveda',
+                    'boveda.forzar_eliminar' => 'Permite forzar la eliminación de bóvedas con saldo o movimientos recientes bajo confirmación explícita (acción destructiva)',
                     'simulador.editar_tasa_interes' => 'Permite modificar la tasa de interés % en el simulador',
                     'cumplimiento.ver' => 'Ver reportes analíticos de cumplimiento regulatorio e IVE',
                     'cumplimiento.exportar' => 'Exportar reportes de cumplimiento regulatorio e IVE en Excel/CSV',
@@ -71,7 +72,7 @@ class Permission extends Model
         'categorias_productos' => ['ver', 'crear', 'editar', 'eliminar', 'toggle_activa'],
         'gastos' => ['ver', 'crear', 'editar', 'eliminar', 'asignar_credito'],
         'auditoria' => ['ver', 'exportar'], // Solo para superadmin
-        'boveda' => ['ver', 'crear', 'editar', 'eliminar', 'movimientos', 'aprobar', 'anular_movimiento', 'reportes'],
+        'boveda' => ['ver', 'crear', 'editar', 'eliminar', 'forzar_eliminar', 'movimientos', 'aprobar', 'anular_movimiento', 'reportes'],
         'migracion' => ['ver', 'importar', 'descargar_plantilla'],
         'contabilidad' => ['ver', 'configurar', 'asientos', 'reportes', 'crear_partida', 'editar_partida', 'eliminar_partida'],
         'cumplimiento' => ['ver', 'exportar'],

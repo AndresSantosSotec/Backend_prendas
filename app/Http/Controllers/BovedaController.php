@@ -225,27 +225,84 @@ class BovedaController extends Controller
     }
 
     /**
-     * Eliminar bóveda (soft delete)
+     * Eliminar bóveda (soft delete o forzada con confirmación y candado de seguridad)
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         /** @var User $user */
         $user = Auth::user();
         $boveda = Boveda::findOrFail($id);
 
-        // Verificar permisos
+        // Verificar permisos básicos
         if (!$user->hasPermission('boveda', 'eliminar')) {
             return response()->json(['error' => 'No tienes permisos para eliminar bóvedas'], 403);
         }
 
-        // Verificar que no tenga movimientos recientes
-        if ($boveda->movimientos()->whereDate('created_at', '>=', now()->subDays(30))->exists()) {
-            return response()->json(['error' => 'No se puede eliminar una bóveda con movimientos recientes'], 400);
+        // Evaluar condiciones de seguridad financiera (candado de protección)
+        $tieneMovimientosRecientes = $boveda->movimientos()->whereDate('created_at', '>=', now()->subDays(30))->exists();
+        $saldoNumerico = (float)($boveda->saldo_actual ?? 0);
+        $tieneSaldo = $saldoNumerico > 0.001;
+
+        $hayCandadoSeguridad = $tieneMovimientosRecientes || $tieneSaldo;
+
+        if ($hayCandadoSeguridad) {
+            $forzar = $request->boolean('forzar');
+
+            if (!$forzar) {
+                $motivos = [];
+                if ($tieneSaldo) {
+                    $motivos[] = "tiene saldo activo de " . number_format($saldoNumerico, 2);
+                }
+                if ($tieneMovimientosRecientes) {
+                    $motivos[] = "registra movimientos en los últimos 30 días";
+                }
+
+                return response()->json([
+                    'error' => 'Candado de seguridad activo: La bóveda ' . implode(' y ', $motivos) . '.',
+                    'bloqueo_seguridad' => true,
+                    'requiere_confirmacion_forzada' => true,
+                    'saldo_actual' => $saldoNumerico,
+                    'tiene_movimientos_recientes' => $tieneMovimientosRecientes,
+                    'advertencia' => 'Eliminar esta bóveda es una acción destructiva que puede causar inconsistencias contables. Considere desactivarla en lugar de eliminarla.'
+                ], 400);
+            }
+
+            // Si intenta forzar, verificar permiso especial
+            $puedeForzar = $this->esAdmin($user) || $user->hasPermission('boveda', 'forzar_eliminar');
+            if (!$puedeForzar) {
+                return response()->json([
+                    'error' => 'No tienes el permiso especial (boveda.forzar_eliminar) para romper el candado de seguridad y forzar la eliminación de una bóveda con saldo o movimientos.'
+                ], 403);
+            }
+
+            // Exigir confirmación textual explícita (nombre de la bóveda o 'ELIMINAR')
+            $confirmacion = trim((string)$request->input('confirmacion', ''));
+            $nombreBoveda = trim((string)$boveda->nombre);
+            if (strcasecmp($confirmacion, $nombreBoveda) !== 0 && strtoupper($confirmacion) !== 'ELIMINAR') {
+                return response()->json([
+                    'error' => "Para romper el candado debe escribir exactamente '{$nombreBoveda}' o 'ELIMINAR' como confirmación."
+                ], 422);
+            }
+
+            // Exigir motivo
+            $motivo = trim((string)$request->input('motivo', ''));
+            if (empty($motivo) || strlen($motivo) < 4) {
+                return response()->json([
+                    'error' => 'Debe ingresar un motivo válido (mínimo 4 caracteres) que justifique la eliminación forzada de la bóveda.'
+                ], 422);
+            }
+
+            $nombreUsuario = $user->name ?? $user->username ?? 'ID '.$user->id;
+            \Illuminate\Support\Facades\Log::warning("BÓVEDA ELIMINADA FORZOSAMENTE: ID {$boveda->id} ({$boveda->nombre}), Saldo: {$saldoNumerico}, Sucursal: {$boveda->sucursal_id}, Usuario: {$user->id} ({$nombreUsuario}), Motivo: {$motivo}");
         }
 
         $boveda->delete();
 
-        return response()->json(['message' => 'Bóveda eliminada correctamente']);
+        return response()->json([
+            'message' => $hayCandadoSeguridad
+                ? 'Bóveda eliminada forzosamente tras romper el candado de seguridad con su autorización.'
+                : 'Bóveda eliminada correctamente.'
+        ]);
     }
 
     /**
