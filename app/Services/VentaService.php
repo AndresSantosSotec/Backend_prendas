@@ -99,6 +99,7 @@ class VentaService
             $prenda->update([
                 'estado' => 'en_venta',
                 'valor_venta' => $valorVenta,
+                'precio_venta' => $valorVenta,
                 'fecha_publicacion_venta' => now(),
                 'observaciones' => ($prenda->observaciones ?? '') . "\n" .
                     "Pasó a venta el " . now()->format('d/m/Y H:i') .

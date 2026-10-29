@@ -267,13 +267,15 @@ class CompraController extends Controller
 
             // Actualizar también la prenda si existe
             if ($compra->prenda) {
+                $nuevoPrecioVenta = $request->precio_venta_sugerido ?? $compra->prenda->precio_venta ?? $compra->prenda->valor_venta;
                 $compra->prenda->update([
                     'descripcion' => $request->descripcion,
                     'marca' => $request->marca,
                     'modelo' => $request->modelo,
                     'color' => $request->color,
                     'condicion' => $request->condicion,
-                    'precio_venta' => $request->precio_venta_sugerido ?? $compra->prenda->precio_venta,
+                    'valor_venta' => $nuevoPrecioVenta,
+                    'precio_venta' => $nuevoPrecioVenta,
                 ]);
             }
 

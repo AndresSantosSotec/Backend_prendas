@@ -14,6 +14,13 @@ class PrendaResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $precioVentaEfectivo = (float) (($this->precio_venta !== null && (float) $this->precio_venta > 0)
+            ? $this->precio_venta
+            : ($this->valor_venta ?? 0));
+        $valorVentaEfectivo = (float) (($this->valor_venta !== null && (float) $this->valor_venta > 0)
+            ? $this->valor_venta
+            : ($this->precio_venta ?? 0));
+
         return [
             'id' => $this->id,
             'descripcion' => $this->descripcion,
@@ -21,10 +28,12 @@ class PrendaResource extends JsonResource
             'categoriaId' => $this->categoria_producto_id,
             'fotos' => $this->fotos ?? [],
             'fotoPrincipal' => $this->foto_principal,
-            'avaluo' => (float) $this->valor_tasacion ?? 0,
-            'valorVenta' => (float) $this->valor_venta ?? 0, // Valor base de venta
-            'precioVenta' => (float) $this->precio_venta ?? $this->valor_venta ?? 0, // Precio editable de venta
-            'precioMinimo' => (float) ($this->valor_venta * 0.8) ?? 0, // 20% de descuento máximo
+            'avaluo' => (float) ($this->valor_tasacion ?? 0),
+            'valorVenta' => $valorVentaEfectivo, // Valor base de venta
+            'precioVenta' => $precioVentaEfectivo, // Precio editable de venta
+            'valor_venta' => $valorVentaEfectivo,
+            'precio_venta' => $precioVentaEfectivo,
+            'precioMinimo' => (float) ($precioVentaEfectivo * 0.8), // 20% de descuento máximo
             'descuentoMaximo' => 20,
             'estado' => $this->mapearEstado($this->estado),
             'enPlanPagos' => $this->relationLoaded('ventas') && $this->ventas->isNotEmpty(),

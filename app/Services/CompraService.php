@@ -245,6 +245,7 @@ class CompraService
             'color' => $compra->color,
             'valor_tasacion' => $compra->valor_tasacion,
             'valor_prestamo' => $compra->monto_pagado,
+            'valor_venta' => $compra->precio_venta_sugerido,
             'precio_venta' => $compra->precio_venta_sugerido,
             'estado' => EstadoPrenda::EN_VENTA->value,
             'condicion' => $compra->condicion,

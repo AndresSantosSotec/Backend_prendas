@@ -542,9 +542,15 @@ class PrendaController extends Controller
             }
             if ($request->has('valor_venta')) {
                 $dataToUpdate['valor_venta'] = $request->input('valor_venta');
+                if (!$request->has('precio_venta')) {
+                    $dataToUpdate['precio_venta'] = $request->input('valor_venta');
+                }
             }
             if ($request->has('precio_venta')) {
                 $dataToUpdate['precio_venta'] = $request->input('precio_venta');
+                if (!$request->has('valor_venta')) {
+                    $dataToUpdate['valor_venta'] = $request->input('precio_venta');
+                }
             }
             if ($request->has('estado')) {
                 $dataToUpdate['estado'] = $request->input('estado');
@@ -811,6 +817,7 @@ class PrendaController extends Controller
         $prenda->update([
             'estado' => 'en_venta',
             'valor_venta' => $request->valor_venta,
+            'precio_venta' => $request->valor_venta,
             'fecha_publicacion_venta' => now(),
         ]);
 
