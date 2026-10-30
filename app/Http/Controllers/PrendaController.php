@@ -137,14 +137,17 @@ class PrendaController extends Controller
             'categoriaProducto',
             'creditoPrendario.cliente',
             'creditoPrendario.sucursal',
+            'sucursal',
             'venta', // Para obtener fecha_venta desde la tabla ventas si falta en la prenda
             'ventas' => fn ($query) => $query->where('estado', 'plan_pagos'),
         ]);
 
         // Búsqueda
         if ($request->has('busqueda') && !empty($request->busqueda)) {
-            $busqueda = $request->busqueda;
-            $query->where(function ($q) use ($busqueda) {
+            $busqueda = trim($request->busqueda);
+            $busquedaLimpia = preg_replace('/[^a-zA-Z0-9]/', '', $busqueda);
+
+            $query->where(function ($q) use ($busqueda, $busquedaLimpia) {
                 $q->where('descripcion', 'like', "%{$busqueda}%")
                   ->orWhere('codigo_prenda', 'like', "%{$busqueda}%")
                   ->orWhere('marca', 'like', "%{$busqueda}%")
@@ -155,6 +158,11 @@ class PrendaController extends Controller
                   ->orWhereHas('creditoPrendario', function ($qCred) use ($busqueda) {
                       $qCred->where('numero_credito', 'like', "%{$busqueda}%");
                   });
+
+                if (!empty($busquedaLimpia)) {
+                    $q->orWhereRaw("REPLACE(REPLACE(codigo_prenda, '-', ''), ' ', '') LIKE ?", ["%{$busquedaLimpia}%"])
+                      ->orWhereRaw("REPLACE(REPLACE(COALESCE(serie, ''), '-', ''), ' ', '') LIKE ?", ["%{$busquedaLimpia}%"]);
+                }
             });
         }
 
@@ -183,8 +191,12 @@ class PrendaController extends Controller
 
         // Filtro por sucursal
         if ($request->has('sucursal') && !empty($request->sucursal) && $request->sucursal !== 'todos') {
-            $query->whereHas('creditoPrendario', function ($q) use ($request) {
-                $q->where('sucursal_id', $request->sucursal);
+            $sucursalId = $request->sucursal;
+            $query->where(function ($qSuc) use ($sucursalId) {
+                $qSuc->where('sucursal_id', $sucursalId)
+                     ->orWhereHas('creditoPrendario', function ($q) use ($sucursalId) {
+                         $q->where('sucursal_id', $sucursalId);
+                     });
             });
         }
 
@@ -215,9 +227,9 @@ class PrendaController extends Controller
         $orderDir = $request->get('order_dir', 'desc');
         $query->orderBy($orderBy, $orderDir);
 
-        // Paginación optimizada con chunks (mínimo 10, máximo 100)
+        // Paginación optimizada (mínimo 10, máximo 1000 para módulos como cotizaciones)
         $perPage = (int) $request->get('per_page', 10);
-        $perPage = max(10, min(100, $perPage)); // Asegurar rango 10-100
+        $perPage = max(10, min(1000, $perPage)); // Asegurar rango 10-1000
         $page = (int) $request->get('page', 1);
 
         // Usar cursor pagination para mejor performance en datasets grandes
@@ -899,12 +911,14 @@ class PrendaController extends Controller
      */
     public function getEnVenta(Request $request)
     {
-        $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal'])
+        $query = Prenda::with(['categoriaProducto', 'creditoPrendario.cliente', 'creditoPrendario.sucursal', 'sucursal'])
             ->where('estado', 'en_venta');
 
         if ($request->has('busqueda') && !empty($request->busqueda)) {
-            $busqueda = $request->busqueda;
-            $query->where(function ($q) use ($busqueda) {
+            $busqueda = trim($request->busqueda);
+            $busquedaLimpia = preg_replace('/[^a-zA-Z0-9]/', '', $busqueda);
+
+            $query->where(function ($q) use ($busqueda, $busquedaLimpia) {
                 $q->where('descripcion', 'like', "%{$busqueda}%")
                   ->orWhere('codigo_prenda', 'like', "%{$busqueda}%")
                   ->orWhere('marca', 'like', "%{$busqueda}%")
@@ -915,6 +929,11 @@ class PrendaController extends Controller
                   ->orWhereHas('creditoPrendario', function($qCred) use ($busqueda) {
                       $qCred->where('numero_credito', 'like', "%{$busqueda}%");
                   });
+
+                if (!empty($busquedaLimpia)) {
+                    $q->orWhereRaw("REPLACE(REPLACE(codigo_prenda, '-', ''), ' ', '') LIKE ?", ["%{$busquedaLimpia}%"])
+                      ->orWhereRaw("REPLACE(REPLACE(COALESCE(serie, ''), '-', ''), ' ', '') LIKE ?", ["%{$busquedaLimpia}%"]);
+                }
             });
         }
 
@@ -927,9 +946,9 @@ class PrendaController extends Controller
 
         $query->orderBy('fecha_ingreso', 'desc');
 
-        // Validar rango de paginación (mínimo 10, máximo 100)
+        // Validar rango de paginación (mínimo 10, máximo 1000)
         $perPage = (int) $request->get('per_page', 10);
-        $perPage = max(10, min(100, $perPage)); // Asegurar rango 10-100
+        $perPage = max(10, min(1000, $perPage)); // Asegurar rango 10-1000
 
         // Usar paginate para obtener metadata de paginación
         $prendas = $query->paginate($perPage);

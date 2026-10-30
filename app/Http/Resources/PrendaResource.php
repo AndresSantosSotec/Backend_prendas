@@ -59,7 +59,7 @@ class PrendaResource extends JsonResource
             'seccion_almacen' => $this->seccion,
             'seccion' => $this->seccion,
             'estante' => $this->estante,
-            'sucursal' => $this->creditoPrendario && $this->creditoPrendario->sucursal ? $this->creditoPrendario->sucursal->nombre : null,
+            'sucursal' => $this->sucursal?->nombre ?? ($this->creditoPrendario?->sucursal?->nombre ?? null),
             'codigoQR' => $this->codigo_prenda,
             'marca' => $this->marca,
             'modelo' => $this->modelo,
