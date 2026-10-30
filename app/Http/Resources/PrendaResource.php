@@ -16,10 +16,14 @@ class PrendaResource extends JsonResource
     {
         $precioVentaEfectivo = (float) (($this->precio_venta !== null && (float) $this->precio_venta > 0)
             ? $this->precio_venta
-            : ($this->valor_venta ?? 0));
+            : (($this->valor_venta !== null && (float) $this->valor_venta > 0)
+                ? $this->valor_venta
+                : ($this->precio_venta_sugerido ?? 0)));
         $valorVentaEfectivo = (float) (($this->valor_venta !== null && (float) $this->valor_venta > 0)
             ? $this->valor_venta
-            : ($this->precio_venta ?? 0));
+            : (($this->precio_venta !== null && (float) $this->precio_venta > 0)
+                ? $this->precio_venta
+                : ($this->precio_venta_sugerido ?? 0)));
 
         return [
             'id' => $this->id,
@@ -31,6 +35,8 @@ class PrendaResource extends JsonResource
             'avaluo' => (float) ($this->valor_tasacion ?? 0),
             'valorVenta' => $valorVentaEfectivo, // Valor base de venta
             'precioVenta' => $precioVentaEfectivo, // Precio editable de venta
+            'precio_venta_sugerido' => $precioVentaEfectivo,
+            'precioVentaSugerido' => $precioVentaEfectivo,
             'valor_venta' => $valorVentaEfectivo,
             'precio_venta' => $precioVentaEfectivo,
             'precioMinimo' => (float) ($precioVentaEfectivo * 0.8), // 20% de descuento máximo
