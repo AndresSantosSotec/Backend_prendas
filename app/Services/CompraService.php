@@ -397,7 +397,7 @@ class CompraService
         }
 
         // Caso 2: La caja original ya estaba cerrada.
-        // Se debe registrar un ingreso compensatorio en la caja abierta vigente de hoy.
+        // Si hay caja abierta hoy, entra a caja. Si la caja de hoy está cerrada, ingresa directamente a BÓVEDA.
         $sucursalId = (int) ($compra->sucursal_id ?? $caja?->sucursal_id ?? 1);
         $cajaHoy = CajaService::getCajaAbiertaVigente(Auth::id() ?? $compra->usuario_id, $sucursalId);
 
@@ -423,16 +423,46 @@ class CompraService
                 'observaciones_boveda' => "Anulado extemporáneamente. Compensado con ingreso #{$ingresoCompensatorio->id} en caja #{$cajaHoy->id}",
             ]);
 
-            Log::info("Ingreso compensatorio registrado por anulación de compra extemporánea #{$compra->codigo_compra}", [
+            Log::info("Ingreso compensatorio registrado en caja por anulación de compra #{$compra->codigo_compra}", [
                 'caja_hoy_id' => $cajaHoy->id,
                 'monto' => $compra->monto_pagado,
-                'ingreso_id' => $ingresoCompensatorio->id,
             ]);
         } else {
-            Log::warning("No se pudo registrar ingreso compensatorio para compra #{$compra->codigo_compra}: no hay caja abierta hoy.", [
-                'compra_id' => $compra->id,
-                'monto' => $compra->monto_pagado,
-            ]);
+            // No hay caja abierta: Ingresar DIRECTAMENTE A BÓVEDA
+            $boveda = \App\Models\Boveda::where('sucursal_id', $sucursalId)
+                ->where('activa', true)
+                ->orderByRaw("FIELD(tipo, 'principal', 'general') DESC")
+                ->first();
+
+            if ($boveda) {
+                $montoReingreso = abs((float) $compra->monto_pagado);
+                $boveda->increment('saldo_actual', $montoReingreso);
+
+                $movBoveda = \App\Models\BovedaMovimiento::create([
+                    'boveda_id' => $boveda->id,
+                    'usuario_id' => Auth::id() ?? $compra->usuario_id ?? $boveda->responsable_id ?? 1,
+                    'sucursal_id' => $sucursalId,
+                    'tipo_movimiento' => 'entrada',
+                    'monto' => $montoReingreso,
+                    'concepto' => mb_substr("Reintegro por anulación de compra extemporánea #{$compra->codigo_compra}", 0, 250),
+                    'referencia' => $compra->codigo_compra,
+                    'estado' => 'aprobado',
+                    'fecha_aprobacion' => now(),
+                    'aprobado_por' => Auth::id() ?? $compra->usuario_id ?? 1,
+                ]);
+
+                $movimiento->marcarAnulado([
+                    'observaciones_boveda' => "Anulado extemporáneamente con caja cerrada. Reintegrado a Bóveda #{$boveda->id} (Mov #{$movBoveda->id})",
+                ]);
+
+                Log::info("Reintegro directo a Bóveda por anulación de compra con caja cerrada #{$compra->codigo_compra}", [
+                    'boveda_id' => $boveda->id,
+                    'movimiento_boveda_id' => $movBoveda->id,
+                    'monto' => $montoReingreso,
+                ]);
+            } else {
+                Log::warning("No se encontró bóveda activa en sucursal {$sucursalId} para reintegrar compra #{$compra->codigo_compra}");
+            }
         }
     }
 
