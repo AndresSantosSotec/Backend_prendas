@@ -373,7 +373,8 @@ class CompraService
     }
 
     /**
-     * Anular el egreso de caja asociado a una compra (si la caja sigue abierta).
+     * Anular el egreso de caja asociado a una compra (si la caja original sigue abierta),
+     * o registrar un ingreso compensatorio si la caja ya cerró.
      */
     public function anularEgresoCaja(Compra $compra, string $motivo = 'Compra cancelada/eliminada'): void
     {
@@ -387,18 +388,52 @@ class CompraService
         }
 
         $caja = $movimiento->caja;
-        if (!$caja || $caja->estado !== 'abierta' || $caja->fecha_cierre) {
-            Log::warning("No se pudo revertir el egreso de caja de la compra #{$compra->codigo_compra} porque la caja ya está cerrada.", [
-                'compra_id' => $compra->id,
-                'movimiento_caja_id' => $movimiento->id,
-                'caja_id' => $caja?->id,
+        if ($caja && $caja->estado === 'abierta' && !$caja->fecha_cierre) {
+            // Caso 1: La caja original sigue abierta, simplemente anulamos el movimiento
+            $movimiento->marcarAnulado([
+                'observaciones_boveda' => $motivo,
             ]);
             return;
         }
 
-        $movimiento->marcarAnulado([
-            'observaciones_boveda' => $motivo,
-        ]);
+        // Caso 2: La caja original ya estaba cerrada.
+        // Se debe registrar un ingreso compensatorio en la caja abierta vigente de hoy.
+        $sucursalId = (int) ($compra->sucursal_id ?? $caja?->sucursal_id ?? 1);
+        $cajaHoy = CajaService::getCajaAbiertaVigente(Auth::id() ?? $compra->usuario_id, $sucursalId);
+
+        if ($cajaHoy) {
+            $ingresoCompensatorio = MovimientoCaja::create([
+                'caja_id' => $cajaHoy->id,
+                'tipo' => 'incremento',
+                'monto' => abs((float) $compra->monto_pagado),
+                'concepto' => mb_substr("Reversión egreso por anulación de compra #{$compra->codigo_compra}", 0, 250),
+                'detalles_movimiento' => [
+                    'tipo_operacion' => 'anulacion_compra_directa',
+                    'codigo_compra' => $compra->codigo_compra,
+                    'compra_id' => $compra->id,
+                    'movimiento_caja_original_id' => $movimiento->id,
+                    'caja_original_id' => $caja?->id,
+                    'motivo' => $motivo,
+                ],
+                'estado' => 'aplicado',
+                'user_id' => Auth::id() ?? $cajaHoy->user_id,
+            ]);
+
+            $movimiento->marcarAnulado([
+                'observaciones_boveda' => "Anulado extemporáneamente. Compensado con ingreso #{$ingresoCompensatorio->id} en caja #{$cajaHoy->id}",
+            ]);
+
+            Log::info("Ingreso compensatorio registrado por anulación de compra extemporánea #{$compra->codigo_compra}", [
+                'caja_hoy_id' => $cajaHoy->id,
+                'monto' => $compra->monto_pagado,
+                'ingreso_id' => $ingresoCompensatorio->id,
+            ]);
+        } else {
+            Log::warning("No se pudo registrar ingreso compensatorio para compra #{$compra->codigo_compra}: no hay caja abierta hoy.", [
+                'compra_id' => $compra->id,
+                'monto' => $compra->monto_pagado,
+            ]);
+        }
     }
 
     /**
