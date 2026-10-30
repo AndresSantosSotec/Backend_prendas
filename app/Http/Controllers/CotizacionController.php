@@ -315,9 +315,10 @@ class CotizacionController extends Controller
         // Formato: COT-SUCURSAL-AÑO-MES-SECUENCIA
         $prefijo = "COT-{$sucursalId}-{$año}{$mes}-";
 
-        // Obtener último número de la serie
-        $ultimaCotizacion = Cotizacion::where('numero_cotizacion', 'like', $prefijo . '%')
-            ->orderBy('numero_cotizacion', 'desc')
+        // Obtener último número de la serie INCLUYENDO eliminadas (SoftDeletes) para evitar colisión UNIQUE
+        $ultimaCotizacion = Cotizacion::withTrashed()
+            ->where('numero_cotizacion', 'like', $prefijo . '%')
+            ->orderByRaw('CAST(SUBSTRING(numero_cotizacion, -4) AS UNSIGNED) DESC')
             ->first();
 
         if ($ultimaCotizacion) {
@@ -327,6 +328,14 @@ class CotizacionController extends Controller
             $nuevoNumero = 1;
         }
 
-        return $prefijo . str_pad($nuevoNumero, 4, '0', STR_PAD_LEFT);
+        $numero = $prefijo . str_pad($nuevoNumero, 4, '0', STR_PAD_LEFT);
+
+        // Seguridad estricta: asegurar que no exista colisión en la base de datos
+        while (Cotizacion::withTrashed()->where('numero_cotizacion', $numero)->exists()) {
+            $nuevoNumero++;
+            $numero = $prefijo . str_pad($nuevoNumero, 4, '0', STR_PAD_LEFT);
+        }
+
+        return $numero;
     }
 }
