@@ -442,6 +442,14 @@ class MacroFinancieraOrganizacionSeeder extends Seeder
             $this->command?->info('  [+] Sucursal Sede Central Macro Financiera creada.');
         }
 
+        // =========================================================================
+        // 5. CATEGORÍAS DE PRODUCTOS Y CAMPOS DINÁMICOS
+        // =========================================================================
+        $this->command?->info('5. Verificando categorías de productos y campos dinámicos...');
+        $this->call(CategoriaProductoSeeder::class);
+        $this->call(CamposDinamicosCategoriaSeeder::class);
+        $this->command?->info('  [✓] Catálogo completo de 13 categorías y campos dinámicos sincronizados.');
+
         $this->command?->info('====================================================');
         $this->command?->info('✅ CONFIGURACIÓN DE MACRO FINANCIERA S.A. FINALIZADA');
         $this->command?->info('   - Razón Social: MACRO FINANCIERA, SOCIEDAD ANÓNIMA');
