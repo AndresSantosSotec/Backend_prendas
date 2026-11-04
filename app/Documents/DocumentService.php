@@ -87,30 +87,43 @@ final class DocumentService
 
         // PRIORIDAD ABSOLUTA: Lo que esté en la base de datos (configuraciones_sistema) manda sobre .env
         $orgCode = $doc->organizacion_code ?: ConfiguracionSistema::obtener('organizacion_code') ?: env('ORGANIZATION_CODE', '01');
-        $esAvanza = strtoupper(trim($orgCode)) === 'AVANZA';
+        $orgUpper = strtoupper(trim((string)$orgCode));
+        $esAvanza = $orgUpper === 'AVANZA';
+        $esMacro = in_array($orgUpper, ['MACROFINANCIERA', 'MACRO_FINANCIERA', 'MACRO']);
+
+        $fallbackNombre = $esAvanza ? 'EMPEÑOS AVANZA' : ($esMacro ? 'MACRO FINANCIERA S.A.' : 'PRENDAMÁS+');
+        $fallbackRazon = $esAvanza ? 'GRUPO VALOR, SOCIEDAD ANÓNIMA' : ($esMacro ? 'MACRO FINANCIERA, SOCIEDAD ANÓNIMA' : 'GRUPO JUMERC, SOCIEDAD ANÓNIMA');
+        $fallbackDireccion = $esAvanza ? '11 calle 1-08 barrio Quirio Castaño, Esquipulas, Chiquimula.' : ($esMacro ? 'Ciudad de Guatemala, Guatemala.' : '15 Avenida 4-60 zona 3 Quetzaltenango.');
+        $fallbackTelefono = ($esAvanza || $esMacro) ? '2200-0000' : '7934-0485';
+        $fallbackEmail = $esAvanza ? 'contacto@empeniosavanza.com' : ($esMacro ? 'contacto@macrofinanciera.com' : 'contacto@prendamas.gt');
+        $fallbackRepNombre = ($esAvanza || $esMacro) ? 'REPRESENTANTE LEGAL' : 'MANUEL FRANCISCO GARCÍA ROBLES';
+        $fallbackRepTitulo = ($esAvanza || $esMacro) ? 'ADMINISTRADOR Y REPRESENTANTE LEGAL' : 'ADMINISTRADOR ÚNICO Y REPRESENTANTE LEGAL';
+        $fallbackRepDpi = ($esAvanza || $esMacro) ? '' : '2182 74416 0801';
+        $fallbackHorario = ($esAvanza || $esMacro) ? 'Lunes a viernes: 8:00 AM – 5:00 PM | Sábado: 8:00 AM – 1:00 PM' : 'Lunes a viernes: 8:00 AM – 5:00 PM | SÁBADO: CERRADO | Domingo: 9:00 AM – 12:30 PM';
+        $fallbackPerito = ($esAvanza || $esMacro) ? 'PERITO CONTADOR' : 'MANUEL FRANCISCO GARCÍA ROBLES';
 
         $empresaNombre = ConfiguracionSistema::obtener('empresa_nombre') 
-            ?: env('EMPRESA_NOMBRE', env('APP_NAME', $esAvanza ? 'EMPEÑOS AVANZA' : 'PRENDAMÁS+'));
+            ?: env('EMPRESA_NOMBRE', env('APP_NAME', $fallbackNombre));
         $razonSocial = ConfiguracionSistema::obtener('empresa_razon_social') 
-            ?: env('EMPRESA_RAZON_SOCIAL', $esAvanza ? 'GRUPO VALOR, SOCIEDAD ANÓNIMA' : 'GRUPO JUMERC, SOCIEDAD ANÓNIMA');
+            ?: env('EMPRESA_RAZON_SOCIAL', $fallbackRazon);
         $direccion = ConfiguracionSistema::obtener('empresa_direccion') 
-            ?: env('EMPRESA_DIRECCION', $esAvanza ? '11 calle 1-08 barrio Quirio Castaño, Esquipulas, Chiquimula.' : '15 Avenida 4-60 zona 3 Quetzaltenango.');
+            ?: env('EMPRESA_DIRECCION', $fallbackDireccion);
         $telefono = ConfiguracionSistema::obtener('empresa_telefono') 
-            ?: env('EMPRESA_TELEFONO', $esAvanza ? '2200-0000' : '7934-0485');
+            ?: env('EMPRESA_TELEFONO', $fallbackTelefono);
         $whatsapp = ConfiguracionSistema::obtener('empresa_whatsapp') 
-            ?: env('EMPRESA_WHATSAPP', $esAvanza ? '3996-6178' : '3996-6178');
+            ?: env('EMPRESA_WHATSAPP', '3996-6178');
         $nit = ConfiguracionSistema::obtener('empresa_nit') 
             ?: env('EMPRESA_NIT', 'C/F');
         $email = ConfiguracionSistema::obtener('empresa_email') 
-            ?: env('EMPRESA_EMAIL', $esAvanza ? 'contacto@empeniosavanza.com' : 'contacto@prendamas.gt');
+            ?: env('EMPRESA_EMAIL', $fallbackEmail);
         $repNombre = ConfiguracionSistema::obtener('representante_legal_nombre') 
-            ?: env('REPRESENTANTE_LEGAL_NOMBRE', $esAvanza ? 'REPRESENTANTE LEGAL' : 'MANUEL FRANCISCO GARCÍA ROBLES');
+            ?: env('REPRESENTANTE_LEGAL_NOMBRE', $fallbackRepNombre);
         $repTitulo = ConfiguracionSistema::obtener('representante_legal_titulo') 
-            ?: env('REPRESENTANTE_LEGAL_TITULO', $esAvanza ? 'ADMINISTRADOR Y REPRESENTANTE LEGAL' : 'ADMINISTRADOR ÚNICO Y REPRESENTANTE LEGAL');
+            ?: env('REPRESENTANTE_LEGAL_TITULO', $fallbackRepTitulo);
         $repDpi = ConfiguracionSistema::obtener('representante_legal_dpi') 
-            ?: env('REPRESENTANTE_LEGAL_DPI', $esAvanza ? '' : '2182 74416 0801');
+            ?: env('REPRESENTANTE_LEGAL_DPI', $fallbackRepDpi);
         $horarioAtencion = ConfiguracionSistema::obtener('horario_atencion') 
-            ?: env('HORARIO_ATENCION', $esAvanza ? 'Lunes a viernes: 8:00 AM – 5:00 PM | Sábado: 8:00 AM – 1:00 PM' : 'Lunes a viernes: 8:00 AM – 5:00 PM | SÁBADO: CERRADO | Domingo: 9:00 AM – 12:30 PM');
+            ?: env('HORARIO_ATENCION', $fallbackHorario);
 
         $empresa = [
             'nombre' => $empresaNombre,
@@ -138,7 +151,7 @@ final class DocumentService
             'piePaginaTexto' => $doc->pie_pagina_texto,
             'mostrarLogo' => $doc->mostrar_logo,
             'mostrarFirmas' => $doc->mostrar_firmas,
-            'peritoContadorNombre' => $doc->perito_contador_nombre ?: (ConfiguracionSistema::obtener('perito_contador_nombre') ?: 'MANUEL FRANCISCO GARCÍA ROBLES'),
+            'peritoContadorNombre' => $doc->perito_contador_nombre ?: (ConfiguracionSistema::obtener('perito_contador_nombre') ?: $fallbackPerito),
             'peritoContadorRegistro' => $doc->perito_contador_registro ?: (ConfiguracionSistema::obtener('perito_contador_registro') ?: ''),
             'firmante1Nombre' => $doc->firmante_1_nombre ?: 'CLIENTE',
             'firmante1Titulo' => $doc->firmante_1_titulo ?: 'FIRMA DE CONFORMIDAD',
