@@ -739,10 +739,111 @@ class CajaController extends Controller
             return response()->json(['error' => 'Solo se pueden anular movimientos de una caja que se encuentre abierta.'], 400);
         }
 
-        if (in_array($movimiento->tipo, ['ingreso_pago', 'egreso_desembolso'])) {
+        if ($movimiento->tipo === 'ingreso_pago') {
             return response()->json([
-                'error' => 'Los movimientos vinculados a pagos o desembolsos de créditos deben anularse desde el módulo de Créditos para mantener la coherencia del saldo y plan de pagos.'
+                'error' => 'Los cobros o pagos de cuotas deben anularse desde el módulo de Créditos > Historial de Pagos para recalcular correctamente los saldos de intereses y mora.'
             ], 422);
+        }
+
+        // Si es un egreso por desembolso de crédito, permitir anular el crédito y restituir el efectivo a caja
+        if ($movimiento->tipo === 'egreso_desembolso') {
+            $numeroCredito = $movimiento->detalles_movimiento['numero_credito'] ?? null;
+            if (!$numeroCredito && preg_match('/#([A-Za-z0-9]+)/', $movimiento->concepto, $m)) {
+                $numeroCredito = $m[1];
+            }
+
+            $credito = $numeroCredito ? \App\Models\CreditoPrendario::where('numero_credito', $numeroCredito)->first() : null;
+
+            if ($credito && $credito->estado !== \App\Enums\EstadoCredito::ANULADO->value) {
+                // Verificar que no tenga pagos registrados
+                $tienePagos = $credito->movimientos()
+                    ->where('tipo_movimiento', '!=', 'desembolso')
+                    ->where('estado', 'activo')
+                    ->exists();
+
+                if ($tienePagos) {
+                    return response()->json([
+                        'error' => "El crédito #{$credito->numero_credito} tiene abonos o pagos activos. Debe anular primero los pagos desde Créditos antes de anular el desembolso."
+                    ], 422);
+                }
+
+                return DB::transaction(function () use ($movimiento, $credito, $caja, $user, $request) {
+                    $motivo = $request->motivo;
+
+                    // 1. Anular crédito prendario
+                    $credito->fecha_cancelacion = now();
+                    $credito->loadMissing(['movimientos', 'planPagos', 'prendas']);
+
+                    foreach ($credito->movimientos as $mov) {
+                        if ($mov->estado === 'activo') {
+                            $mov->update([
+                                'estado' => 'anulado',
+                                'reversado_por' => $user->id,
+                                'fecha_reversion' => now(),
+                                'motivo_reversion' => "Anulación de desembolso desde Caja #{$caja->id}: {$motivo}",
+                            ]);
+                        }
+                    }
+
+                    foreach ($credito->planPagos as $cuota) {
+                        if (in_array($cuota->estado, ['pendiente', 'pagada_parcial', 'vencida', 'en_mora'])) {
+                            $cuota->update([
+                                'estado' => 'cancelada',
+                                'observaciones' => "Crédito anulado desde Caja #{$caja->id}",
+                            ]);
+                        }
+                    }
+
+                    foreach ($credito->prendas as $prenda) {
+                        if (!in_array($prenda->estado, [\App\Enums\EstadoPrenda::RECUPERADA->value, \App\Enums\EstadoPrenda::VENDIDA->value, \App\Enums\EstadoPrenda::DEVUELTA->value])) {
+                            $prenda->update([
+                                'estado' => \App\Enums\EstadoPrenda::DEVUELTA->value,
+                                'fecha_recuperacion' => now(),
+                                'observaciones' => "Crédito anulado desde Caja #{$caja->id}",
+                            ]);
+                        }
+                        $prenda->delete();
+                    }
+
+                    try {
+                        $diarios = \App\Models\Contabilidad\CtbDiario::where('credito_prendario_id', $credito->id)
+                            ->where('estado', '!=', 'anulado')
+                            ->get();
+                        $ctbService = app(\App\Services\ContabilidadAutomaticaService::class);
+                        foreach ($diarios as $diario) {
+                            $ctbService->anularAsiento($diario->id, "Anulación desde Caja #{$caja->id}: {$motivo}", $user->id);
+                        }
+                    } catch (\Throwable $ce) {
+                        Log::warning('Error al anular asientos en anulación de crédito desde caja: ' . $ce->getMessage());
+                    }
+
+                    $credito->estado = \App\Enums\EstadoCredito::ANULADO->value;
+                    $credito->save();
+                    $credito->recalcularSaldosDesdeKardex();
+
+                    // 2. Anular el movimiento de caja
+                    $movimiento->marcarAnulado([
+                        'observaciones_boveda' => "Crédito #{$credito->numero_credito} anulado desde Caja por {$user->name}: {$motivo}",
+                    ]);
+
+                    \App\Models\AuditoriaCredito::registrar(
+                        $credito->id,
+                        'anulado_desde_caja',
+                        'estado',
+                        'vigente',
+                        'anulado',
+                        "Crédito y desembolso anulados desde Caja #{$caja->id} por {$user->name}. Motivo: {$motivo}",
+                        $user->id
+                    );
+
+                    Log::info("Crédito #{$credito->numero_credito} y desembolso anulados desde Caja #{$caja->id} por usuario #{$user->id}");
+
+                    return response()->json([
+                        'message' => "Crédito #{$credito->numero_credito} y su desembolso fueron anulados correctamente. El efectivo fue restituido a la caja.",
+                        'movimiento' => $movimiento,
+                    ]);
+                });
+            }
         }
 
         return DB::transaction(function () use ($movimiento, $caja, $user, $request) {
