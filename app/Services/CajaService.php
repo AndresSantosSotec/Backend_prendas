@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\Boveda;
+use App\Models\BovedaMovimiento;
 use App\Models\CajaAperturaCierre;
 use App\Models\CreditoMovimiento;
 use App\Models\CreditoPrendario;
@@ -318,6 +320,171 @@ class CajaService
             'total_egresos' => $egresos,
             'saldo_actual' => $saldoActual,
             'cantidad_movimientos' => $movimientos->count(),
+        ];
+    }
+
+    /**
+     * Revierte en caja el desembolso de un crédito anulado.
+     *
+     * Un desembolso sale de caja (egreso_desembolso). Anularlo debe regresar ese dinero:
+     * - Si la caja original sigue abierta: se anula el movimiento de egreso (deja de restar del saldo).
+     * - Si la caja original ya cerró:
+     *     * Si hay caja abierta hoy: registra un incremento compensatorio en la caja abierta de hoy.
+     *     * Si no hay caja abierta: reingresa el efectivo a la Bóveda activa de la sucursal.
+     */
+    public static function revertirDesembolsoCredito(
+        CreditoPrendario $credito,
+        string $motivo = 'Crédito anulado'
+    ): array {
+        $montoDesembolso = (float) ($credito->monto_desembolsado ?? $credito->monto_aprobado ?? $credito->monto_solicitado ?? 0);
+        $sucursalId = (int) ($credito->sucursal_id ?? 1);
+
+        // 1. Buscar el movimiento de desembolso en movimiento_cajas
+        $movDesembolso = MovimientoCaja::query()
+            ->where('tipo', 'egreso_desembolso')
+            ->where('estado', 'aplicado')
+            ->where(function ($q) use ($credito) {
+                $q->where('detalles_movimiento->numero_credito', $credito->numero_credito)
+                  ->orWhere('concepto', 'like', "%{$credito->numero_credito}%");
+            })
+            ->first();
+
+        if ($movDesembolso) {
+            $montoDesembolso = abs((float) $movDesembolso->monto);
+            $cajaOriginal = $movDesembolso->caja;
+            $cajaAbierta = $cajaOriginal
+                && $cajaOriginal->estado === 'abierta'
+                && empty($cajaOriginal->fecha_cierre);
+
+            // Caso 1: La caja original sigue abierta -> simplemente anular el movimiento de egreso
+            if ($cajaAbierta) {
+                $movDesembolso->marcarAnulado([
+                    'observaciones_boveda' => "Anulado por anulación de crédito #{$credito->numero_credito}: {$motivo}",
+                ]);
+
+                Log::info("Desembolso de crédito anulado en caja original abierta #{$cajaOriginal->id}", [
+                    'credito' => $credito->numero_credito,
+                    'movimiento_caja_id' => $movDesembolso->id,
+                    'monto' => $montoDesembolso,
+                ]);
+
+                return [
+                    'aplicado' => true,
+                    'accion' => 'anulado_original',
+                    'movimiento_caja_id' => $movDesembolso->id,
+                    'mensaje' => 'Se anuló el egreso por desembolso en la caja abierta. El efectivo volvió a estar disponible.',
+                ];
+            }
+
+            // Caso 2: La caja original ya estaba cerrada (anulación extemporánea)
+            $cajaHoy = self::getCajaAbiertaVigente(Auth::id(), $sucursalId) ?? self::getCajaAbierta(null, $sucursalId);
+
+            if ($cajaHoy) {
+                $ingreso = MovimientoCaja::create([
+                    'caja_id' => $cajaHoy->id,
+                    'tipo' => 'incremento',
+                    'monto' => $montoDesembolso,
+                    'concepto' => mb_substr("Reintegro por anulación de crédito #{$credito->numero_credito}", 0, 250),
+                    'detalles_movimiento' => [
+                        'tipo_operacion' => 'anulacion_credito',
+                        'numero_credito' => $credito->numero_credito,
+                        'movimiento_caja_original_id' => $movDesembolso->id,
+                        'caja_original_id' => $cajaOriginal?->id,
+                        'motivo' => $motivo,
+                    ],
+                    'estado' => 'aplicado',
+                    'user_id' => Auth::id() ?? $cajaHoy->user_id,
+                ]);
+
+                $movDesembolso->marcarAnulado([
+                    'observaciones_boveda' => "Anulado extemporáneamente. Compensado con ingreso #{$ingreso->id} en caja #{$cajaHoy->id}",
+                ]);
+
+                Log::info("Reintegro registrado en caja abierta de hoy #{$cajaHoy->id} por anulación extemporánea de crédito #{$credito->numero_credito}", [
+                    'monto' => $montoDesembolso,
+                    'ingreso_id' => $ingreso->id,
+                ]);
+
+                return [
+                    'aplicado' => true,
+                    'accion' => 'ingreso_compensatorio',
+                    'movimiento_caja_id' => $ingreso->id,
+                    'mensaje' => 'La caja original ya estaba cerrada. Se registró un reintegro de efectivo en la caja abierta de hoy.',
+                ];
+            }
+
+            // Caso 3: No hay caja abierta hoy -> Reingresar a Bóveda
+            $boveda = Boveda::where('sucursal_id', $sucursalId)
+                ->where('activa', true)
+                ->orderByRaw("FIELD(tipo, 'principal', 'general') DESC")
+                ->first();
+
+            if ($boveda) {
+                $montoReingreso = abs((float) $movDesembolso->monto);
+                $boveda->increment('saldo_actual', $montoReingreso);
+
+                $movBoveda = BovedaMovimiento::create([
+                    'boveda_id' => $boveda->id,
+                    'usuario_id' => Auth::id() ?? $boveda->responsable_id ?? 1,
+                    'sucursal_id' => $sucursalId,
+                    'tipo_movimiento' => 'entrada',
+                    'monto' => $montoReingreso,
+                    'concepto' => mb_substr("Reintegro por anulación de crédito extemporáneo #{$credito->numero_credito}", 0, 250),
+                    'referencia' => $credito->numero_credito,
+                    'estado' => 'aprobado',
+                    'fecha_aprobacion' => now(),
+                ]);
+
+                $movDesembolso->marcarAnulado([
+                    'observaciones_boveda' => "Anulado extemporáneamente sin caja abierta. Reingresado a bóveda #{$boveda->id} (mov #{$movBoveda->id})",
+                ]);
+
+                Log::info("Reintegro a bóveda #{$boveda->id} por crédito extemporáneo anulado sin caja #{$credito->numero_credito}", [
+                    'monto' => $montoDesembolso,
+                    'boveda_movimiento_id' => $movBoveda->id,
+                ]);
+
+                return [
+                    'aplicado' => true,
+                    'accion' => 'reingreso_boveda',
+                    'boveda_movimiento_id' => $movBoveda->id,
+                    'mensaje' => 'La caja original ya estaba cerrada y no hay caja abierta hoy. El efectivo se reingresó a la bóveda.',
+                ];
+            }
+        }
+
+        // Si no se encontró el movimiento previo de desembolso pero el crédito era en efectivo y con monto desembolsado
+        if ($montoDesembolso > 0 && ($credito->forma_desembolso ?? 'efectivo') === 'efectivo') {
+            $cajaHoy = self::getCajaAbiertaVigente(Auth::id(), $sucursalId) ?? self::getCajaAbierta(null, $sucursalId);
+            if ($cajaHoy) {
+                $ingreso = MovimientoCaja::create([
+                    'caja_id' => $cajaHoy->id,
+                    'tipo' => 'incremento',
+                    'monto' => $montoDesembolso,
+                    'concepto' => mb_substr("Reintegro por anulación de crédito #{$credito->numero_credito}", 0, 250),
+                    'detalles_movimiento' => [
+                        'tipo_operacion' => 'anulacion_credito',
+                        'numero_credito' => $credito->numero_credito,
+                        'motivo' => $motivo,
+                    ],
+                    'estado' => 'aplicado',
+                    'user_id' => Auth::id() ?? $cajaHoy->user_id,
+                ]);
+
+                return [
+                    'aplicado' => true,
+                    'accion' => 'ingreso_compensatorio',
+                    'movimiento_caja_id' => $ingreso->id,
+                    'mensaje' => 'Se registró un reintegro de efectivo en la caja abierta de hoy.',
+                ];
+            }
+        }
+
+        return [
+            'aplicado' => false,
+            'accion' => 'sin_movimiento',
+            'movimiento_caja_id' => null,
+            'mensaje' => 'No se requirió movimiento de caja para este crédito.',
         ];
     }
 

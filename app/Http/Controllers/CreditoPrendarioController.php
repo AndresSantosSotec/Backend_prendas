@@ -4086,19 +4086,46 @@ class CreditoPrendarioController extends Controller
                         // Cargar relaciones si no están cargadas
                         $credito->loadMissing(['movimientos', 'planPagos', 'prendas']);
 
-                        // Anular todos los movimientos activos
+                        $motivoAnulacion = $request->observaciones ?? 'Anulación del crédito prendario';
+
+                        // 1. Revertir desembolso en caja / bóveda
+                        try {
+                            CajaService::revertirDesembolsoCredito(
+                                $credito,
+                                $motivoAnulacion
+                            );
+                        } catch (\Throwable $cajaEx) {
+                            Log::warning('Error al revertir desembolso en caja al anular crédito: ' . $cajaEx->getMessage(), [
+                                'credito_id' => $credito->id,
+                                'numero_credito' => $credito->numero_credito,
+                            ]);
+                        }
+
+                        // 2. Anular todos los movimientos activos (y revertir pagos en caja si hubiere)
                         foreach ($credito->movimientos as $movimiento) {
                             if ($movimiento->estado === 'activo') {
+                                if ($movimiento->tipo_movimiento !== 'desembolso') {
+                                    try {
+                                        CajaService::revertirPagoCredito(
+                                            $movimiento,
+                                            $credito,
+                                            $motivoAnulacion
+                                        );
+                                    } catch (\Throwable $pagoEx) {
+                                        Log::warning('Error al revertir pago en caja al anular crédito: ' . $pagoEx->getMessage());
+                                    }
+                                }
+
                                 $movimiento->update([
                                     'estado' => 'anulado',
                                     'reversado_por' => Auth::id(),
                                     'fecha_reversion' => now(),
-                                    'motivo_reversion' => 'Anulación del crédito: ' . ($request->observaciones ?? 'Sin motivo especificado'),
+                                    'motivo_reversion' => 'Anulación del crédito: ' . $motivoAnulacion,
                                 ]);
                             }
                         }
 
-                        // Cancelar cuotas pendientes
+                        // 3. Cancelar cuotas pendientes
                         foreach ($credito->planPagos as $cuota) {
                             if (in_array($cuota->estado, ['pendiente', 'pagada_parcial', 'vencida', 'en_mora'])) {
                                 $cuota->update([
@@ -4108,7 +4135,7 @@ class CreditoPrendarioController extends Controller
                             }
                         }
 
-                        // Devolver y eliminar prendas
+                        // 4. Devolver y eliminar prendas
                         foreach ($credito->prendas as $prenda) {
                             if (!in_array($prenda->estado, ['recuperada', 'vendida', 'perdida', 'devuelta'])) {
                                 $prenda->update([
@@ -4118,6 +4145,23 @@ class CreditoPrendarioController extends Controller
                                 ]);
                             }
                             $prenda->delete();
+                        }
+
+                        // 5. Revertir o anular asientos contables asociados al crédito
+                        try {
+                            $diarios = \App\Models\Contabilidad\CtbDiario::where('credito_prendario_id', $credito->id)
+                                ->where('estado', '!=', 'anulado')
+                                ->get();
+                            $ctbService = app(\App\Services\ContabilidadAutomaticaService::class);
+                            foreach ($diarios as $diario) {
+                                $ctbService->anularAsiento(
+                                    $diario->id,
+                                    'Anulación de crédito prendario #' . $credito->numero_credito . ': ' . $motivoAnulacion,
+                                    Auth::id()
+                                );
+                            }
+                        } catch (\Throwable $ctbEx) {
+                            Log::warning('Error al anular asientos contables al anular crédito: ' . $ctbEx->getMessage());
                         }
 
                         // Forzar recalculado de saldos a cero
