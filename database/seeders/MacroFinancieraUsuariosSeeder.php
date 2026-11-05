@@ -195,3 +195,4 @@ class MacroFinancieraUsuariosSeeder extends Seeder
         $this->command?->info('====================================================');
     }
 }
+

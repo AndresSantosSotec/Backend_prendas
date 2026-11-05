@@ -161,3 +161,4 @@ class VerificarUsuariosMacroCommand extends Command
         return $todoCorrecto ? 0 : 1;
     }
 }
+

@@ -64,3 +64,4 @@ if ($todoOk) {
     echo "⚠️ Hay usuarios pendientes por sembrar.\n";
 }
 echo "================================================================\n\n";
+
