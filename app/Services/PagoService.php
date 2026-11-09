@@ -112,18 +112,22 @@ class PagoService
 
             $interesPorPeriodo = $cuotaInteres;
             if ($interesPorPeriodo <= 0) {
-                $tasaPorPeriodo = $this->calcularTasaPorPeriodo((float) $credito->tasa_interes, (string) $credito->tipo_interes);
-                $interesPorPeriodo = max(0, $capitalPendiente * $tasaPorPeriodo);
+                $tasaPorPeriodo = $this->calcularTasaPorPeriodo(
+                    (float) $credito->tasa_interes,
+                    (string) $credito->tipo_interes,
+                    $credito->plan_interes_id,
+                    $credito
+                );
+                $interesPorPeriodo = max(0, round($capitalPendiente * $tasaPorPeriodo, 2));
+                if ($cuotaInteres <= 0) {
+                    $cuotaInteres = $interesPorPeriodo;
+                }
             }
 
-            // === CÁLCULO DE INTERÉS DIARIO VS MENSUAL ===
-            $modoCalculo = (string) ConfiguracionSistema::obtener('credito_modo_calculo_interes', '');
-            if ($modoCalculo === 'mensual') {
-                $interesDiarioHabilitado = false;
-            } else {
-                // En créditos prendarios los intereses siempre se devengan y calculan diariamente
-                $interesDiarioHabilitado = true;
-            }
+            // Interés diario solo si aplica. Con tasa por período directa (PrendaMás quincenal)
+            // o créditos semanal/quincenal: respetar el interés del plan (ej. Q68.76),
+            // NO recalcular por días (eso daba Q50.42 y rompía el ticket).
+            $interesDiarioHabilitado = $this->debeUsarInteresDiarioProrrateado($credito);
             $diasMinimos = (int) ConfiguracionSistema::obtener('credito_interes_diario_dias_minimos', 1);
             $diasEfectivos = (int) max($diasMinimos, $diasTranscurridos);
 
@@ -133,6 +137,11 @@ class PagoService
                 $interesTotal = $interesDiarioDevengado;
                 $interesPorPeriodo = $interesDiarioDevengado;
                 $cuotaInteres = $interesDiarioDevengado;
+            } else {
+                // Mantener interés del plan / período pactado
+                $interesTotal = round($interesTotal > 0 ? $interesTotal : $cuotaInteres, 2);
+                $interesPorPeriodo = round($interesPorPeriodo, 2);
+                $cuotaInteres = round($cuotaInteres, 2);
             }
 
             // === DESCUENTO EN INTERESES (MANUAL EN PAGO O PROMOCIONAL / PACTADO) ===
@@ -280,20 +289,22 @@ class PagoService
         }
 
         // ============== TOTALES ==============
-        // === CÁLCULO DE INTERÉS DIARIO VS MENSUAL ===
-        $modoCalculo = (string) ConfiguracionSistema::obtener('credito_modo_calculo_interes', '');
-        if ($modoCalculo === 'mensual') {
-            $interesDiarioHabilitado = false;
-        } else {
-            // En créditos prendarios los intereses siempre se devengan y calculan diariamente
-            $interesDiarioHabilitado = true;
-        }
+        $interesDiarioHabilitado = $this->debeUsarInteresDiarioProrrateado($credito);
         $diasMinimos = (int) ConfiguracionSistema::obtener('credito_interes_diario_dias_minimos', 1);
         $diasEfectivos = (int) max($diasMinimos, $diasTranscurridos);
+        $interesDevengado = 0.0;
 
         if ($interesDiarioHabilitado) {
             $tasaDiaria = (($credito->tasa_interes / 100) / 30);
             $interesDevengado = round((float) $credito->capital_pendiente * $tasaDiaria * $diasEfectivos, 2);
+        } else {
+            $tasaPorPeriodoFallback = $this->calcularTasaPorPeriodo(
+                (float) $credito->tasa_interes,
+                (string) $credito->tipo_interes,
+                $credito->plan_interes_id,
+                $credito
+            );
+            $interesDevengado = round((float) $credito->capital_pendiente * $tasaPorPeriodoFallback * max(1, $periodosCobrar), 2);
         }
 
         // Sumar intereses/mora históricos no pagados
@@ -464,6 +475,37 @@ class PagoService
             'diario' => $dias,
             default => max(1, ceil($dias / 30)), // mensual por defecto
         };
+    }
+
+    /**
+     * Si debe prorratear interés por día (capital × tasa/30 × días).
+     * NO aplica cuando:
+     * - modo mensual
+     * - tasa por período directa (PrendaMás: 7.64% quincenal = Q68.76, no Q50.42)
+     * - tipo semanal/quincenal/catorcenal/28 días (interés pactado por período del plan)
+     */
+    private function debeUsarInteresDiarioProrrateado(?CreditoPrendario $credito = null): bool
+    {
+        $modoCalculo = (string) ConfiguracionSistema::obtener('credito_modo_calculo_interes', '');
+        if ($modoCalculo === 'mensual') {
+            return false;
+        }
+
+        $tasaDirecta = filter_var(
+            ConfiguracionSistema::obtener('credito_tasa_por_periodo_directa', false),
+            FILTER_VALIDATE_BOOLEAN
+        );
+        if ($tasaDirecta) {
+            return false;
+        }
+
+        $tipo = strtolower((string) ($credito?->tipo_interes ?? ''));
+        if (in_array($tipo, ['quincenal', 'semanal', 'catorcenal', 'cada_28_dias'], true)) {
+            return false;
+        }
+
+        $habilitado = ConfiguracionSistema::obtener('credito_interes_diario_habilitado', true);
+        return filter_var($habilitado, FILTER_VALIDATE_BOOLEAN) || $modoCalculo === 'diario' || $modoCalculo === '';
     }
 
     /**
