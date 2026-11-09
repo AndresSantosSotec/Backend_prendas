@@ -162,6 +162,12 @@ class AvanzaOrganizacionSeeder extends Seeder
                 'grupo' => 'creditos',
                 'descripcion' => 'Días mínimos a cobrar cuando se liquida en modalidad diaria',
             ],
+            'correr_fechas_plan_por_gracia' => [
+                'valor' => 'false',
+                'tipo' => 'boolean',
+                'grupo' => 'creditos',
+                'descripcion' => 'Al pagar fuera de gracia: cobrar mora y recalcular fechas del plan desde la fecha de pago',
+            ],
 
             // Política de Descuentos en Intereses (Asignable al crédito)
             'promocion_interes_activa' => [

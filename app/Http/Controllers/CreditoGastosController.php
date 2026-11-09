@@ -150,6 +150,7 @@ class CreditoGastosController extends Controller
     {
         $credito = CreditoPrendario::findOrFail($credId);
         $resultado = $this->gastosService->recalcularValoresGastos($credito);
+        $this->gastosService->prorratearEnPlanPagos($credito->fresh(['gastos', 'planPagos']));
 
         return response()->json([
             'success' => true,

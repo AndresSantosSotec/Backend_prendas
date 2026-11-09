@@ -259,27 +259,53 @@
     </p>
 
     <p>
-        <strong>TERCERO: DE LA GARANTÍA:</strong> Continuo manifestando yo, <strong>{{ $clienteNombre }}</strong>, de forma expresa que en garantía del pago del capital, intereses, costas judiciales, gastos de cobranza y demás obligaciones exigibles conforme a este documento privado y la ley, respondo con mis bienes presentes y futuros susceptibles de embargo sin orden de prelación, y enajenables al momento de exigir el cumplimiento de esta obligación, y especialmente con el bien mueble identificado como 
-        @if($listaPrendas->isNotEmpty())
-            @foreach($listaPrendas as $p)
-                <strong>{{ $p->descripcion ?? $p->descripcion_general ?? 'Bien mueble prendario' }}</strong>
-                @if(!empty($p->peso_neto) || !empty($p->peso_bruto))
-                    , CON PESO DE {{ $p->peso_neto ?? $p->peso_bruto }} gramos
+        <strong>TERCERO: DE LA GARANTÍA:</strong> Continuo manifestando yo, <strong>{{ $clienteNombre }}</strong>, de forma expresa que en garantía del pago del capital, intereses, costas judiciales, gastos de cobranza y demás obligaciones exigibles conforme a este documento privado y la ley, respondo con mis bienes presentes y futuros susceptibles de embargo sin orden de prelación, y enajenables al momento de exigir el cumplimiento de esta obligación, y especialmente con 
+        @if($listaPrendas->isNotEmpty() && $listaPrendas->count() > 1)
+            los bienes muebles identificados a continuación:
+        @elseif($listaPrendas->isNotEmpty())
+            el bien mueble identificado como
+            <strong>{{ $listaPrendas->first()->descripcion ?? $listaPrendas->first()->descripcion_general ?? 'Bien mueble prendario' }}</strong>
+            @php $p0 = $listaPrendas->first(); @endphp
+            @if(!empty($p0->valor_tasacion) || !empty($p0->monto_avaluo))
+                (Valor de tasación: Q.{{ number_format($p0->valor_tasacion ?? $p0->monto_avaluo, 2) }}
+                @if(!empty($p0->valor_prestamo))
+                    ; Monto prestado: Q.{{ number_format($p0->valor_prestamo, 2) }}
                 @endif
-                @if(!empty($p->kilataje))
-                    de {{ $p->kilataje }} kilates de oro
-                @endif
-                @if(!empty($p->peso_piedra))
-                    y peso de la piedra: {{ $p->peso_piedra }} gramos
-                @endif
-                @if(!empty($p->valor_tasacion) || !empty($p->monto_avaluo))
-                    (Valor de tasación: Q.{{ number_format($p->valor_tasacion ?? $p->monto_avaluo, 2) }})
-                @endif
-                {{ !$loop->last ? '; ' : '' }}
-            @endforeach
+                )
+            @endif
         @else
-            <strong>Par de Aretes con forma de Flor con piedras rojas, CON PESO DE tres punto nueve (3.9) gramos de diez kilates de oro cada uno y peso de la piedra: Cero punto diez gramos (0.10 Grms)</strong>
-        @endif, incluyendo todo cuanto de hecho y por derecho le correspondan al referido bien, declarando expresamente yo, <strong>{{ $clienteNombre }}</strong> que el bien dado en garantía se encuentra libre de gravámenes, anotaciones y/o reclamaciones tanto administrativas y/o judiciales que pudieran afectar los derechos de terceras personas y especialmente los de la entidad que representa el señor <strong>{{ $representanteNombre }}</strong>, y en todo caso me someto al saneamiento de ley respectivo, y a la vez manifiesto de forma expresa que renuncio al fuero de mi domicilio y me someto a la competencia de los órganos jurisdiccionales que la entidad representada por el señor <strong>{{ $representanteNombre }}</strong> elija señalado como lugar para recibir notificaciones y citaciones la dirección de mi residencia consignada en el presente documento privado, aceptando como buenas y exactas las cuentas que se me formulen sobre este contrato y como líquido, ejecutivo, exigible, y de plazo vencido el saldo que se me reclame, siendo por mi cuenta los gastos que judicial y extrajudicialmente se causen por el incumplimiento de este contrato, y que en caso de ser necesario promover el proceso de ejecución correspondiente por existir incumplimiento por parte del deudor, ambos comparecientes en la calidad con que actuamos acordamos de manera expresa que el bien mueble dado en garantía se adjudiquen en pago en favor de la entidad representada por el señor <strong>{{ $representanteNombre }}</strong> en caso de incumplimiento y además del bien pignorado, en caso de insuficiencia, dejo afectos mis ingresos salariales y cuentas bancarias y que la modalidad de este contrato sea de <strong>PRENDA CON DESPLAZAMIENTO</strong>.
+            el bien mueble identificado como <strong>Bien mueble prendario</strong>
+        @endif
+        @if($listaPrendas->isNotEmpty() && $listaPrendas->count() > 1)
+            <br/><br/>
+            <table width="100%" cellpadding="4" cellspacing="0" style="border-collapse: collapse; font-size: 9pt;">
+                <thead>
+                    <tr>
+                        <th align="left" style="border-bottom: 1px solid #333;">Código</th>
+                        <th align="left" style="border-bottom: 1px solid #333;">Descripción</th>
+                        <th align="right" style="border-bottom: 1px solid #333;">Tasación</th>
+                        <th align="right" style="border-bottom: 1px solid #333;">Préstamo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($listaPrendas as $p)
+                    <tr>
+                        <td style="border-bottom: 1px solid #ddd;">{{ $p->codigo_prenda ?? '—' }}</td>
+                        <td style="border-bottom: 1px solid #ddd;">{{ $p->descripcion ?? $p->descripcion_general ?? 'Bien mueble' }}</td>
+                        <td align="right" style="border-bottom: 1px solid #ddd;">Q.{{ number_format((float) ($p->valor_tasacion ?? $p->monto_avaluo ?? 0), 2) }}</td>
+                        <td align="right" style="border-bottom: 1px solid #ddd;">Q.{{ number_format((float) ($p->valor_prestamo ?? 0), 2) }}</td>
+                    </tr>
+                    @endforeach
+                    <tr>
+                        <td colspan="2" align="right" style="padding-top: 6px;"><strong>TOTAL</strong></td>
+                        <td align="right" style="padding-top: 6px;"><strong>Q.{{ number_format($listaPrendas->sum(fn($x) => (float) ($x->valor_tasacion ?? $x->monto_avaluo ?? 0)), 2) }}</strong></td>
+                        <td align="right" style="padding-top: 6px;"><strong>Q.{{ number_format($listaPrendas->sum(fn($x) => (float) ($x->valor_prestamo ?? 0)), 2) }}</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+            <br/>
+        @endif
+        , incluyendo todo cuanto de hecho y por derecho le correspondan al{{ $listaPrendas->count() > 1 ? 'os' : '' }} referido{{ $listaPrendas->count() > 1 ? 's' : '' }} bien{{ $listaPrendas->count() > 1 ? 'es' : '' }}, declarando expresamente yo, <strong>{{ $clienteNombre }}</strong> que el{{ $listaPrendas->count() > 1 ? 'los' : '' }} bien{{ $listaPrendas->count() > 1 ? 'es' : '' }} dado{{ $listaPrendas->count() > 1 ? 's' : '' }} en garantía se encuentra{{ $listaPrendas->count() > 1 ? 'n' : '' }} libre{{ $listaPrendas->count() > 1 ? 's' : '' }} de gravámenes, anotaciones y/o reclamaciones tanto administrativas y/o judiciales que pudieran afectar los derechos de terceras personas y especialmente los de la entidad que representa el señor <strong>{{ $representanteNombre }}</strong>, y en todo caso me someto al saneamiento de ley respectivo, y a la vez manifiesto de forma expresa que renuncio al fuero de mi domicilio y me someto a la competencia de los órganos jurisdiccionales que la entidad representada por el señor <strong>{{ $representanteNombre }}</strong> elija señalado como lugar para recibir notificaciones y citaciones la dirección de mi residencia consignada en el presente documento privado, aceptando como buenas y exactas las cuentas que se me formulen sobre este contrato y como líquido, ejecutivo, exigible, y de plazo vencido el saldo que se me reclame, siendo por mi cuenta los gastos que judicial y extrajudicialmente se causen por el incumplimiento de este contrato, y que en caso de ser necesario promover el juicio de ejecución correspondiente por existir incumplimiento por parte del deudor, ambos comparecientes en la calidad con que actuamos acordamos de manera expresa que el{{ $listaPrendas->count() > 1 ? 'los' : '' }} bien{{ $listaPrendas->count() > 1 ? 'es' : '' }} mueble{{ $listaPrendas->count() > 1 ? 's' : '' }} dado{{ $listaPrendas->count() > 1 ? 's' : '' }} en garantía se adjudiquen en pago en favor de la entidad representada por el señor <strong>{{ $representanteNombre }}</strong> en caso de incumplimiento y además del bien pignorado, en caso de insuficiencia, dejo afectos mis ingresos salariales y cuentas bancarias y que la modalidad de este contrato sea de <strong>PRENDA CON DESPLAZAMIENTO</strong>.
     </p>
 
     <p>

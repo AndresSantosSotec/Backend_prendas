@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\ConfiguracionSistema;
 use App\Models\CreditoPrendario;
 use App\Models\CreditoPlanPago;
 use App\Models\PlanInteresCategoria;
@@ -138,7 +139,7 @@ class MoraService
      * Prioriza lo guardado en el credito y usa el plan asociado como fallback,
      * incluyendo soporte de monto fijo por dia.
      */
-    private function resolverConfiguracionMora(CreditoPrendario $credito): array
+    public function resolverConfiguracionMora(CreditoPrendario $credito): array
     {
         $tipoMora = (string) ($credito->tipo_mora ?? '');
         $tasaMora = (float) ($credito->tasa_mora ?? 0);
@@ -183,6 +184,8 @@ class MoraService
 
     /**
      * Calcula el monto de mora para una cuota según tipo (porcentaje o monto fijo).
+     * Porcentaje: se aplica sobre capital activo (NO sobre interés).
+     * Por defecto tasa_mora es % diario (ej. 0.5 => Q4.50/día sobre Q900).
      */
     public function calcularMoraCuota(
         CreditoPrendario $credito,
@@ -201,12 +204,53 @@ class MoraService
         }
 
         if ($tipoMora === 'porcentaje' && $tasaMora > 0) {
-            $tasaDiaria = ($tasaMora / 100) / 30;
-            $base = (float) $credito->capital_pendiente;
-            return round($base * $tasaDiaria * $diasMora, 2);
+            $base = $this->resolverCapitalActivoParaMora($credito, $cuota);
+            return round($base * $this->tasaMoraDiariaDecimal($tasaMora) * $diasMora, 2);
         }
 
         return 0;
+    }
+
+    /**
+     * Capital activo para mora: capital pendiente de la cuota, o del crédito.
+     */
+    public function resolverCapitalActivoParaMora(
+        CreditoPrendario $credito,
+        ?CreditoPlanPago $cuota = null
+    ): float {
+        if ($cuota && (float) ($cuota->capital_pendiente ?? 0) > 0) {
+            return (float) $cuota->capital_pendiente;
+        }
+
+        $capitalCredito = (float) ($credito->capital_pendiente ?? 0);
+        if ($capitalCredito > 0) {
+            return $capitalCredito;
+        }
+
+        return (float) ($credito->monto_aprobado ?? 0);
+    }
+
+    /**
+     * Convierte tasa_mora % a factor diario decimal.
+     * mora_porcentaje_es_diario=true (default): 0.5 => 0.005 por día.
+     * false (legacy): divide entre 30 (trataba la tasa como mensual).
+     */
+    public function tasaMoraDiariaDecimal(float $tasaMora): float
+    {
+        if ($tasaMora <= 0) {
+            return 0.0;
+        }
+
+        $esDiaria = filter_var(
+            ConfiguracionSistema::obtener('mora_porcentaje_es_diario', true),
+            FILTER_VALIDATE_BOOLEAN
+        );
+
+        if ($esDiaria) {
+            return $tasaMora / 100;
+        }
+
+        return ($tasaMora / 100) / 30;
     }
 
     /**

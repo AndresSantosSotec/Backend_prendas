@@ -26,7 +26,8 @@ class PagoService
      *
      * LÓGICA DE MORA:
      * - La mora se genera cuando: fecha_actual > fecha_vencimiento + días_gracia
-     * - Cálculo: Capital * (TasaMora% / 100 / 30) * DíasMora
+     * - Cálculo mora %: Capital activo * (TasaMora% diaria) * DíasMora
+     *   (config mora_porcentaje_es_diario; default true = no divide entre 30)
      * - Los días de mora = max(0, días desde vencimiento - días de gracia)
      *
      * LÓGICA DE INTERÉS:
@@ -272,8 +273,8 @@ class PagoService
                 if ($tipoMora === 'monto_fijo' && $moraMontoFijo > 0) {
                     $moraDevengada = $moraMontoFijo * $diasMora;
                 } elseif ($tipoMora === 'porcentaje' && $tasaMoraCredito > 0) {
-                    $tasaMoraDiaria = ($tasaMoraCredito / 100) / 30;
-                    $moraDevengada = $credito->capital_pendiente * $tasaMoraDiaria * $diasMora;
+                    $baseCapital = $moraService->resolverCapitalActivoParaMora($credito);
+                    $moraDevengada = $baseCapital * $moraService->tasaMoraDiariaDecimal($tasaMoraCredito) * $diasMora;
                 }
             }
         }
@@ -411,19 +412,6 @@ class PagoService
      */
     public function calcularDescuentoPromocional(float $interesBase, Carbon $fechaCalculo, ?CreditoPrendario $credito = null): array
     {
-        $promoActiva = (bool) ConfiguracionSistema::obtener('promocion_interes_activa', false);
-        $diasConfig = ConfiguracionSistema::obtener('promocion_interes_dias', []);
-        $porcentajeDescuento = (float) ConfiguracionSistema::obtener('promocion_interes_porcentaje_descuento', 0);
-        $descripcion = (string) ConfiguracionSistema::obtener('promocion_interes_descripcion', '');
-
-        $pctCredito = $credito ? (float) ($credito->porcentaje_descuento_interes ?? $credito->descuento_interes_porcentaje ?? 0) : 0;
-        $descuentoPactadoEnCredito = $pctCredito > 0;
-        if ($descuentoPactadoEnCredito) {
-            $promoActiva = true;
-            $porcentajeDescuento = $pctCredito;
-            $descripcion = $credito->descuento_interes_motivo ?? 'Descuento pactado en crédito';
-        }
-
         $diaSemanaIngles = strtolower($fechaCalculo->englishDayOfWeek);
         $diasMap = [
             'monday' => 'lunes',
@@ -436,45 +424,20 @@ class PagoService
         ];
         $diaSemanaEspanol = $diasMap[$diaSemanaIngles] ?? $diaSemanaIngles;
 
-        $diasPermitidos = [];
-        if (is_array($diasConfig)) {
-            foreach ($diasConfig as $dia) {
-                $d = strtolower(trim((string) $dia));
-                $diasPermitidos[] = $d;
-                if (isset($diasMap[$d])) {
-                    $diasPermitidos[] = $diasMap[$d];
-                }
-                $reversed = array_search($d, $diasMap, true);
-                if ($reversed !== false) {
-                    $diasPermitidos[] = $reversed;
-                }
-            }
-        } elseif (is_string($diasConfig)) {
-            $decoded = json_decode($diasConfig, true);
-            $lista = is_array($decoded) ? $decoded : explode(',', strtolower($diasConfig));
-            foreach ($lista as $dia) {
-                $d = strtolower(trim((string) $dia));
-                $diasPermitidos[] = $d;
-                if (isset($diasMap[$d])) {
-                    $diasPermitidos[] = $diasMap[$d];
-                }
-            }
-        }
-
-        $aplicaDia = in_array($diaSemanaIngles, $diasPermitidos, true)
-            || in_array($diaSemanaEspanol, $diasPermitidos, true);
-
-        if ($promoActiva && $porcentajeDescuento > 0 && $interesBase > 0 && ($aplicaDia || $descuentoPactadoEnCredito)) {
-            $montoDescuento = round($interesBase * ($porcentajeDescuento / 100), 2);
+        // Promo por día (lunes/martes) deshabilitada: no aplica nunca.
+        // Solo se respeta descuento pactado en el crédito (si existe).
+        $pctCredito = $credito ? (float) ($credito->porcentaje_descuento_interes ?? $credito->descuento_interes_porcentaje ?? 0) : 0;
+        if ($pctCredito > 0 && $interesBase > 0) {
+            $montoDescuento = round($interesBase * ($pctCredito / 100), 2);
             return [
                 'aplicada' => true,
                 'dia_semana' => $diaSemanaEspanol,
                 'dia_semana_en' => $diaSemanaIngles,
-                'porcentaje_descuento' => $porcentajeDescuento,
+                'porcentaje_descuento' => $pctCredito,
                 'monto_descuento' => $montoDescuento,
                 'interes_original' => round($interesBase, 2),
                 'interes_con_descuento' => max(0, round($interesBase - $montoDescuento, 2)),
-                'descripcion' => $descripcion,
+                'descripcion' => $credito->descuento_interes_motivo ?? 'Descuento pactado en crédito',
             ];
         }
 
@@ -797,6 +760,11 @@ class PagoService
         }
 
         // 5. Marcar cuota como pagada
+        $fechaPago = Carbon::now()->startOfDay();
+        $fechaVencimientoCuota = $cuota->fecha_vencimiento
+            ? Carbon::parse($cuota->fecha_vencimiento)->startOfDay()
+            : null;
+
         $cuota->estado = 'pagada';
         $cuota->fecha_pago = now();
         $cuota->capital_pagado = ($cuota->capital_pagado ?? 0) + $capitalAPagar;
@@ -810,6 +778,15 @@ class PagoService
         $cuota->otros_cargos_pendientes = 0;
         $cuota->monto_pendiente = 0;
         $cuota->save();
+
+        // 5b. Si el switch global está ON y se pagó fuera de gracia: mora ya cobrada + recalcular plan
+        if ($fechaVencimientoCuota) {
+            $this->recalcularFechasPlanTrasPagoFueraDeGracia(
+                $credito,
+                $fechaVencimientoCuota,
+                $fechaPago
+            );
+        }
 
         // 6. Actualizar crédito
         $credito->capital_pendiente -= $capitalAPagar;
@@ -1335,6 +1312,79 @@ class PagoService
     }
 
     /**
+     * Si la config global está activa y el pago ocurrió fuera de los días de gracia,
+     * recalcula las fechas de las cuotas pendientes desde la fecha de pago.
+     * La mora ya se cobra en el mismo pago; este método solo mueve el calendario.
+     */
+    private function recalcularFechasPlanTrasPagoFueraDeGracia(
+        CreditoPrendario $credito,
+        Carbon $fechaVencimientoCuota,
+        Carbon $fechaPago
+    ): void {
+        if (!filter_var(ConfiguracionSistema::obtener('correr_fechas_plan_por_gracia', false), FILTER_VALIDATE_BOOLEAN)) {
+            return;
+        }
+
+        $diasGracia = (int) ($credito->dias_gracia ?? 0);
+        $limiteGracia = $fechaVencimientoCuota->copy()->addDays($diasGracia);
+
+        // Dentro de gracia (o a tiempo): no mover fechas
+        if ($fechaPago->lte($limiteGracia)) {
+            return;
+        }
+
+        $diasPorPeriodo = match ((string) $credito->tipo_interes) {
+            'diario' => 1,
+            'semanal' => 7,
+            'catorcenal' => 14,
+            'quincenal' => 15,
+            'cada_28_dias' => 28,
+            'mensual' => 30,
+            default => 30,
+        };
+
+        $pendientes = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
+            ->orderBy('numero_cuota', 'asc')
+            ->get();
+
+        if ($pendientes->isEmpty()) {
+            return;
+        }
+
+        $fechaBase = $fechaPago->copy()->startOfDay();
+        $ultimaFecha = null;
+
+        foreach ($pendientes as $index => $cuotaPendiente) {
+            $nuevaFecha = $fechaBase->copy()->addDays($diasPorPeriodo * ($index + 1));
+            $cuotaPendiente->fecha_vencimiento = $nuevaFecha;
+            $cuotaPendiente->estado = 'pendiente';
+            $cuotaPendiente->dias_mora = 0;
+            $nota = 'Fechas recalculadas por pago fuera de gracia el ' . $fechaPago->format('d/m/Y');
+            $cuotaPendiente->observaciones = trim(($cuotaPendiente->observaciones ?? '') . ' | ' . $nota, ' |');
+            $cuotaPendiente->tipo_modificacion = $cuotaPendiente->tipo_modificacion ?: 'reprogramacion';
+            $cuotaPendiente->motivo_modificacion = $nota;
+            $cuotaPendiente->save();
+            $ultimaFecha = $nuevaFecha;
+        }
+
+        if ($ultimaFecha) {
+            $credito->fecha_vencimiento = $ultimaFecha;
+            $credito->dias_mora = 0;
+            $credito->save();
+        }
+
+        Log::info('Plan de pagos recalculado por pago fuera de gracia', [
+            'credito_id' => $credito->id,
+            'numero_credito' => $credito->numero_credito,
+            'fecha_pago' => $fechaPago->format('Y-m-d'),
+            'fecha_vencimiento_original' => $fechaVencimientoCuota->format('Y-m-d'),
+            'dias_gracia' => $diasGracia,
+            'cuotas_reprogramadas' => $pendientes->count(),
+        ]);
+    }
+
+    /**
      * ============================================================================
      * PAGO DE INTERESES ADELANTADOS
      * ============================================================================
@@ -1451,13 +1501,16 @@ class PagoService
                 $diasGracia = 0; // Sin días de gracia en prendario
                 $diasMoraEfectivos = max(0, $diasMora - $diasGracia);
                 if ($diasMoraEfectivos > 0) {
-                    $tipoMora = $credito->tipo_mora ?? 'porcentaje';
-                    if ($tipoMora === 'monto_fijo' && ($credito->mora_monto_fijo ?? 0) > 0) {
-                        $cuota->mora_proyectada = (float) $credito->mora_monto_fijo * $diasMoraEfectivos;
-                    } elseif ($tipoMora === 'porcentaje' && ($credito->tasa_mora ?? 0) > 0) {
-                        $tasaMoraDiaria = ($credito->tasa_mora / 100) / 30;
-                        $cuota->mora_proyectada = $credito->capital_pendiente * $tasaMoraDiaria * $diasMoraEfectivos;
-                    }
+                    $moraSvc = app(MoraService::class);
+                    $moraCfg = $this->resolverConfiguracionMora($credito);
+                    $cuota->mora_proyectada = $moraSvc->calcularMoraCuota(
+                        $credito,
+                        $cuota,
+                        $diasMoraEfectivos,
+                        (string) ($moraCfg['tipo_mora'] ?? 'porcentaje'),
+                        (float) ($moraCfg['tasa_mora'] ?? 0),
+                        (float) ($moraCfg['mora_monto_fijo'] ?? 0)
+                    );
                 }
             }
 

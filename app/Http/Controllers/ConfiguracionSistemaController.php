@@ -126,6 +126,13 @@ class ConfiguracionSistemaController extends Controller
                 continue; // Respetar restricción de edición
             }
 
+            // Si llega un booleano real (o true/false textual) corregir tipo legacy 'string'
+            if (is_bool($valor) || in_array($valor, ['true', 'false', true, false, 0, 1, '0', '1'], true)) {
+                $config->tipo = 'boolean';
+            } elseif (is_array($valor)) {
+                $config->tipo = 'json';
+            }
+
             // Normalizar valor según tipo
             if ($config->tipo === 'boolean') {
                 $valor = filter_var($valor, FILTER_VALIDATE_BOOLEAN) ? 'true' : 'false';

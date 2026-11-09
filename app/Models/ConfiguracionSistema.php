@@ -26,6 +26,21 @@ class ConfiguracionSistema extends Model
      */
     public function getValorCasteadoAttribute(): mixed
     {
+        // Si el valor parece booleano aunque el tipo esté mal (ej. 'string'),
+        // castear como bool para evitar (bool)'false' === true en consumidores.
+        if (is_string($this->valor) && in_array(strtolower(trim($this->valor)), ['true', 'false', '1', '0', 'yes', 'no', 'on', 'off'], true)) {
+            if ($this->tipo === 'boolean' || $this->tipo === 'string') {
+                $bool = filter_var($this->valor, FILTER_VALIDATE_BOOLEAN);
+                if ($this->tipo === 'boolean') {
+                    return $bool;
+                }
+                // tipo string con true/false: devolver bool real para flags
+                if (in_array(strtolower(trim($this->valor)), ['true', 'false'], true)) {
+                    return $bool;
+                }
+            }
+        }
+
         return match ($this->tipo) {
             'boolean' => filter_var($this->valor, FILTER_VALIDATE_BOOLEAN),
             'integer' => (int) $this->valor,

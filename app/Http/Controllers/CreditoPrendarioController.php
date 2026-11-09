@@ -312,6 +312,10 @@ class CreditoPrendarioController extends Controller
             'prendas.*.condicion_fisica' => 'nullable|in:excelente,muy_buena,buena,bueno,regular,deteriorado,mala',
             'prendas.*.fotos' => 'nullable|array',
             'prendas.*.datos_adicionales' => 'nullable|array',
+            'prendas.*.valor_tasacion' => 'nullable|numeric|min:0',
+            'prendas.*.valor_prestamo' => 'nullable|numeric|min:0',
+            'prendas.*.porcentaje_prestamo' => 'nullable|numeric|min:0|max:100',
+            'prendas.*.valor_estimado_cliente' => 'nullable|numeric|min:0',
         ], [
             'cliente_id.required' => 'El ID del cliente es requerido',
             'cliente_id.exists' => 'El cliente no existe en la base de datos',
@@ -340,6 +344,30 @@ class CreditoPrendarioController extends Controller
 
         try {
             DB::beginTransaction();
+
+            // Multi-garantía: si cada prenda trae valor_prestamo, el desembolso debe cuadrar con la suma
+            $sumaPrestamosPrenda = collect($request->prendas)
+                ->sum(fn ($p) => (float) ($p['valor_prestamo'] ?? 0));
+            $prendasConMonto = collect($request->prendas)
+                ->filter(fn ($p) => isset($p['valor_prestamo']) && (float) $p['valor_prestamo'] > 0)
+                ->count();
+
+            if ($prendasConMonto > 1 && $sumaPrestamosPrenda > 0) {
+                $montoCredito = (float) ($request->monto_aprobado ?? $request->monto_solicitado ?? 0);
+                if (abs($montoCredito - $sumaPrestamosPrenda) > 0.05) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'El monto del crédito debe ser igual a la suma de los montos prestados por prenda (Q'
+                            . number_format($sumaPrestamosPrenda, 2) . ').',
+                        'errors' => [
+                            'monto_aprobado' => [
+                                'Suma de garantías: Q' . number_format($sumaPrestamosPrenda, 2)
+                                    . ' vs monto crédito: Q' . number_format($montoCredito, 2),
+                            ],
+                        ],
+                    ], 422);
+                }
+            }
 
             // VALIDACIÓN: Verificar que las prendas no estén en estado "en_venta"
             // Una prenda en venta no puede ser empeñada
@@ -695,16 +723,27 @@ class CreditoPrendarioController extends Controller
                     }
                 }
 
+                $valorMercado = $tasacionData['valor_mercado'] ?? $tasacionData['valor_comercial'] ?? null;
+                $valorComercial = $tasacionData['valor_comercial']
+                    ?? $tasacionData['valor_final_asignado']
+                    ?? $valorMercado;
+                $valorLiquidacion = $tasacionData['valor_liquidacion']
+                    ?? $valorComercial
+                    ?? $valorMercado;
+                $valorFinal = $tasacionData['valor_final_asignado']
+                    ?? $valorComercial
+                    ?? $valorMercado;
+
                 Tasacion::create([
                     'prenda_id' => $primeraPrendaId,
                     'tasador_id' => $request->tasador_id ?? Auth::id(),
                     'credito_prendario_id' => $credito->id,
                     'numero_tasacion' => $numeroTasacion,
                     'fecha_tasacion' => now(),
-                    'valor_mercado' => $tasacionData['valor_mercado'] ?? null,
-                    'valor_comercial' => $tasacionData['valor_comercial'] ?? $tasacionData['valor_final_asignado'] ?? null,
-                    'valor_liquidacion' => $tasacionData['valor_liquidacion'] ?? null,
-                    'valor_final_asignado' => $tasacionData['valor_final_asignado'] ?? $tasacionData['valor_comercial'] ?? null,
+                    'valor_mercado' => $valorMercado,
+                    'valor_comercial' => $valorComercial,
+                    'valor_liquidacion' => $valorLiquidacion,
+                    'valor_final_asignado' => $valorFinal,
                     'condicion_fisica' => $condicion,  // Usar el valor mapeado correctamente
                     'antiguedad_estimada' => $tasacionData['antiguedad'] ?? null,
                     'metodo_tasacion' => $this->mapearMetodoTasacion($tasacionData['metodo_valuacion'] ?? 'comparativo'),
@@ -743,16 +782,14 @@ class CreditoPrendarioController extends Controller
             // ========================================
             if ($request->has('gas_ids') && is_array($request->gas_ids) && count($request->gas_ids) > 0) {
                 try {
+                    // sincronizarGastos ya prorratea Otros en el plan de pagos
                     $gastosService = app(\App\Services\GastosService::class);
                     $gastosService->sincronizarGastos($credito, $request->gas_ids);
 
-                    Log::info('Gastos asociados al crédito', [
+                    Log::info('Gastos asociados y prorrateados en plan', [
                         'credito_id' => $credito->id,
-                        'gas_ids' => $request->gas_ids
+                        'gas_ids' => $request->gas_ids,
                     ]);
-
-                    // Prorratear gastos en el plan de pagos
-                    $this->prorratearGastosEnPlanPagos($credito);
                 } catch (\Exception $gastoEx) {
                     // Log pero no fallar la transacción si hay error con gastos
                     Log::warning('Error al sincronizar gastos: ' . $gastoEx->getMessage());
@@ -790,10 +827,29 @@ class CreditoPrendarioController extends Controller
 
             DB::commit();
 
+            try {
+                $creditoFormateado = $this->formatCredito(
+                    $credito->fresh(['cliente', 'sucursal', 'prendas.categoriaProducto', 'planPagos', 'gastos'])
+                );
+            } catch (\Throwable $formatEx) {
+                // El crédito ya quedó persistido; no reportar fallo de formateo como error de creación.
+                Log::warning('Crédito creado pero falló el formateo de respuesta', [
+                    'credito_id' => $credito->id,
+                    'numero_credito' => $credito->numero_credito,
+                    'error' => $formatEx->getMessage(),
+                ]);
+                $creditoFormateado = [
+                    'id' => (string) $credito->id,
+                    'numero_credito' => $credito->numero_credito,
+                    'estado' => $credito->estado,
+                    'monto_aprobado' => (float) $credito->monto_aprobado,
+                ];
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Crédito prendario creado exitosamente',
-                'data' => $this->formatCredito($credito->fresh(['cliente', 'sucursal', 'prendas', 'planPagos']))
+                'data' => $creditoFormateado,
             ], 201);
 
         } catch (\Illuminate\Database\QueryException $e) {
@@ -956,7 +1012,11 @@ class CreditoPrendarioController extends Controller
             $capital = (float) $cuota->capital_proyectado;
             $interes = (float) $cuota->interes_proyectado;
             $mora = (float) $cuota->mora_proyectada;
-            $gastoCuota = $gastosPorCuota[$index] ?? 0;
+            // Preferir lo persistido en la cuota (fuente de verdad del plan)
+            $gastoPersistido = (float) ($cuota->otros_cargos_proyectados ?? 0);
+            $gastoCuota = $gastoPersistido > 0
+                ? $gastoPersistido
+                : (float) ($gastosPorCuota[$index] ?? 0);
             $cuotaBase = $capital + $interes;
             $cuotaTotal = $cuotaBase + $gastoCuota + $mora;
 
@@ -1090,26 +1150,29 @@ class CreditoPrendarioController extends Controller
                     'estado' => $prenda->estado,
                     'condicion_fisica' => $prenda->condicion_fisica,
                     'fotos' => is_array($prenda->fotos) ? $prenda->fotos : (is_string($prenda->fotos) ? json_decode($prenda->fotos, true) ?? [] : []),
-                    // Imágenes normalizadas
-                    'imagenes' => $prenda->imagenesNormalizadas->map(function ($img) {
-                        return [
-                            'id' => (string) $img->id,
-                            'url' => $img->url,
-                            'thumbnail_url' => $img->thumbnail_url,
-                            'tipo' => $img->tipo_imagen,
-                            'etiqueta' => $img->etiqueta,
-                            'descripcion' => $img->descripcion,
-                            'es_principal' => $img->es_principal,
-                            'orden' => $img->orden,
-                            'dimensiones' => $img->dimensiones,
-                            'tamano' => $img->tamano_formateado,
-                        ];
-                    }),
-                    'imagen_principal' => $prenda->imagenPrincipal ? [
+                    // Imágenes normalizadas (vacío si la relación/tabla no está disponible)
+                    'imagenes' => rescue(
+                        fn () => $prenda->imagenesNormalizadas->map(function ($img) {
+                            return [
+                                'id' => (string) $img->id,
+                                'url' => $img->url,
+                                'thumbnail_url' => $img->thumbnail_url,
+                                'tipo' => $img->tipo_imagen,
+                                'etiqueta' => $img->etiqueta,
+                                'descripcion' => $img->descripcion,
+                                'es_principal' => $img->es_principal,
+                                'orden' => $img->orden,
+                                'dimensiones' => $img->dimensiones,
+                                'tamano' => $img->tamano_formateado,
+                            ];
+                        }),
+                        collect()
+                    ),
+                    'imagen_principal' => rescue(fn () => $prenda->imagenPrincipal ? [
                         'id' => (string) $prenda->imagenPrincipal->id,
                         'url' => $prenda->imagenPrincipal->url,
                         'thumbnail_url' => $prenda->imagenPrincipal->thumbnail_url,
-                    ] : null,
+                    ] : null, null),
                     // Datos adicionales normalizados
                     'datos_adicionales_normalizados' => $prenda->datosAdicionalesNormalizados->map(function ($dato) {
                         return [
@@ -1265,7 +1328,7 @@ class CreditoPrendarioController extends Controller
     /**
      * Calcula el monto de mora pendiente en tiempo real usando los días reales de mora.
      * Para tipo monto_fijo: dias * monto_fijo_por_dia.
-     * Para porcentaje: capital_pendiente * (tasa_mora/100/30) * dias.
+     * Para porcentaje: capital activo * (tasa_mora% diaria) * dias.
      */
     private function calcularMoraPendienteRealtime(CreditoPrendario $credito, int $diasMora): float
     {
@@ -1273,19 +1336,20 @@ class CreditoPrendarioController extends Controller
             return 0.0;
         }
 
-        $tipoMora  = (string) ($credito->tipo_mora ?? 'porcentaje');
-        $tasaMora  = (float)  ($credito->tasa_mora ?? 0);
-        $moraFijo  = (float)  ($credito->mora_monto_fijo ?? 0);
         $moraPagada = (float) ($credito->mora_pagada ?? 0);
+        $moraService = app(\App\Services\MoraService::class);
+        $cfg = $moraService->resolverConfiguracionMora($credito);
+
+        $tipoMora = (string) ($cfg['tipo_mora'] ?? 'porcentaje');
+        $tasaMora = (float) ($cfg['tasa_mora'] ?? 0);
+        $moraFijo = (float) ($cfg['mora_monto_fijo'] ?? 0);
 
         if ($tipoMora === 'monto_fijo' && $moraFijo > 0) {
             $moraTotal = round($moraFijo * $diasMora, 2);
         } elseif ($tipoMora === 'porcentaje' && $tasaMora > 0) {
-            $tasaDiaria = ($tasaMora / 100) / 30;
-            $base = (float) ($credito->capital_pendiente ?? $credito->monto_aprobado ?? 0);
-            $moraTotal = round($base * $tasaDiaria * $diasMora, 2);
+            $base = $moraService->resolverCapitalActivoParaMora($credito);
+            $moraTotal = round($base * $moraService->tasaMoraDiariaDecimal($tasaMora) * $diasMora, 2);
         } else {
-            // Si no hay configuración en el crédito, usar el valor guardado en BD como fallback
             return max(0.0, (float) ($credito->mora_generada - $moraPagada));
         }
 
@@ -1541,57 +1605,8 @@ class CreditoPrendarioController extends Controller
      */
     private function prorratearGastosEnPlanPagos(CreditoPrendario $credito): void
     {
-        // Cargar gastos frescos
-        $credito->load('gastos', 'planPagos');
-
-        if (!$credito->gastos || $credito->gastos->count() === 0) {
-            return;
-        }
-
-        if (!$credito->planPagos || $credito->planPagos->count() === 0) {
-            return;
-        }
-
-        // Calcular total de gastos
-        $totalGastos = $credito->gastos->sum(function ($gasto) {
-            return (float) ($gasto->pivot->valor_calculado ?? 0);
-        });
-
-        if ($totalGastos <= 0) {
-            return;
-        }
-
-        $numeroCuotas = $credito->planPagos->count();
-        $gastoPorCuota = round($totalGastos / $numeroCuotas, 2); // Redondear correctamente a 2 decimales
-        $gastoAcumulado = 0;
-
-        // Actualizar cada cuota con su parte prorrateada de gastos
-        $cuotas = $credito->planPagos->sortBy('numero_cuota');
-        foreach ($cuotas as $index => $cuota) {
-            if ($index === $numeroCuotas - 1) {
-                // Última cuota: asignar el resto para evitar desfases por redondeo
-                $gastoEnCuota = round($totalGastos - $gastoAcumulado, 2);
-            } else {
-                $gastoEnCuota = $gastoPorCuota;
-                $gastoAcumulado += $gastoPorCuota;
-            }
-
-            // Actualizar cuota con gastos
-            $cuota->update([
-                'otros_cargos_proyectados' => $gastoEnCuota,
-                'otros_cargos_pendientes' => $gastoEnCuota,
-                // Los gastos se suman al monto total de la cuota y al pendiente
-                'monto_cuota_proyectado' => (float) $cuota->monto_cuota_proyectado + $gastoEnCuota,
-                'monto_pendiente' => (float) $cuota->monto_pendiente + $gastoEnCuota,
-            ]);
-        }
-
-        Log::info('Gastos prorrateados en plan de pagos', [
-            'credito_id' => $credito->id,
-            'total_gastos' => $totalGastos,
-            'gasto_por_cuota' => $gastoPorCuota,
-            'numero_cuotas' => $numeroCuotas
-        ]);
+        // Delegar al servicio (reemplaza Otros, no suma encima)
+        app(\App\Services\GastosService::class)->prorratearEnPlanPagos($credito);
     }
 
     /**

@@ -91,6 +91,9 @@ class GastosService
             // Recargar gastos
             $credito->load('gastos');
 
+            // Distribuir gastos en el plan de pagos para que salgan al cobrar
+            $this->prorratearEnPlanPagos($credito);
+
             Log::info('Gastos sincronizados para crédito', [
                 'credito_id' => $credito->id,
                 'gastos_ids' => $gastoIds,
@@ -99,6 +102,75 @@ class GastosService
 
             return $this->calcularValoresGastos($credito->gastos, $montoOtorgado);
         });
+    }
+
+    /**
+     * Prorratea los gastos del crédito en cada cuota del plan.
+     * Reemplaza otros_cargos (no suma encima) para poder re-sincronizar sin duplicar.
+     */
+    public function prorratearEnPlanPagos(CreditoPrendario $credito): void
+    {
+        // Forzar recarga: tras generarPlanPagos la relación puede estar vacía/stale
+        // y loadMissing no volvería a consultar, dejando Otros en 0.
+        $credito->unsetRelation('gastos');
+        $credito->unsetRelation('planPagos');
+        $credito->load(['gastos', 'planPagos']);
+
+        if (!$credito->planPagos || $credito->planPagos->count() === 0) {
+            Log::warning('No se pudo prorratear gastos: crédito sin plan de pagos', [
+                'credito_id' => $credito->id,
+            ]);
+            return;
+        }
+
+        $totalGastos = $credito->gastos->sum(function ($gasto) {
+            return (float) ($gasto->pivot->valor_calculado ?? 0);
+        });
+
+        $numeroCuotas = $credito->planPagos->count();
+        $gastoPorCuota = $numeroCuotas > 0 ? round($totalGastos / $numeroCuotas, 2) : 0;
+        $gastoAcumulado = 0.0;
+
+        $cuotas = $credito->planPagos->sortBy('numero_cuota')->values();
+        foreach ($cuotas as $index => $cuota) {
+            // No pisar cuotas ya pagadas/parciales: solo ajustar el pendiente de otros
+            $yaPagada = in_array((string) $cuota->estado, ['pagada', 'renovada'], true);
+            $otrosPagados = (float) ($cuota->otros_cargos_pagados ?? 0);
+
+            if ($totalGastos <= 0) {
+                $gastoEnCuota = 0.0;
+            } elseif ($index === $numeroCuotas - 1) {
+                $gastoEnCuota = round($totalGastos - $gastoAcumulado, 2);
+            } else {
+                $gastoEnCuota = $gastoPorCuota;
+                $gastoAcumulado += $gastoPorCuota;
+            }
+
+            if ($yaPagada) {
+                continue;
+            }
+
+            $capitalPend = (float) ($cuota->capital_pendiente ?? 0);
+            $interesPend = (float) ($cuota->interes_pendiente ?? 0);
+            $moraPend = (float) ($cuota->mora_pendiente ?? 0);
+            $capitalProy = (float) ($cuota->capital_proyectado ?? $capitalPend);
+            $interesProy = (float) ($cuota->interes_proyectado ?? $interesPend);
+            $otrosPendientes = max(0, round($gastoEnCuota - $otrosPagados, 2));
+
+            $cuota->update([
+                'otros_cargos_proyectados' => $gastoEnCuota,
+                'otros_cargos_pendientes' => $otrosPendientes,
+                'monto_cuota_proyectado' => round($capitalProy + $interesProy + $gastoEnCuota, 2),
+                'monto_pendiente' => round($capitalPend + $interesPend + $moraPend + $otrosPendientes, 2),
+            ]);
+        }
+
+        Log::info('Gastos prorrateados en plan de pagos', [
+            'credito_id' => $credito->id,
+            'total_gastos' => $totalGastos,
+            'gasto_por_cuota' => $gastoPorCuota,
+            'numero_cuotas' => $numeroCuotas,
+        ]);
     }
 
     /**
@@ -122,6 +194,7 @@ class GastosService
             }
 
             $credito->load('gastos');
+            $this->prorratearEnPlanPagos($credito);
             return $this->calcularValoresGastos($credito->gastos, $montoOtorgado);
         });
     }
@@ -138,6 +211,7 @@ class GastosService
         return DB::transaction(function () use ($credito, $gastoId) {
             $credito->gastos()->detach($gastoId);
             $credito->load('gastos');
+            $this->prorratearEnPlanPagos($credito);
 
             $montoOtorgado = (float) ($credito->monto_aprobado ?? $credito->monto_solicitado ?? 0);
             return $this->calcularValoresGastos($credito->gastos, $montoOtorgado);
