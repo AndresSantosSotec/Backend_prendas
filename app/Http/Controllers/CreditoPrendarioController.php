@@ -1682,47 +1682,78 @@ class CreditoPrendarioController extends Controller
      */
     public static function debeAplicarTasaDirectaPorPeriodo($planIdOObjeto = null): bool
     {
-        // 1. Configuración del tenant en base de datos (clave configurable)
+        // IMPORTANTE: PrendaMás SIEMPRE usa tasa directa (4.03% semanal = 4.03%, NO /4).
+        // Antes, si la config existía en false, cortaba aquí y calculaba mal (Q8.06 en vez de Q32.24).
+
+        // 1) Organización / URL PrendaMás
+        if (static::esOrganizacionPrendamas()) {
+            return true;
+        }
+
+        // 2) Plan PM-* o códigos legacy
+        if (static::esPlanCatalogoPrendamas($planIdOObjeto)) {
+            return true;
+        }
+
+        // 3) Config explícita del tenant
         try {
             if (\Illuminate\Support\Facades\Schema::hasTable('configuraciones_sistema')) {
                 $configVal = ConfiguracionSistema::obtener('credito_tasa_por_periodo_directa', null);
                 if ($configVal !== null) {
-                    return (bool) $configVal;
+                    return filter_var($configVal, FILTER_VALIDATE_BOOLEAN);
                 }
             }
         } catch (\Throwable) {}
 
-        // 2. Variable de entorno del servidor / instancia
+        // 4) Variable de entorno
         if (filter_var(env('CREDITO_TASA_POR_PERIODO_DIRECTA', false), FILTER_VALIDATE_BOOLEAN)) {
             return true;
         }
 
-        // 3. Si se pasa un plan de crédito específico, revisar si ese plan pertenece al catálogo Prendamás
-        if ($planIdOObjeto) {
-            $plan = null;
-            if ($planIdOObjeto instanceof CreditoPrendario) {
-                if ($planIdOObjeto->plan_interes_id) {
-                    $plan = PlanInteresCategoria::find($planIdOObjeto->plan_interes_id);
-                }
-            } elseif ($planIdOObjeto instanceof PlanInteresCategoria) {
-                $plan = $planIdOObjeto;
-            } elseif (is_numeric($planIdOObjeto)) {
-                $plan = PlanInteresCategoria::find((int) $planIdOObjeto);
-            }
-
-            if ($plan && (str_starts_with($plan->codigo ?? '', 'PM-') || str_contains(strtolower($plan->nombre ?? ''), 'prendam'))) {
-                return true;
-            }
-        }
-
-        // 4. Identificador de organización por entorno
-        $orgSlug = strtolower(trim((string) (env('ORGANIZATION_SLUG') ?: env('EMPRESA_NOMBRE') ?: env('APP_NAME') ?: '')));
-        if (str_contains($orgSlug, 'prendam')) {
-            return true;
-        }
-
-        // Por defecto: false (comportamiento estándar tradicional para Avanza y nuevos clientes)
         return false;
+    }
+
+    public static function esOrganizacionPrendamas(): bool
+    {
+        $orgSlug = strtolower(trim((string) (env('ORGANIZATION_SLUG') ?: env('EMPRESA_NOMBRE') ?: env('APP_NAME') ?: '')));
+        $appUrl = strtolower((string) (env('APP_URL') ?: ''));
+        $apiUrl = strtolower((string) (env('API_URL') ?: env('APP_URL') ?: ''));
+
+        return str_contains($orgSlug, 'prendam')
+            || str_contains($appUrl, 'prendamas')
+            || str_contains($appUrl, 'predamas')
+            || str_contains($apiUrl, 'prendamas')
+            || str_contains($apiUrl, 'predamas');
+    }
+
+    public static function esPlanCatalogoPrendamas($planIdOObjeto = null): bool
+    {
+        if (!$planIdOObjeto) {
+            return false;
+        }
+
+        $plan = null;
+        if ($planIdOObjeto instanceof CreditoPrendario) {
+            if ($planIdOObjeto->plan_interes_id) {
+                $plan = PlanInteresCategoria::find($planIdOObjeto->plan_interes_id);
+            }
+        } elseif ($planIdOObjeto instanceof PlanInteresCategoria) {
+            $plan = $planIdOObjeto;
+        } elseif (is_numeric($planIdOObjeto)) {
+            $plan = PlanInteresCategoria::find((int) $planIdOObjeto);
+        }
+
+        if (!$plan) {
+            return false;
+        }
+
+        $codigoPlan = strtoupper((string) ($plan->codigo ?? ''));
+        $nombrePlan = strtolower((string) ($plan->nombre ?? ''));
+        $codigosLegacy = ['S04S4', 'Q02Q3', 'M01M3', 'PM-SEMANAL', 'PM-QUINCENAL', 'PM-MENSUAL'];
+
+        return str_starts_with($codigoPlan, 'PM-')
+            || in_array($codigoPlan, $codigosLegacy, true)
+            || str_contains($nombrePlan, 'prendam');
     }
 
     /**
@@ -3224,7 +3255,8 @@ class CreditoPrendarioController extends Controller
             $fechaDesembolso = isset($request->credito['fecha_desembolso']) ? Carbon::parse($request->credito['fecha_desembolso']) : Carbon::now();
             $fechaPrimerPago = isset($request->credito['fecha_primer_pago']) ? Carbon::parse($request->credito['fecha_primer_pago']) : null;
 
-            $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres);
+            $planIdPrelim = $request->credito['plan_interes_id'] ?? $request->credito['plan_id'] ?? null;
+            $tasaPorPeriodo = $this->calcularTasaPorPeriodo($tasaInteres, $tipoInteres, $planIdPrelim);
             $interesPorCuota = round($montoAprobado * $tasaPorPeriodo, 2);
             $capitalPorCuota = round($montoAprobado / max(1, $numeroCuotas), 2);
             $diasEntreCuotas = $this->calcularDiasEntreCuotasPorTipo($tipoInteres);

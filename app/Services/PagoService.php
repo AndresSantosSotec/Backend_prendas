@@ -1783,7 +1783,12 @@ class PagoService
         }
 
         $tasaBase = (float) $credito->tasa_interes;
-        $tasaPeriodo = $this->calcularTasaPorPeriodo($tasaBase, (string) $credito->tipo_interes);
+        $tasaPeriodo = $this->calcularTasaPorPeriodo(
+            $tasaBase,
+            (string) $credito->tipo_interes,
+            $credito->plan_interes_id,
+            $credito
+        );
 
         foreach ($cuotasPendientes as $cuota) {
             $capitalProyectado = (float) ($cuota->capital_proyectado ?? $cuota->capital_pendiente ?? 0);
