@@ -2665,29 +2665,120 @@ class CreditoPrendarioController extends Controller
                 'motivo_reversion' => $request->motivo,
             ]);
 
-            // Si el movimiento era un pago, revertir la cuota
-            if (in_array($movimiento->tipo_movimiento, ['pago', 'pago_parcial'])) {
+            // Revertir impacto en plan de pagos para CUALQUIER tipo de cobro
+            // (antes solo 'pago'/'pago_parcial' → renovación/abono dejaba interés/mora como "pagados")
+            $tiposCobro = ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado', 'pago_interes', 'renovacion'];
+            if (in_array($movimiento->tipo_movimiento, $tiposCobro, true)) {
                 if ($movimiento->cuota_id) {
                     $cuota = CreditoPlanPago::find($movimiento->cuota_id);
-
                     if ($cuota) {
-                        // Revertir montos pagados
-                        $cuota->update([
-                            'capital_pagado' => max(0, $cuota->capital_pagado - $movimiento->capital),
-                            'interes_pagado' => max(0, $cuota->interes_pagado - $movimiento->interes),
-                            'mora_pagada' => max(0, $cuota->mora_pagada - $movimiento->mora),
-                            'monto_total_pagado' => max(0, $cuota->monto_total_pagado - $movimiento->monto_total),
-                        ]);
+                        $cuota->capital_pagado = max(0, (float) $cuota->capital_pagado - (float) $movimiento->capital);
+                        $cuota->interes_pagado = max(0, (float) $cuota->interes_pagado - (float) $movimiento->interes);
+                        $cuota->mora_pagada = max(0, (float) $cuota->mora_pagada - (float) $movimiento->mora);
+                        $cuota->otros_cargos_pagados = max(0, (float) ($cuota->otros_cargos_pagados ?? 0) - (float) ($movimiento->otros_cargos ?? 0));
+                        $cuota->monto_total_pagado = max(
+                            0,
+                            (float) $cuota->capital_pagado
+                            + (float) $cuota->interes_pagado
+                            + (float) $cuota->mora_pagada
+                            + (float) ($cuota->otros_cargos_pagados ?? 0)
+                        );
+                        $cuota->capital_pendiente = max(0, (float) $cuota->capital_proyectado - (float) $cuota->capital_pagado);
+                        $cuota->interes_pendiente = max(0, (float) $cuota->interes_proyectado - (float) $cuota->interes_pagado);
+                        $cuota->mora_pendiente = max(0, (float) ($cuota->mora_proyectada ?? 0) - (float) $cuota->mora_pagada);
+                        $cuota->otros_cargos_pendientes = max(0, (float) ($cuota->otros_cargos_proyectados ?? 0) - (float) ($cuota->otros_cargos_pagados ?? 0));
+                        $cuota->monto_pendiente = max(
+                            0,
+                            (float) $cuota->capital_pendiente
+                            + (float) $cuota->interes_pendiente
+                            + (float) $cuota->mora_pendiente
+                            + (float) ($cuota->otros_cargos_pendientes ?? 0)
+                        );
 
-                        // Recalcular pendientes
-                        $cuota->update([
-                            'capital_pendiente' => $cuota->capital_proyectado - $cuota->capital_pagado,
-                            'interes_pendiente' => $cuota->interes_proyectado - $cuota->interes_pagado,
-                            'mora_pendiente' => $cuota->mora_proyectada - $cuota->mora_pagada,
-                            'monto_pendiente' => $cuota->monto_cuota_proyectado - $cuota->monto_total_pagado,
-                            'estado' => $cuota->monto_pendiente <= 0 ? 'pagada' : 'pagada_parcial',
-                            'fecha_pago' => $cuota->monto_pendiente <= 0 ? $cuota->fecha_pago : null,
-                        ]);
+                        if ($cuota->monto_pendiente <= 0.01) {
+                            $cuota->estado = 'pagada';
+                        } elseif ($cuota->monto_total_pagado > 0.01) {
+                            $cuota->estado = 'pagada_parcial';
+                            $cuota->fecha_pago = null;
+                        } else {
+                            $cuota->fecha_pago = null;
+                            if ((int) ($cuota->dias_mora ?? 0) > 0) {
+                                $cuota->estado = 'en_mora';
+                            } elseif ($cuota->fecha_vencimiento && now()->gt($cuota->fecha_vencimiento)) {
+                                $cuota->estado = 'vencida';
+                            } else {
+                                $cuota->estado = 'pendiente';
+                            }
+                        }
+                        $cuota->save();
+                    }
+                } else {
+                    // Movimientos sin cuota_id (renovación/abono): devolver montos a cuotas abiertas
+                    $restanteInteres = (float) $movimiento->interes;
+                    $restanteMora = (float) $movimiento->mora;
+                    $restanteCapital = (float) $movimiento->capital;
+                    $restanteOtros = (float) ($movimiento->otros_cargos ?? 0);
+
+                    $cuotas = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+                        ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial', 'pagada', 'renovada'])
+                        ->orderBy('numero_cuota', 'desc')
+                        ->get();
+
+                    foreach ($cuotas as $cuota) {
+                        if ($restanteInteres <= 0.009 && $restanteMora <= 0.009 && $restanteCapital <= 0.009 && $restanteOtros <= 0.009) {
+                            break;
+                        }
+
+                        $revInteres = min($restanteInteres, (float) ($cuota->interes_pagado ?? 0));
+                        $revMora = min($restanteMora, (float) ($cuota->mora_pagada ?? 0));
+                        $revCapital = min($restanteCapital, (float) ($cuota->capital_pagado ?? 0));
+                        $revOtros = min($restanteOtros, (float) ($cuota->otros_cargos_pagados ?? 0));
+
+                        if ($revInteres + $revMora + $revCapital + $revOtros <= 0) {
+                            continue;
+                        }
+
+                        $cuota->interes_pagado = max(0, (float) $cuota->interes_pagado - $revInteres);
+                        $cuota->mora_pagada = max(0, (float) $cuota->mora_pagada - $revMora);
+                        $cuota->capital_pagado = max(0, (float) $cuota->capital_pagado - $revCapital);
+                        $cuota->otros_cargos_pagados = max(0, (float) ($cuota->otros_cargos_pagados ?? 0) - $revOtros);
+                        $cuota->interes_pendiente = max(0, (float) $cuota->interes_proyectado - (float) $cuota->interes_pagado);
+                        $cuota->mora_pendiente = max(0, (float) ($cuota->mora_proyectada ?? 0) - (float) $cuota->mora_pagada);
+                        $cuota->capital_pendiente = max(0, (float) $cuota->capital_proyectado - (float) $cuota->capital_pagado);
+                        $cuota->otros_cargos_pendientes = max(0, (float) ($cuota->otros_cargos_proyectados ?? 0) - (float) ($cuota->otros_cargos_pagados ?? 0));
+                        $cuota->monto_total_pagado = (float) $cuota->capital_pagado + (float) $cuota->interes_pagado + (float) $cuota->mora_pagada + (float) ($cuota->otros_cargos_pagados ?? 0);
+                        $cuota->monto_pendiente = (float) $cuota->capital_pendiente + (float) $cuota->interes_pendiente + (float) $cuota->mora_pendiente + (float) ($cuota->otros_cargos_pendientes ?? 0);
+
+                        if ($cuota->estado === 'renovada' && $cuota->monto_pendiente > 0.01) {
+                            if ((int) ($cuota->dias_mora ?? 0) > 0) {
+                                $cuota->estado = 'en_mora';
+                            } elseif ($cuota->fecha_vencimiento && now()->gt($cuota->fecha_vencimiento)) {
+                                $cuota->estado = 'vencida';
+                            } else {
+                                $cuota->estado = 'pendiente';
+                            }
+                            $cuota->fecha_pago = null;
+                        } elseif ($cuota->monto_pendiente <= 0.01) {
+                            $cuota->estado = 'pagada';
+                        } elseif ($cuota->monto_total_pagado > 0.01) {
+                            $cuota->estado = 'pagada_parcial';
+                            $cuota->fecha_pago = null;
+                        } else {
+                            $cuota->fecha_pago = null;
+                            if ((int) ($cuota->dias_mora ?? 0) > 0) {
+                                $cuota->estado = 'en_mora';
+                            } elseif ($cuota->fecha_vencimiento && now()->gt($cuota->fecha_vencimiento)) {
+                                $cuota->estado = 'vencida';
+                            } else {
+                                $cuota->estado = 'pendiente';
+                            }
+                        }
+
+                        $cuota->save();
+                        $restanteInteres -= $revInteres;
+                        $restanteMora -= $revMora;
+                        $restanteCapital -= $revCapital;
+                        $restanteOtros -= $revOtros;
                     }
                 }
             }

@@ -55,7 +55,7 @@ class PagoController extends Controller
     public function ejecutarPago(Request $request, string $id)
     {
         $request->validate([
-            'tipo' => 'required|in:CUOTA,RENOVACION,ADELANTO,PARCIAL,LIQUIDACION',
+            'tipo' => 'required|in:CUOTA,RENOVACION,ADELANTO,PARCIAL,LIQUIDACION,LIBRE',
             'monto' => 'required|numeric|min:0.01',
             'metodo_pago' => 'nullable|string',
             'referencia' => 'nullable|string',
@@ -67,6 +67,11 @@ class PagoController extends Controller
             'monto_descuento' => 'nullable|numeric|min:0',
             'descuento_motivo' => 'nullable|string',
             'recalcular_plan_pagos' => 'nullable|boolean',
+            // Pago libre: el cajero elige cuánto va a mora / interés / otros / capital
+            'monto_mora' => 'nullable|numeric|min:0',
+            'monto_interes' => 'nullable|numeric|min:0',
+            'monto_otros' => 'nullable|numeric|min:0',
+            'monto_capital' => 'nullable|numeric|min:0',
         ]);
 
         try {

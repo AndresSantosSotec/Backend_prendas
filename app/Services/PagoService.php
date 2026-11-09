@@ -659,6 +659,7 @@ class PagoService
      * - ADELANTO: Paga cuotas futuras completas (reduce saldo)
      * - PARCIAL: Abono libre con prelación (mora → interés → capital)
      * - LIQUIDACION: Paga todo y cierra el crédito
+     * - LIBRE: el cajero define montos exactos de mora / interés / otros / capital
      */
     public function ejecutarPago(array $data)
     {
@@ -704,6 +705,7 @@ class PagoService
                 'ADELANTO' => $this->procesarAdelanto($credito, $monto, $data, $data['cuotas'] ?? 1),
                 'PARCIAL' => $this->procesarPagoParcial($credito, $monto, $data),
                 'LIQUIDACION' => $this->procesarLiquidacion($credito, $monto, $data),
+                'LIBRE' => $this->procesarPagoLibre($credito, $monto, $data),
                 default => throw new \Exception("Tipo de pago no válido: $tipo"),
             };
         });
@@ -1627,6 +1629,117 @@ class PagoService
             $monto,
             $credito->numero_credito,
             'PARCIAL',
+            $movimiento->numero_movimiento,
+            $clienteNombre
+        );
+
+        return $movimiento;
+    }
+
+    /**
+     * Pago libre: el cajero elige exactamente cuánto aplica a mora / interés / otros / capital.
+     * No fuerza prelación automática.
+     */
+    private function procesarPagoLibre(CreditoPrendario $credito, float $monto, array $data)
+    {
+        $pagoMora = round((float) ($data['monto_mora'] ?? 0), 2);
+        $pagoInteres = round((float) ($data['monto_interes'] ?? 0), 2);
+        $pagoOtros = round((float) ($data['monto_otros'] ?? 0), 2);
+        $pagoCapital = round((float) ($data['monto_capital'] ?? 0), 2);
+
+        if ($pagoMora < 0 || $pagoInteres < 0 || $pagoOtros < 0 || $pagoCapital < 0) {
+            throw new \Exception('Los montos del pago libre no pueden ser negativos');
+        }
+
+        $sumaComponentes = round($pagoMora + $pagoInteres + $pagoOtros + $pagoCapital, 2);
+        if ($sumaComponentes <= 0) {
+            throw new \Exception('Debe indicar al menos un monto a pagar (mora, interés, otros o capital)');
+        }
+
+        // Si mandan monto total distinto, prevalece la suma de componentes
+        if (abs($sumaComponentes - $monto) > 0.01) {
+            $monto = $sumaComponentes;
+        }
+
+        $cuotasPendientes = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
+            ->orderBy('numero_cuota', 'asc')
+            ->get();
+
+        if ($cuotasPendientes->isEmpty()) {
+            throw new \Exception('No hay cuotas pendientes para aplicar el pago libre');
+        }
+
+        $moraTotalPendiente = 0;
+        $interesTotalPendiente = 0;
+        $otrosTotalPendiente = 0;
+        $capitalTotalPendiente = 0;
+
+        foreach ($cuotasPendientes as $cuota) {
+            $moraTotalPendiente += max(0, ($cuota->mora_proyectada ?? 0) - ($cuota->mora_pagada ?? 0));
+            $interesTotalPendiente += max(0, $cuota->interes_proyectado - ($cuota->interes_pagado ?? 0));
+            $otrosTotalPendiente += max(0, ($cuota->otros_cargos_pendientes ?? max(0, ($cuota->otros_cargos_proyectados ?? 0) - ($cuota->otros_cargos_pagados ?? 0))));
+            $capitalTotalPendiente += max(0, $cuota->capital_proyectado - ($cuota->capital_pagado ?? 0));
+        }
+
+        if ($pagoMora > $moraTotalPendiente + 0.01) {
+            throw new \Exception('El monto de mora excede lo pendiente (Q' . number_format($moraTotalPendiente, 2) . ')');
+        }
+        if ($pagoInteres > $interesTotalPendiente + 0.01) {
+            throw new \Exception('El monto de interés excede lo pendiente (Q' . number_format($interesTotalPendiente, 2) . ')');
+        }
+        if ($pagoOtros > $otrosTotalPendiente + 0.01) {
+            throw new \Exception('El monto de otros cargos excede lo pendiente (Q' . number_format($otrosTotalPendiente, 2) . ')');
+        }
+        if ($pagoCapital > $capitalTotalPendiente + 0.01) {
+            throw new \Exception('El monto de capital excede lo pendiente (Q' . number_format($capitalTotalPendiente, 2) . ')');
+        }
+
+        $formaPago = $data['forma_pago'] ?? $data['metodo_pago'] ?? 'efectivo';
+        $movimiento = CreditoMovimiento::create([
+            'credito_prendario_id' => $credito->id,
+            'tipo_movimiento' => 'pago_parcial',
+            'fecha_movimiento' => now(),
+            'fecha_registro' => now(),
+            'monto_total' => $monto,
+            'capital' => $pagoCapital,
+            'interes' => $pagoInteres,
+            'mora' => $pagoMora,
+            'otros_cargos' => $pagoOtros,
+            'saldo_capital' => max(0, (float) $credito->capital_pendiente - $pagoCapital),
+            'usuario_id' => Auth::id() ?? 1,
+            'sucursal_id' => $credito->sucursal_id,
+            'numero_movimiento' => Str::upper(Str::random(10)),
+            'forma_pago' => $formaPago,
+            'observaciones' => 'PAGO LIBRE - Mora: Q' . number_format($pagoMora, 2) .
+                ', Interés: Q' . number_format($pagoInteres, 2) .
+                ', Otros: Q' . number_format($pagoOtros, 2) .
+                ', Capital: Q' . number_format($pagoCapital, 2) .
+                ' - ' . ($data['observaciones'] ?? ''),
+            'estado' => 'activo',
+        ]);
+
+        $credito->capital_pendiente = max(0, (float) $credito->capital_pendiente - (float) $pagoCapital);
+        $credito->capital_pagado = (float) $credito->capital_pagado + (float) $pagoCapital;
+        $credito->interes_pagado = (float) $credito->interes_pagado + (float) $pagoInteres;
+        $credito->mora_pagada = (float) $credito->mora_pagada + (float) $pagoMora;
+        $credito->fecha_ultimo_pago = now();
+        if ($pagoMora >= $moraTotalPendiente - 0.10) {
+            $credito->dias_mora = 0;
+        }
+        $credito->save();
+
+        $this->distribuirAbonoPrelacion($cuotasPendientes, $pagoMora, $pagoInteres, $pagoOtros, $pagoCapital, $credito);
+
+        if ($pagoCapital > 0.10) {
+            $this->recalcularCuotasFuturas($credito);
+        }
+
+        $clienteNombre = $credito->cliente ? ($credito->cliente->nombres . ' ' . $credito->cliente->apellidos) : null;
+        CajaService::registrarPagoCredito(
+            $monto,
+            $credito->numero_credito,
+            'LIBRE',
             $movimiento->numero_movimiento,
             $clienteNombre
         );

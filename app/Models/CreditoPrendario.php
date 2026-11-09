@@ -302,19 +302,21 @@ class CreditoPrendario extends Model
             ->where('estado', 'activo')
             ->get();
 
+        $tiposPago = ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado', 'pago_interes', 'renovacion'];
+
         // Calcular capital pagado (suma de capital de pagos)
         $capitalPagado = $movimientosActivos
-            ->whereIn('tipo_movimiento', ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado'])
+            ->whereIn('tipo_movimiento', $tiposPago)
             ->sum('capital');
 
-        // Calcular interés pagado
+        // Calcular interés pagado (incluye renovación / pago_interes)
         $interesPagado = $movimientosActivos
-            ->whereIn('tipo_movimiento', ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado'])
+            ->whereIn('tipo_movimiento', $tiposPago)
             ->sum('interes');
 
         // Calcular mora pagada
         $moraPagada = $movimientosActivos
-            ->whereIn('tipo_movimiento', ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado', 'cargo_mora'])
+            ->whereIn('tipo_movimiento', array_merge($tiposPago, ['cargo_mora']))
             ->sum('mora');
 
         // Calcular capital pendiente
@@ -363,16 +365,18 @@ class CreditoPrendario extends Model
             ->where('estado', 'activo')
             ->get();
 
+        $tiposPago = ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado', 'pago_interes', 'renovacion'];
+
         $capitalPagado = $movimientosActivos
-            ->whereIn('tipo_movimiento', ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado'])
+            ->whereIn('tipo_movimiento', $tiposPago)
             ->sum('capital');
 
         $interesPagado = $movimientosActivos
-            ->whereIn('tipo_movimiento', ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado'])
+            ->whereIn('tipo_movimiento', $tiposPago)
             ->sum('interes');
 
         $moraPagada = $movimientosActivos
-            ->whereIn('tipo_movimiento', ['pago', 'pago_parcial', 'pago_total', 'pago_adelantado', 'cargo_mora'])
+            ->whereIn('tipo_movimiento', array_merge($tiposPago, ['cargo_mora']))
             ->sum('mora');
 
         $capitalPendiente = $this->monto_aprobado - $capitalPagado;
