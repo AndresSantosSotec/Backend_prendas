@@ -1745,7 +1745,8 @@ class PagoService
         if ($extenderPlazo) {
             $this->extenderPlazoPeriodos($credito, 1, 'Pago libre (interés/mora) — extensión 1 período');
         } elseif ($pagoCapital > 0.10) {
-            $this->recalcularCuotasFuturas($credito);
+            // Solo en LIBRE: capital abonado → recalcular interés de cuotas abiertas sobre saldo nuevo
+            $this->recalcularCuotasFuturas($credito, true);
         }
 
         $clienteNombre = $credito->cliente ? ($credito->cliente->nombres . ' ' . $credito->cliente->apellidos) : null;
@@ -2001,33 +2002,52 @@ class PagoService
     }
 
     /**
-     * Recalcula las cuotas futuras con el nuevo capital pendiente del crédito
-     * Esto se ejecuta después de un abono que reduce el capital
+     * Recalcula las cuotas abiertas con el nuevo capital pendiente del crédito.
+     * Si $recalcularInteres=true (pago LIBRE con capital), también recalcula
+     * el interés proyectado sobre el saldo: capital_pendiente × tasa del período.
+     * La mora ya generada de la cuota actual se respeta; no se inventa mora nueva.
      */
-    private function recalcularCuotasFuturas(CreditoPrendario $credito)
+    private function recalcularCuotasFuturas(CreditoPrendario $credito, bool $recalcularInteres = false)
     {
-        // Obtener cuotas futuras que NO han sido pagadas (pendiente o renovada)
         $cuotasFuturas = CreditoPlanPago::where('credito_prendario_id', $credito->id)
-            ->whereIn('estado', ['pendiente', 'renovada'])
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
             ->orderBy('numero_cuota', 'asc')
             ->get();
+
+        $nuevoInteres = null;
+        if ($recalcularInteres) {
+            $tasaPorPeriodo = $this->calcularTasaPorPeriodo(
+                (float) $credito->tasa_interes,
+                (string) $credito->tipo_interes,
+                $credito->plan_interes_id,
+                $credito
+            );
+            $nuevoInteres = round((float) $credito->capital_pendiente * $tasaPorPeriodo, 2);
+        }
 
         foreach ($cuotasFuturas as $cuota) {
             // Actualizar capital proyectado con el nuevo saldo del crédito
             $cuota->capital_proyectado = $credito->capital_pendiente;
-            $cuota->capital_pendiente = max(0, $credito->capital_pendiente - ($cuota->capital_pagado ?? 0));
+            $cuota->capital_pendiente = max(0, (float) $credito->capital_pendiente - (float) ($cuota->capital_pagado ?? 0));
+
+            if ($recalcularInteres && $nuevoInteres !== null) {
+                $interesPagado = (float) ($cuota->interes_pagado ?? 0);
+                $cuota->interes_proyectado = $nuevoInteres;
+                $cuota->interes_pendiente = max(0, round($nuevoInteres - $interesPagado, 2));
+                // Mora: se mantiene la ya proyectada/pagada; no se recalcula aquí
+            }
 
             // Recalcular monto total de la cuota
-            $cuota->monto_cuota_proyectado = $cuota->capital_proyectado +
-                                            $cuota->interes_proyectado +
-                                            ($cuota->mora_proyectada ?? 0) +
-                                            ($cuota->otros_cargos_proyectados ?? 0);
+            $cuota->monto_cuota_proyectado = (float) $cuota->capital_proyectado +
+                                            (float) $cuota->interes_proyectado +
+                                            (float) ($cuota->mora_proyectada ?? 0) +
+                                            (float) ($cuota->otros_cargos_proyectados ?? 0);
 
             // Recalcular monto pendiente
-            $cuota->monto_pendiente = $cuota->capital_pendiente +
-                                     $cuota->interes_pendiente +
-                                     ($cuota->mora_pendiente ?? 0) +
-                                     ($cuota->otros_cargos_pendientes ?? 0);
+            $cuota->monto_pendiente = (float) $cuota->capital_pendiente +
+                                     (float) $cuota->interes_pendiente +
+                                     (float) ($cuota->mora_pendiente ?? 0) +
+                                     (float) ($cuota->otros_cargos_pendientes ?? 0);
 
             // Actualizar saldo de capital del crédito en esta cuota
             $cuota->saldo_capital_credito = $credito->capital_pendiente;
