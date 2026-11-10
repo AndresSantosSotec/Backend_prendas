@@ -1652,6 +1652,12 @@ class PagoService
         }
 
         $sumaComponentes = round($pagoMora + $pagoInteres + $pagoOtros + $pagoCapital, 2);
+
+        // Compatibilidad: clientes viejos mandan solo monto+tipo LIBRE sin desglose → prelación
+        if ($sumaComponentes <= 0 && $monto > 0.01) {
+            return $this->procesarPagoParcial($credito, $monto, $data);
+        }
+
         if ($sumaComponentes <= 0) {
             throw new \Exception('Debe indicar al menos un monto a pagar (mora, interés, otros o capital)');
         }
