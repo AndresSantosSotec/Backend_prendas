@@ -73,6 +73,7 @@ class PagoController extends Controller
             'monto_otros' => 'nullable|numeric|min:0',
             'monto_capital' => 'nullable|numeric|min:0',
             'extender_plazo' => 'nullable|boolean',
+            'correr_fecha_periodo' => 'nullable|boolean',
         ]);
 
         try {

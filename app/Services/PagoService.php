@@ -699,7 +699,7 @@ class PagoService
             $tipo = $data['tipo'];
             $monto = (float) $data['monto'];
 
-            return match ($tipo) {
+            $movimiento = match ($tipo) {
                 'CUOTA' => $this->procesarPagoCuotaCompleta($credito, $monto, $data),
                 'RENOVACION' => $this->procesarRenovacion($credito, $monto, $data, $data['periodos'] ?? 1),
                 'ADELANTO' => $this->procesarAdelanto($credito, $monto, $data, $data['cuotas'] ?? 1),
@@ -708,6 +708,13 @@ class PagoService
                 'LIBRE' => $this->procesarPagoLibre($credito, $monto, $data),
                 default => throw new \Exception("Tipo de pago no válido: $tipo"),
             };
+
+            // Seguro explícito: correr fecha de vencimiento (+1 período) en el plan de pagos si fue solicitado
+            if (!empty($data['correr_fecha_periodo']) && $tipo !== 'LIQUIDACION') {
+                $this->correrFechaPlanPagos($credito, $movimiento, 1);
+            }
+
+            return $movimiento;
         });
     }
 
@@ -1922,6 +1929,77 @@ class PagoService
         $credito->estado = 'vigente';
         $credito->dias_mora = 0;
         $credito->save();
+    }
+
+    /**
+     * Corre la fecha de vencimiento (+N períodos) de todas las cuotas pendientes/abiertas del plan
+     * y actualiza el vencimiento general del crédito (sin crear cuotas duplicadas).
+     */
+    private function correrFechaPlanPagos(CreditoPrendario $credito, CreditoMovimiento $movimiento, int $periodos = 1): void
+    {
+        $credito->refresh();
+        if (in_array($credito->estado, ['pagado', 'liquidado', 'anulado', 'vendido'], true) || (float) $credito->capital_pendiente <= 0.01) {
+            return;
+        }
+
+        $diasPorPeriodo = match ($credito->tipo_interes) {
+            'diario' => 1,
+            'semanal' => 7,
+            'catorcenal' => 14,
+            'quincenal' => 15,
+            'cada_28_dias' => 28,
+            'mensual' => 30,
+            default => 30,
+        };
+        $diasCorrer = $diasPorPeriodo * max(1, $periodos);
+
+        $cuotasAbiertas = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
+            ->orderBy('numero_cuota', 'asc')
+            ->get();
+
+        $hoy = now()->startOfDay();
+        $ultimaFecha = null;
+
+        foreach ($cuotasAbiertas as $cuota) {
+            $fechaActual = $cuota->fecha_vencimiento ? Carbon::parse($cuota->fecha_vencimiento) : $hoy->copy();
+            $nuevaFecha = $fechaActual->copy()->addDays($diasCorrer);
+
+            $cuota->fecha_vencimiento = $nuevaFecha;
+            $cuota->dias_mora = 0;
+
+            if ($nuevaFecha->gte($hoy)) {
+                $cuota->estado = ((float) ($cuota->monto_total_pagado ?? 0) > 0.01) ? 'pagada_parcial' : 'pendiente';
+            }
+
+            if ($cuota->tipo_modificacion === 'original') {
+                $cuota->tipo_modificacion = 'reestructuracion';
+                $cuota->motivo_modificacion = "Fecha corrida +{$diasCorrer} días al pagar — " . now()->format('d/m/Y');
+            } else {
+                $cuota->motivo_modificacion = trim(($cuota->motivo_modificacion ?? '') . " | Fecha corrida +{$diasCorrer} días — " . now()->format('d/m/Y'));
+            }
+            $cuota->fecha_modificacion = now();
+            $cuota->modificado_por = Auth::id() ?? 1;
+            $cuota->save();
+
+            $ultimaFecha = $nuevaFecha;
+        }
+
+        if ($ultimaFecha) {
+            $credito->fecha_vencimiento = $ultimaFecha;
+        } elseif ($credito->fecha_vencimiento) {
+            $credito->fecha_vencimiento = Carbon::parse($credito->fecha_vencimiento)->addDays($diasCorrer);
+        }
+
+        $credito->dias_mora = 0;
+        $credito->estado = 'vigente';
+        $credito->save();
+
+        $obsActual = (string) ($movimiento->observaciones ?? '');
+        if (!str_contains($obsActual, 'CORRE FECHA')) {
+            $movimiento->observaciones = trim($obsActual . " [CORRE FECHA +{$diasCorrer}d]");
+            $movimiento->save();
+        }
     }
 
     /**
