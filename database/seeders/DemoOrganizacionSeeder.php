@@ -445,8 +445,10 @@ class DemoOrganizacionSeeder extends Seeder
                     array_merge($tpl, [
                         'organizacion_code' => $orgCode,
                         'sucursal_id' => null,
-                        'formato_papel' => 'carta',
-                        'orientacion' => 'portrait',
+                        'configuracion_extra' => [
+                            'formato_papel' => 'carta',
+                            'orientacion' => 'portrait',
+                        ],
                         'mostrar_logo' => true,
                         'mostrar_firmas' => true,
                         'perito_contador_nombre' => 'PERITO CONTADOR DEMO',
