@@ -90,17 +90,18 @@ final class DocumentService
         $orgUpper = strtoupper(trim((string)$orgCode));
         $esAvanza = $orgUpper === 'AVANZA';
         $esMacro = in_array($orgUpper, ['MACROFINANCIERA', 'MACRO_FINANCIERA', 'MACRO']);
+        $esDemo = in_array($orgUpper, ['DEMO', 'DIGIPRENDA_DEMO']);
 
-        $fallbackNombre = $esAvanza ? 'EMPEÑOS AVANZA' : ($esMacro ? 'MACRO FINANCIERA S.A.' : 'PRENDAMÁS+');
-        $fallbackRazon = $esAvanza ? 'GRUPO VALOR, SOCIEDAD ANÓNIMA' : ($esMacro ? 'MACRO FINANCIERA, SOCIEDAD ANÓNIMA' : 'GRUPO JUMERC, SOCIEDAD ANÓNIMA');
-        $fallbackDireccion = $esAvanza ? '11 calle 1-08 barrio Quirio Castaño, Esquipulas, Chiquimula.' : ($esMacro ? 'Ciudad de Guatemala, Guatemala.' : '15 Avenida 4-60 zona 3 Quetzaltenango.');
-        $fallbackTelefono = ($esAvanza || $esMacro) ? '2200-0000' : '7934-0485';
-        $fallbackEmail = $esAvanza ? 'contacto@empeniosavanza.com' : ($esMacro ? 'contacto@macrofinanciera.com' : 'contacto@prendamas.gt');
-        $fallbackRepNombre = ($esAvanza || $esMacro) ? 'REPRESENTANTE LEGAL' : 'MANUEL FRANCISCO GARCÍA ROBLES';
-        $fallbackRepTitulo = ($esAvanza || $esMacro) ? 'ADMINISTRADOR Y REPRESENTANTE LEGAL' : 'ADMINISTRADOR ÚNICO Y REPRESENTANTE LEGAL';
-        $fallbackRepDpi = ($esAvanza || $esMacro) ? '' : '2182 74416 0801';
-        $fallbackHorario = ($esAvanza || $esMacro) ? 'Lunes a viernes: 8:00 AM – 5:00 PM | Sábado: 8:00 AM – 1:00 PM' : 'Lunes a viernes: 8:00 AM – 5:00 PM | SÁBADO: CERRADO | Domingo: 9:00 AM – 12:30 PM';
-        $fallbackPerito = ($esAvanza || $esMacro) ? 'PERITO CONTADOR' : 'MANUEL FRANCISCO GARCÍA ROBLES';
+        $fallbackNombre = $esAvanza ? 'EMPEÑOS AVANZA' : ($esMacro ? 'MACRO FINANCIERA S.A.' : ($esDemo ? 'DIGIPRENDA DEMO' : 'PRENDAMÁS+'));
+        $fallbackRazon = $esAvanza ? 'GRUPO VALOR, SOCIEDAD ANÓNIMA' : ($esMacro ? 'MACRO FINANCIERA, SOCIEDAD ANÓNIMA' : ($esDemo ? 'CORPORACIÓN FINANCIERA DEMO, SOCIEDAD ANÓNIMA' : 'GRUPO JUMERC, SOCIEDAD ANÓNIMA'));
+        $fallbackDireccion = $esAvanza ? '11 calle 1-08 barrio Quirio Castaño, Esquipulas, Chiquimula.' : (($esMacro || $esDemo) ? 'Ciudad de Guatemala, Guatemala.' : '15 Avenida 4-60 zona 3 Quetzaltenango.');
+        $fallbackTelefono = ($esAvanza || $esMacro || $esDemo) ? '2200-0000' : '7934-0485';
+        $fallbackEmail = $esAvanza ? 'contacto@empeniosavanza.com' : ($esMacro ? 'contacto@macrofinanciera.com' : ($esDemo ? 'info@digiprenda-demo.com' : 'contacto@prendamas.gt'));
+        $fallbackRepNombre = ($esAvanza || $esMacro || $esDemo) ? 'REPRESENTANTE LEGAL' : 'MANUEL FRANCISCO GARCÍA ROBLES';
+        $fallbackRepTitulo = ($esAvanza || $esMacro || $esDemo) ? 'ADMINISTRADOR Y REPRESENTANTE LEGAL' : 'ADMINISTRADOR ÚNICO Y REPRESENTANTE LEGAL';
+        $fallbackRepDpi = ($esAvanza || $esMacro || $esDemo) ? '' : '2182 74416 0801';
+        $fallbackHorario = ($esAvanza || $esMacro || $esDemo) ? 'Lunes a viernes: 8:00 AM – 5:00 PM | Sábado: 8:00 AM – 1:00 PM' : 'Lunes a viernes: 8:00 AM – 5:00 PM | SÁBADO: CERRADO | Domingo: 9:00 AM – 12:30 PM';
+        $fallbackPerito = ($esAvanza || $esMacro || $esDemo) ? 'PERITO CONTADOR' : 'MANUEL FRANCISCO GARCÍA ROBLES';
 
         $empresaNombre = ConfiguracionSistema::obtener('empresa_nombre') 
             ?: env('EMPRESA_NOMBRE', env('APP_NAME', $fallbackNombre));
