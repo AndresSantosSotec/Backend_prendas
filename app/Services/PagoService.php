@@ -924,7 +924,9 @@ class PagoService
             default => 30
         };
 
-        $fechaBaseNuevasCuotas = Carbon::parse($ultimaCuotaExistente->fecha_vencimiento);
+        $fechaPagoHoy = now()->startOfDay();
+        $fechaUltima = Carbon::parse($ultimaCuotaExistente->fecha_vencimiento)->startOfDay();
+        $fechaBaseNuevasCuotas = $fechaUltima->lt($fechaPagoHoy) ? $fechaPagoHoy->copy() : $fechaUltima;
         $fechaVencimientoNueva = $fechaBaseNuevasCuotas->copy()->addDays($diasPorPeriodo * $periodosRenovar);
         $fechaVenceFormateada = $fechaVencimientoNueva->format('d/m/Y');
 
@@ -1802,7 +1804,9 @@ class PagoService
             default => 30,
         };
 
-        $fechaBaseNuevasCuotas = Carbon::parse($ultimaCuotaExistente->fecha_vencimiento);
+        $fechaPagoHoy = now()->startOfDay();
+        $fechaUltima = Carbon::parse($ultimaCuotaExistente->fecha_vencimiento)->startOfDay();
+        $fechaBaseNuevasCuotas = $fechaUltima->lt($fechaPagoHoy) ? $fechaPagoHoy->copy() : $fechaUltima;
 
         $todasLasCuotasPendientes = CreditoPlanPago::where('credito_prendario_id', $credito->id)
             ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
@@ -1960,10 +1964,17 @@ class PagoService
 
         $hoy = now()->startOfDay();
         $ultimaFecha = null;
+        $indice = 0;
 
         foreach ($cuotasAbiertas as $cuota) {
-            $fechaActual = $cuota->fecha_vencimiento ? Carbon::parse($cuota->fecha_vencimiento) : $hoy->copy();
-            $nuevaFecha = $fechaActual->copy()->addDays($diasCorrer);
+            $indice++;
+            $fechaActual = $cuota->fecha_vencimiento ? Carbon::parse($cuota->fecha_vencimiento)->startOfDay() : $hoy->copy();
+
+            // Si la cuota ya estaba vencida (< hoy), correr desde la fecha pagada ese día (hoy + N*período)
+            // Si aún estaba vigente (>= hoy), respetar sus días restantes + período
+            $fechaDesdeHoy = $hoy->copy()->addDays($diasCorrer * $indice);
+            $fechaDesdeCuota = $fechaActual->copy()->addDays($diasCorrer);
+            $nuevaFecha = $fechaActual->lt($hoy) ? $fechaDesdeHoy : ($fechaDesdeCuota->gt($fechaDesdeHoy) ? $fechaDesdeCuota : $fechaDesdeHoy);
 
             $cuota->fecha_vencimiento = $nuevaFecha;
             $cuota->dias_mora = 0;
@@ -1988,7 +1999,9 @@ class PagoService
         if ($ultimaFecha) {
             $credito->fecha_vencimiento = $ultimaFecha;
         } elseif ($credito->fecha_vencimiento) {
-            $credito->fecha_vencimiento = Carbon::parse($credito->fecha_vencimiento)->addDays($diasCorrer);
+            $fechaVencActual = Carbon::parse($credito->fecha_vencimiento)->startOfDay();
+            $baseVenc = $fechaVencActual->lt($hoy) ? $hoy->copy() : $fechaVencActual;
+            $credito->fecha_vencimiento = $baseVenc->addDays($diasCorrer);
         }
 
         $credito->dias_mora = 0;
