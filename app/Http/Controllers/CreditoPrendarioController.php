@@ -1362,9 +1362,10 @@ class CreditoPrendarioController extends Controller
     private function calcularCapitalPendienteReal(CreditoPrendario $credito): float
     {
         $capitalHeader = (float) ($credito->capital_pendiente ?? 0);
+        $capitalMaximo = max(0, (float) ($credito->monto_aprobado ?? 0) - (float) ($credito->capital_pagado ?? 0));
 
         if (!$credito->relationLoaded('planPagos')) {
-            return $capitalHeader;
+            return $capitalMaximo > 0 ? min($capitalHeader, $capitalMaximo) : $capitalHeader;
         }
 
         $capitalPlan = (float) $credito->planPagos
@@ -1373,7 +1374,11 @@ class CreditoPrendarioController extends Controller
                 return (float) ($cuota->capital_pendiente ?? 0);
             });
 
-        return $capitalPlan > 0 ? $capitalPlan : $capitalHeader;
+        if ($capitalPlan <= 0) {
+            return $capitalMaximo > 0 ? min($capitalHeader, $capitalMaximo) : $capitalHeader;
+        }
+
+        return $capitalMaximo > 0 ? min($capitalPlan, $capitalMaximo) : $capitalPlan;
     }
 
     /**
@@ -2779,6 +2784,64 @@ class CreditoPrendarioController extends Controller
                         $restanteMora -= $revMora;
                         $restanteCapital -= $revCapital;
                         $restanteOtros -= $revOtros;
+                    }
+
+                    // Si el movimiento anulado fue una RENOVACIÓN, eliminar las cuotas futuras que esa renovación creó al final del plan
+                    // para evitar que el capital y el interés proyectado se dupliquen.
+                    if ($movimiento->tipo_movimiento === 'renovacion') {
+                        $periodosRenovados = 1;
+                        if (preg_match('/RENOVACIÓN\s+(\d+)\s+período/iu', (string) $movimiento->observaciones, $matches)) {
+                            $periodosRenovados = max(1, (int) $matches[1]);
+                        }
+
+                        $cuotasRefinanciamiento = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+                            ->where('tipo_modificacion', 'refinanciamiento')
+                            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora'])
+                            ->where('monto_total_pagado', '<=', 0.01)
+                            ->orderBy('numero_cuota', 'desc')
+                            ->limit($periodosRenovados)
+                            ->get();
+
+                        foreach ($cuotasRefinanciamiento as $cuotaExtra) {
+                            // Nunca eliminar la única cuota del crédito
+                            if (CreditoPlanPago::where('credito_prendario_id', $credito->id)->count() > 1) {
+                                $cuotaExtra->delete();
+                            }
+                        }
+
+                        // Redistribuir el capital real pendiente entre las cuotas activas restantes para que jamás supere el capital prestado
+                        $cuotasActivasRestantes = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+                            ->whereIn('estado', ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'])
+                            ->orderBy('numero_cuota', 'asc')
+                            ->get();
+
+                        $conteoActivas = $cuotasActivasRestantes->count();
+                        if ($conteoActivas > 0) {
+                            $capitalRealPendiente = max(0, (float) $credito->monto_aprobado - (float) $credito->capital_pagado);
+                            $capitalPorCuota = round($capitalRealPendiente / $conteoActivas, 2);
+
+                            foreach ($cuotasActivasRestantes as $ca) {
+                                $ca->capital_proyectado = $capitalPorCuota + (float) ($ca->capital_pagado ?? 0);
+                                $ca->capital_pendiente = $capitalPorCuota;
+                                $ca->monto_cuota_proyectado = $ca->capital_proyectado + (float) $ca->interes_proyectado + (float) ($ca->otros_cargos_proyectados ?? 0);
+                                $ca->monto_pendiente = $ca->capital_pendiente + (float) $ca->interes_pendiente + (float) ($ca->mora_pendiente ?? 0) + (float) ($ca->otros_cargos_pendientes ?? 0);
+                                $ca->save();
+                            }
+                        }
+
+                        // Restaurar fecha_vencimiento y numero_cuotas del crédito según la última cuota válida
+                        $ultimaCuotaValida = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+                            ->whereNotIn('estado', ['cancelada'])
+                            ->orderBy('numero_cuota', 'desc')
+                            ->first();
+
+                        if ($ultimaCuotaValida) {
+                            $credito->fecha_vencimiento = $ultimaCuotaValida->fecha_vencimiento;
+                            $credito->numero_cuotas = CreditoPlanPago::where('credito_prendario_id', $credito->id)
+                                ->whereNotIn('estado', ['cancelada'])
+                                ->count();
+                            $credito->save();
+                        }
                     }
                 }
             }

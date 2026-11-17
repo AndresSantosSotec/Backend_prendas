@@ -322,12 +322,14 @@ class CreditoPrendario extends Model
         // Calcular capital pendiente
         $capitalPendiente = $this->monto_aprobado - $capitalPagado;
 
-        // Calcular interés generado (suma de interés de todas las cuotas proyectadas)
+        // Calcular interés generado (suma de interés de todas las cuotas proyectadas no canceladas)
         $interesGenerado = $this->planPagos()
+            ->whereNotIn('estado', ['cancelada'])
             ->sum('interes_proyectado');
 
-        // Calcular mora generada (suma de mora proyectada de cuotas vencidas)
+        // Calcular mora generada (suma de mora proyectada de cuotas vencidas no canceladas)
         $moraGenerada = $this->planPagos()
+            ->whereNotIn('estado', ['cancelada'])
             ->where('dias_mora', '>', 0)
             ->sum('mora_proyectada');
 
