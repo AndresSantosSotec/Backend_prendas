@@ -1097,6 +1097,7 @@ class CreditoPrendarioController extends Controller
     private function formatCredito(CreditoPrendario $credito): array
     {
         $capitalPendiente = $this->calcularCapitalPendienteReal($credito);
+        $interesesPendientes = $this->calcularInteresesPendientesReales($credito);
 
         return [
             'id' => (string) $credito->id,
@@ -1124,7 +1125,7 @@ class CreditoPrendarioController extends Controller
             'capital_pagado' => (float) $credito->capital_pagado,
             'interes_generado' => (float) $credito->interes_generado,
             'interes_pagado' => (float) $credito->interes_pagado,
-            'intereses_pendientes' => (float) ($credito->interes_generado - $credito->interes_pagado), // Calcular intereses pendientes
+            'intereses_pendientes' => $interesesPendientes, // Calcular intereses pendientes
             'mora_generada' => (float) $credito->mora_generada,
             'mora_pagada' => (float) $credito->mora_pagada,
             'mora_pendiente' => (float) ($credito->mora_generada - $credito->mora_pagada), // Calcular mora pendiente
@@ -1239,6 +1240,7 @@ class CreditoPrendarioController extends Controller
     private function formatCreditoList(CreditoPrendario $credito): array
     {
         $capitalPendiente = $this->calcularCapitalPendienteReal($credito);
+        $interesesPendientes = $this->calcularInteresesPendientesReales($credito);
 
         // Calcular días de mora en tiempo real (sin necesitar cron job)
         $diasMoraRealtime = $this->calcularDiasMoraRealtime($credito);
@@ -1268,7 +1270,7 @@ class CreditoPrendarioController extends Controller
             'monto_solicitado' => (float) $credito->monto_solicitado,
             'monto_aprobado' => (float) $credito->monto_aprobado,
             'capital_pendiente' => $capitalPendiente,
-            'intereses_pendientes' => (float) ($credito->interes_generado - $credito->interes_pagado),
+            'intereses_pendientes' => $interesesPendientes,
             'mora_pendiente' => $moraPendiente,
             'tasa_interes' => (float) $credito->tasa_interes,
             'plazo_dias' => $credito->plazo_dias,
@@ -1379,6 +1381,31 @@ class CreditoPrendarioController extends Controller
         }
 
         return $capitalMaximo > 0 ? min($capitalPlan, $capitalMaximo) : $capitalPlan;
+    }
+
+    /**
+     * Calcular intereses pendientes reales excluyendo cuotas renovadas o canceladas.
+     */
+    private function calcularInteresesPendientesReales(CreditoPrendario $credito): float
+    {
+        $interesHeader = max(0, (float) ($credito->interes_generado ?? 0) - (float) ($credito->interes_pagado ?? 0));
+
+        if (!$credito->relationLoaded('planPagos')) {
+            return $interesHeader;
+        }
+
+        $estadosActivos = ['pendiente', 'vencida', 'en_mora', 'pagada_parcial'];
+        $tieneActivas = $credito->planPagos->whereIn('estado', $estadosActivos)->isNotEmpty();
+
+        if (!$tieneActivas) {
+            return $interesHeader;
+        }
+
+        return (float) $credito->planPagos
+            ->whereIn('estado', $estadosActivos)
+            ->sum(function ($cuota) {
+                return max(0, (float) ($cuota->interes_pendiente ?? 0));
+            });
     }
 
     /**
