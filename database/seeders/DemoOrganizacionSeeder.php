@@ -225,14 +225,13 @@ class DemoOrganizacionSeeder extends Seeder
                 ['codigo' => 'BOV-DEMO-01'],
                 [
                     'nombre' => 'Bóveda Principal Demo',
+                    'descripcion' => 'Bóveda inicial para pruebas y demostraciones con Q100,000.00 de fondo.',
                     'sucursal_id' => $sucursal->id,
                     'tipo' => 'principal',
-                    'saldo_inicial' => 100000.00,
                     'saldo_actual' => 100000.00,
                     'saldo_minimo' => 5000.00,
                     'saldo_maximo' => 500000.00,
                     'activa' => true,
-                    'observaciones' => 'Bóveda inicial para pruebas y demostraciones con Q100,000.00 de fondo.',
                 ]
             );
             $this->command?->info("  [✓] Bóveda asegurada: {$boveda->nombre} (Saldo: Q" . number_format((float)$boveda->saldo_actual, 2) . ")");
