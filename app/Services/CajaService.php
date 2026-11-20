@@ -98,17 +98,19 @@ class CajaService
     public static function getCajaAbiertaVigente(?int $userId = null, ?int $sucursalId = null): ?CajaAperturaCierre
     {
         $userId = $userId ?? Auth::id();
-        $sucursalId = $sucursalId ?? Auth::user()?->sucursal_id ?? request()->get('_sucursal_scope');
-
-        if (!$sucursalId) {
-            return null;
-        }
+        $sucursalId = $sucursalId
+            ?? Auth::user()?->sucursal_id
+            ?? request()->get('_sucursal_scope')
+            ?? request()->header('X-Sucursal-Activa');
 
         $hoy = now()->toDateString();
         $base = CajaAperturaCierre::query()
-            ->where('sucursal_id', $sucursalId)
             ->where('estado', 'abierta')
             ->whereNull('fecha_cierre');
+
+        if ($sucursalId) {
+            $base->where('sucursal_id', $sucursalId);
+        }
 
         if ($userId) {
             $cajaUsuarioHoy = (clone $base)
@@ -121,6 +123,29 @@ class CajaService
             if ($cajaUsuarioHoy) {
                 return $cajaUsuarioHoy;
             }
+
+            // Si el usuario tiene una caja abierta (aunque sea sin sucursal_id en su perfil, ej. superadmin), usarla
+            $cajaUsuarioAbierta = (clone $base)
+                ->where('user_id', $userId)
+                ->orderBy('fecha_apertura', 'desc')
+                ->orderBy('id', 'desc')
+                ->first();
+
+            if ($cajaUsuarioAbierta) {
+                return $cajaUsuarioAbierta;
+            }
+        }
+
+        if (!$sucursalId) {
+            return (clone $base)
+                ->whereDate('fecha_apertura', $hoy)
+                ->orderBy('fecha_apertura', 'desc')
+                ->orderBy('id', 'desc')
+                ->first()
+                ?? (clone $base)
+                    ->orderBy('fecha_apertura', 'desc')
+                    ->orderBy('id', 'desc')
+                    ->first();
         }
 
         $cajaSucursalHoy = (clone $base)

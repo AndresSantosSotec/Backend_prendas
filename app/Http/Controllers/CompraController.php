@@ -79,9 +79,14 @@ class CompraController extends Controller
         ]);
 
         $metodoPago = $request->input('metodo_pago', 'efectivo');
-        $sucursalId = $request->input('sucursal_id') ?? $request->input('_sucursal_scope') ?? Auth::user()?->sucursal_id;
+        $sucursalId = $request->input('sucursal_id')
+            ?? $request->input('_sucursal_scope')
+            ?? $request->header('X-Sucursal-Activa')
+            ?? Auth::user()?->sucursal_id;
 
-        if ($metodoPago === 'efectivo' && !\App\Services\CajaService::tieneCajaAbiertaVigente(Auth::id(), $sucursalId)) {
+        $cajaVigente = \App\Services\CajaService::getCajaAbiertaVigente(Auth::id(), $sucursalId ? (int) $sucursalId : null);
+
+        if ($metodoPago === 'efectivo' && !$cajaVigente) {
             return response()->json([
                 'success' => false,
                 'message' => 'No hay una caja abierta en la sucursal para realizar compras en efectivo. Por favor, apertura una caja en el módulo de Caja antes de continuar.',
@@ -89,7 +94,11 @@ class CompraController extends Controller
         }
 
         try {
-            $compra = $this->compraService->procesarCompraDirecta($request->all());
+            $datosCompra = $request->all();
+            if (empty($datosCompra['sucursal_id']) && $cajaVigente?->sucursal_id) {
+                $datosCompra['sucursal_id'] = $cajaVigente->sucursal_id;
+            }
+            $compra = $this->compraService->procesarCompraDirecta($datosCompra);
 
             // Registrar asiento contable automático
             try {
