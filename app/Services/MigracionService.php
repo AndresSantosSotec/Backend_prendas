@@ -440,6 +440,9 @@ class MigracionService
         $totalFilas = 0;
         $allErrors = [];
         $preview = [];
+        $creditosRows = [];
+        $prendasRows = [];
+        $clientesRows = [];
 
         $sheetMapping = [
             'Clientes' => 'clientes',
@@ -459,6 +462,14 @@ class MigracionService
             [$headers, $rows] = $this->readExcelSheet($sheet, $this->templates[$modKey]);
             $totalFilas += count($rows);
 
+            if ($modKey === 'clientes') {
+                $clientesRows = $rows;
+            } elseif ($modKey === 'creditos') {
+                $creditosRows = $rows;
+            } elseif ($modKey === 'prendas') {
+                $prendasRows = $rows;
+            }
+
             foreach ($rows as $index => $data) {
                 $rowNum = $index + 3;
                 $rowErrors = $this->validateRow($modKey, $data, $rowNum);
@@ -476,13 +487,88 @@ class MigracionService
         $spreadsheet->disconnectWorksheets();
         unset($spreadsheet);
 
+        $cuadrePrevio = $this->cuadreDesdeFilasExcel($clientesRows, $creditosRows, $prendasRows);
+
         return [
             'total_filas' => $totalFilas,
             'errores_count' => count($allErrors),
             'errores_muestra' => array_slice($allErrors, 0, 50),
             'preview' => $preview,
-            'valido' => empty($allErrors)
+            'valido' => empty($allErrors),
+            'cuadre_previo' => $cuadrePrevio,
         ];
+    }
+
+    /**
+     * Cuadre previo (antes de importar) desde filas del Libro Maestro.
+     */
+    protected function cuadreDesdeFilasExcel(array $clientes, array $creditos, array $prendas): array
+    {
+        $sumCredito = 0.0;
+        foreach ($creditos as $c) {
+            $sumCredito += (float) ($c['monto_aprobado'] ?? $c['monto_solicitado'] ?? 0);
+        }
+
+        $sumPrestamoPrendas = 0.0;
+        $sumAvaluo = 0.0;
+        foreach ($prendas as $p) {
+            $sumAvaluo += (float) ($p['valor_tasacion'] ?? 0);
+            if (!empty($p['valor_prestamo'])) {
+                $sumPrestamoPrendas += (float) $p['valor_prestamo'];
+            } elseif (!empty($p['observaciones']) && preg_match('/prestamo=([0-9.]+)/i', (string) $p['observaciones'], $m)) {
+                $sumPrestamoPrendas += (float) $m[1];
+            }
+        }
+
+        $sumCredito = round($sumCredito, 2);
+        $sumPrestamoPrendas = round($sumPrestamoPrendas, 2);
+        $delta = round($sumCredito - $sumPrestamoPrendas, 2);
+
+        return [
+            'n_clientes' => count($clientes),
+            'n_creditos' => count($creditos),
+            'n_prendas' => count($prendas),
+            'sum_desembolsado' => $sumCredito,
+            'sum_valor_prestamo_prendas' => $sumPrestamoPrendas,
+            'sum_avaluo' => round($sumAvaluo, 2),
+            'delta' => $delta,
+            'cuadra' => abs($delta) < 0.05 || count($prendas) === 0,
+            'control_esperado' => [
+                'clientes' => 89,
+                'creditos' => 181,
+                'prendas' => 250,
+                'prestamo' => 238881.52,
+            ],
+        ];
+    }
+
+    /**
+     * Genera CSV de cuadre de un lote (para descarga).
+     */
+    public function generarCsvCuadre(MigracionDatosLog $log): string
+    {
+        $cuadre = $log->resumen['cuadre'] ?? [];
+        $lines = [];
+        $lines[] = 'campo,valor';
+        $lines[] = 'lote_id,' . $log->id;
+        $lines[] = 'codigo_lote,' . ($log->codigo_lote ?? '');
+        $lines[] = 'estado,' . $log->estado;
+        $lines[] = 'fecha,' . ($log->fecha_fin ?? $log->created_at);
+        foreach ([
+            'n_clientes', 'n_creditos', 'n_prendas',
+            'sum_desembolsado', 'sum_valor_prestamo_prendas', 'delta', 'cuadra',
+        ] as $k) {
+            if (array_key_exists($k, $cuadre)) {
+                $v = $cuadre[$k];
+                if (is_bool($v)) {
+                    $v = $v ? 'true' : 'false';
+                }
+                $lines[] = $k . ',' . $v;
+            }
+        }
+        $lines[] = 'todo_ok,' . ((!empty($cuadre['cuadra'])) ? 'true' : 'false');
+
+        return implode("\n", $lines) . "\n";
     }
 
     /**

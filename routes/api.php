@@ -618,6 +618,14 @@ Route::prefix('v1')->group(function () {
              Route::get('/plantilla/{modelo}', [\App\Http\Controllers\MigracionController::class, 'downloadTemplate']);
              Route::post('/upload', [\App\Http\Controllers\MigracionController::class, 'upload']);
              Route::post('/execute', [\App\Http\Controllers\MigracionController::class, 'execute']);
+
+             // Respaldo + limpieza (antes de rutas con {id})
+             Route::post('/respaldo', [\App\Http\Controllers\MigracionController::class, 'crearRespaldo']);
+             Route::get('/respaldos', [\App\Http\Controllers\MigracionController::class, 'listarRespaldos']);
+             Route::get('/respaldos/{filename}/descargar', [\App\Http\Controllers\MigracionController::class, 'descargarRespaldo']);
+             Route::post('/limpiar-bd', [\App\Http\Controllers\MigracionController::class, 'limpiarBd']);
+
+             Route::get('/{id}/cuadre', [\App\Http\Controllers\MigracionController::class, 'descargarCuadre']);
              Route::post('/{id}/revertir', [\App\Http\Controllers\MigracionController::class, 'revertir']);
         });
 });

@@ -3,18 +3,24 @@
 namespace App\Http\Controllers;
 
 use App\Services\MigracionService;
+use App\Services\MigracionMantenimientoService;
 use App\Models\MigracionDatosLog;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class MigracionController extends Controller
 {
-    protected $migracionService;
+    protected MigracionService $migracionService;
+    protected MigracionMantenimientoService $mantenimientoService;
 
-    public function __construct(MigracionService $migracionService)
-    {
+    public function __construct(
+        MigracionService $migracionService,
+        MigracionMantenimientoService $mantenimientoService
+    ) {
         $this->migracionService = $migracionService;
+        $this->mantenimientoService = $mantenimientoService;
     }
 
     /**
@@ -146,6 +152,23 @@ class MigracionController extends Controller
     }
 
     /**
+     * Descargar CSV de cuadre de un lote importado.
+     */
+    public function descargarCuadre(Request $request, int $id)
+    {
+        $this->checkSuperAdmin($request->user());
+
+        $log = MigracionDatosLog::findOrFail($id);
+        $csv = $this->migracionService->generarCsvCuadre($log);
+        $filename = 'cuadre_lote_' . ($log->codigo_lote ?: $log->id) . '.csv';
+
+        return response($csv, 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
+    }
+
+    /**
      * Revertir un lote de migración completado (deshace clientes/créditos/prendas del lote).
      */
     public function revertir(Request $request, int $id): JsonResponse
@@ -166,6 +189,108 @@ class MigracionController extends Controller
                 'success' => false,
                 'message' => $e->getMessage(),
             ], 400);
+        }
+    }
+
+    /**
+     * Crear copia de seguridad completa de la BD y devolver metadatos (+ link de descarga).
+     */
+    public function crearRespaldo(Request $request): JsonResponse
+    {
+        $this->checkSuperAdmin($request->user());
+
+        try {
+            $info = $this->mantenimientoService->crearRespaldoSeguridad();
+            Log::warning('Respaldo BD creado desde Migraciones', [
+                'user_id' => $request->user()->id,
+                'filename' => $info['filename'],
+                'size' => $info['size'],
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Copia de seguridad creada. Descárgala ahora.',
+                'data' => $info,
+                'download_url' => url('/api/v1/migraciones/respaldos/' . urlencode($info['filename']) . '/descargar'),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo crear el respaldo: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Listar respaldos existentes.
+     */
+    public function listarRespaldos(Request $request): JsonResponse
+    {
+        $this->checkSuperAdmin($request->user());
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->mantenimientoService->listarRespaldos(),
+        ]);
+    }
+
+    /**
+     * Descargar un archivo .sql de respaldo.
+     */
+    public function descargarRespaldo(Request $request, string $filename)
+    {
+        $this->checkSuperAdmin($request->user());
+
+        try {
+            return $this->mantenimientoService->descargarRespaldo($filename);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 404);
+        }
+    }
+
+    /**
+     * Limpiar BD transaccional desde la UI (conserva users, permisos, sucursales, catálogos).
+     */
+    public function limpiarBd(Request $request): JsonResponse
+    {
+        $this->checkSuperAdmin($request->user());
+
+        $request->validate([
+            'confirmacion' => 'required|string|in:LIMPIAR',
+            'mantener_clientes' => 'sometimes|boolean',
+            'crear_respaldo_antes' => 'sometimes|boolean',
+        ]);
+
+        try {
+            $respaldo = null;
+            if ($request->boolean('crear_respaldo_antes', true)) {
+                $respaldo = $this->mantenimientoService->crearRespaldoSeguridad();
+            }
+
+            $resultado = $this->mantenimientoService->limpiarExceptoUsers(
+                $request->boolean('mantener_clientes', false)
+            );
+
+            Log::warning('Limpieza BD desde Migraciones UI', [
+                'user_id' => $request->user()->id,
+                'vaciadas' => $resultado['vaciadas'],
+                'respaldo' => $respaldo['filename'] ?? null,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => "BD limpiada: {$resultado['vaciadas']} tablas vaciadas. Users y catálogos intactos.",
+                'data' => $resultado,
+                'respaldo' => $respaldo,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al limpiar BD: ' . $e->getMessage(),
+            ], 500);
         }
     }
 }
