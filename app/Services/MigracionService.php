@@ -486,10 +486,34 @@ class MigracionService
     }
 
     /**
-     * Ejecutar la importación final dentro de una transacción
+     * IDs creados/actualizados del lote actual (para rollback).
+     * @var array{clientes_created:int[],clientes_updated:int[],creditos_created:int[],creditos_updated:int[],prendas_created:int[],compras_created:int[],ventas_created:int[],pagos_created:int[]}
+     */
+    protected array $loteIds = [];
+
+    protected function resetLoteIds(): void
+    {
+        $this->loteIds = [
+            'clientes_created' => [],
+            'clientes_updated' => [],
+            'creditos_created' => [],
+            'creditos_updated' => [],
+            'prendas_created' => [],
+            'compras_created' => [],
+            'ventas_created' => [],
+            'pagos_created' => [],
+        ];
+    }
+
+    /**
+     * Ejecutar la importación final dentro de una transacción.
+     * Si hay 1 error → rollback total de la transacción.
+     * Si cuadra y luego quieres deshacer → revertirLote().
      */
     public function executeImport(string $modelo, string $filePath, int $userId): MigracionDatosLog
     {
+        $this->resetLoteIds();
+
         $log = MigracionDatosLog::create([
             'codigo_lote' => uniqid('MIG_'),
             'usuario_id' => $userId,
@@ -497,8 +521,12 @@ class MigracionService
             'archivo_original' => basename($filePath),
             'estado' => 'importando',
             'fecha_inicio' => now(),
-            'archivo_ruta' => $filePath
+            'archivo_ruta' => $filePath,
         ]);
+
+        // Evitar inundar auditoría en carga masiva
+        Cliente::$auditarDeshabilitado = true;
+        Prenda::$auditarDeshabilitado = true;
 
         DB::beginTransaction();
 
@@ -522,7 +550,9 @@ class MigracionService
 
                 foreach ($orderedSheets as $sheetTitle => $modKey) {
                     $sheet = $spreadsheet->getSheetByName($sheetTitle);
-                    if (!$sheet) continue;
+                    if (!$sheet) {
+                        continue;
+                    }
 
                     [$headers, $rows] = $this->readExcelSheet($sheet, $this->templates[$modKey]);
                     $rowNum = 0;
@@ -534,7 +564,7 @@ class MigracionService
                             $this->importRow($modKey, $data, $userId);
                             $inserted++;
                         } catch (\Exception $e) {
-                            $errors[] = "[{$sheetTitle}] Fila " . ($rowNum + 2) . ": " . $e->getMessage();
+                            $errors[] = "[{$sheetTitle}] Fila " . ($rowNum + 2) . ': ' . $e->getMessage();
                         }
                     }
                 }
@@ -550,7 +580,7 @@ class MigracionService
                         $this->importRow($modelo, $data, $userId);
                         $inserted++;
                     } catch (\Exception $e) {
-                        $errors[] = "Fila " . ($rowNum + 2) . ": " . $e->getMessage();
+                        $errors[] = 'Fila ' . ($rowNum + 2) . ': ' . $e->getMessage();
                     }
                 }
             }
@@ -565,10 +595,13 @@ class MigracionService
                     'fecha_fin' => now(),
                     'errores' => array_slice($errors, 0, 100),
                     'total_filas' => $totalRows,
-                    'filas_con_error' => count($errors)
+                    'filas_con_error' => count($errors),
+                    'observaciones' => 'Rollback automático: la importación no se aplicó.',
                 ]);
-                throw new \Exception("La importación falló con " . count($errors) . " errores. Se revirtieron todos los cambios.");
+                throw new \Exception('La importación falló con ' . count($errors) . ' errores. Se revirtieron todos los cambios.');
             }
+
+            $cuadre = $this->cuadreLote();
 
             DB::commit();
 
@@ -577,22 +610,233 @@ class MigracionService
                 'fecha_fin' => now(),
                 'filas_insertadas' => $inserted,
                 'total_filas' => $totalRows,
-                'resumen' => ['mensaje' => "Se importaron exitosamente {$inserted} registros."]
+                'resumen' => [
+                    'mensaje' => "Se importaron exitosamente {$inserted} registros.",
+                    'ids' => $this->loteIds,
+                    'cuadre' => $cuadre,
+                    'puede_revertirse' => true,
+                ],
             ]);
 
-            return $log;
-
+            return $log->fresh();
         } catch (\Exception $e) {
             DB::rollBack();
 
             $log->update([
                 'estado' => 'error',
                 'fecha_fin' => now(),
-                'observaciones' => $e->getMessage()
+                'observaciones' => $e->getMessage(),
             ]);
 
             throw $e;
+        } finally {
+            Cliente::$auditarDeshabilitado = false;
+            Prenda::$auditarDeshabilitado = false;
         }
+    }
+
+    /**
+     * Cuadre rápido del lote recién importado (créditos MIG vs prendas).
+     */
+    protected function cuadreLote(): array
+    {
+        $creditoIds = array_values(array_unique(array_merge(
+            $this->loteIds['creditos_created'],
+            $this->loteIds['creditos_updated']
+        )));
+        $prendaIds = $this->loteIds['prendas_created'];
+
+        $sumCredito = $creditoIds
+            ? (float) CreditoPrendario::whereIn('id', $creditoIds)->sum('monto_desembolsado')
+            : 0.0;
+        $sumPrendas = $prendaIds
+            ? (float) Prenda::whereIn('id', $prendaIds)->sum('valor_prestamo')
+            : 0.0;
+
+        return [
+            'n_clientes' => count($this->loteIds['clientes_created']) + count($this->loteIds['clientes_updated']),
+            'n_creditos' => count($creditoIds),
+            'n_prendas' => count($prendaIds),
+            'sum_desembolsado' => round($sumCredito, 2),
+            'sum_valor_prestamo_prendas' => round($sumPrendas, 2),
+            'delta' => round($sumCredito - $sumPrendas, 2),
+            'cuadra' => abs($sumCredito - $sumPrendas) < 0.05 || count($prendaIds) === 0,
+        ];
+    }
+
+    /**
+     * Revertir un lote completado (borra prendas/créditos/clientes creados por esa migración).
+     */
+    public function revertirLote(MigracionDatosLog $log): MigracionDatosLog
+    {
+        if (!$log->puedeRevertirse()) {
+            throw new \Exception('Este lote no se puede revertir (estado: ' . $log->estado . ').');
+        }
+
+        $ids = $log->resumen['ids'] ?? null;
+        if (!$ids || !is_array($ids)) {
+            throw new \Exception('El lote no tiene IDs rastreados para revertir. Solo lotes nuevos soportan rollback.');
+        }
+
+        Cliente::$auditarDeshabilitado = true;
+        Prenda::$auditarDeshabilitado = true;
+
+        DB::beginTransaction();
+        try {
+            $borrados = [
+                'prendas' => 0,
+                'creditos' => 0,
+                'clientes' => 0,
+                'compras' => 0,
+                'ventas' => 0,
+                'pagos' => 0,
+            ];
+
+            // Orden inverso a la carga
+            if (!empty($ids['prendas_created'])) {
+                $borrados['prendas'] = Prenda::withTrashed()
+                    ->whereIn('id', $ids['prendas_created'])
+                    ->forceDelete();
+            }
+
+            if (!empty($ids['pagos_created']) && class_exists(CreditoMovimiento::class)) {
+                $borrados['pagos'] = CreditoMovimiento::withTrashed()
+                    ->whereIn('id', $ids['pagos_created'])
+                    ->forceDelete();
+            }
+
+            if (!empty($ids['creditos_created'])) {
+                // Solo créditos creados por el lote (no los que solo se actualizaron)
+                $borrados['creditos'] = CreditoPrendario::withTrashed()
+                    ->whereIn('id', $ids['creditos_created'])
+                    ->forceDelete();
+            }
+
+            if (!empty($ids['compras_created'])) {
+                $borrados['compras'] = Compra::query()->whereIn('id', $ids['compras_created'])->delete();
+            }
+
+            if (!empty($ids['ventas_created'])) {
+                $borrados['ventas'] = Venta::query()->whereIn('id', $ids['ventas_created'])->delete();
+            }
+
+            if (!empty($ids['clientes_created'])) {
+                // Borrar cliente solo si ya no tiene créditos
+                foreach ($ids['clientes_created'] as $clienteId) {
+                    $tieneCreditos = CreditoPrendario::withTrashed()
+                        ->where('cliente_id', $clienteId)
+                        ->exists();
+                    if (!$tieneCreditos) {
+                        Cliente::withTrashed()->where('id', $clienteId)->forceDelete();
+                        $borrados['clientes']++;
+                    }
+                }
+            }
+
+            DB::commit();
+
+            $resumen = $log->resumen ?? [];
+            $resumen['revertido'] = [
+                'en' => now()->toIso8601String(),
+                'borrados' => $borrados,
+            ];
+            $resumen['puede_revertirse'] = false;
+
+            $log->update([
+                'estado' => 'revertido',
+                'fecha_fin' => now(),
+                'resumen' => $resumen,
+                'observaciones' => 'Lote revertido manualmente. Borrados: ' . json_encode($borrados),
+            ]);
+
+            return $log->fresh();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        } finally {
+            Cliente::$auditarDeshabilitado = false;
+            Prenda::$auditarDeshabilitado = false;
+        }
+    }
+
+    protected function resolverCategoriaProducto(?string $nombreOCodigo): int
+    {
+        $raw = trim((string) $nombreOCodigo);
+        if ($raw === '') {
+            $id = CategoriaProducto::where('codigo', 'CAT-012')->value('id')
+                ?? CategoriaProducto::orderBy('id')->value('id');
+            if (!$id) {
+                throw new \Exception('No hay categorías de producto en el sistema.');
+            }
+            return (int) $id;
+        }
+
+        $cat = CategoriaProducto::where(function ($q) use ($raw) {
+            $q->where('codigo', $raw)
+                ->orWhere('nombre', $raw)
+                ->orWhere('nombre', 'like', '%' . $raw . '%');
+        })->first();
+
+        if (!$cat) {
+            // Mapa amigable
+            $map = [
+                'joyería' => 'CAT-001', 'joyeria' => 'CAT-001', 'alhajas' => 'CAT-001',
+                'electrónica' => 'CAT-002', 'electronica' => 'CAT-002', 'varios' => 'CAT-002',
+                'vehículos' => 'CAT-005', 'vehiculos' => 'CAT-005', 'auto' => 'CAT-005', 'moto' => 'CAT-005',
+            ];
+            $key = mb_strtolower($raw);
+            $codigo = $map[$key] ?? null;
+            if ($codigo) {
+                $cat = CategoriaProducto::where('codigo', $codigo)->first();
+            }
+        }
+
+        if (!$cat) {
+            $cat = CategoriaProducto::where('codigo', 'CAT-012')->first()
+                ?? CategoriaProducto::orderBy('id')->first();
+        }
+
+        if (!$cat) {
+            throw new \Exception("Categoría no encontrada: {$raw}");
+        }
+
+        return (int) $cat->id;
+    }
+
+    protected function mapCondicion(?string $raw): string
+    {
+        $k = mb_strtolower(trim((string) $raw));
+        return match (true) {
+            str_contains($k, 'excelente') => 'excelente',
+            str_contains($k, 'muy') => 'muy_buena',
+            str_contains($k, 'regular') => 'regular',
+            str_contains($k, 'mala') || str_contains($k, 'malo') => 'mala',
+            default => 'buena',
+        };
+    }
+
+    protected function mapEstadoCredito(?string $raw): string
+    {
+        $k = mb_strtolower(trim((string) $raw));
+        return match ($k) {
+            'vencido' => 'vencido',
+            'en_mora' => 'en_mora',
+            'pagado' => 'pagado',
+            'cancelado' => 'cancelado',
+            default => 'vigente',
+        };
+    }
+
+    protected function generarCodigoPrenda(string $numeroCredito): string
+    {
+        $base = 'MIG-' . preg_replace('/[^A-Za-z0-9\-]/', '', $numeroCredito) . '-' . substr(uniqid(), -6);
+        $codigo = $base;
+        $i = 0;
+        while (Prenda::withTrashed()->where('codigo_prenda', $codigo)->exists()) {
+            $i++;
+            $codigo = $base . '-' . $i;
+        }
+        return $codigo;
     }
 
     /**
@@ -625,7 +869,7 @@ class MigracionService
                     'sucursal_codigo' => 'required|string',
                     'monto_solicitado' => 'required|numeric|min:0',
                     'fecha_solicitud' => 'required|date_format:Y-m-d',
-                    'estado' => 'required|in:vigente,cancelado,pagado,en_mora',
+                    'estado' => 'required|in:vigente,cancelado,pagado,en_mora,vencido',
                 ];
                 break;
 
@@ -701,14 +945,16 @@ class MigracionService
     }
 
     /**
-     * Importar una fila para un modelo específico
+     * Importar una fila para un modelo específico (esquema DigiPrenda actual).
      */
     protected function importRow(string $modelo, array $data, int $userId): void
     {
         switch ($modelo) {
             case 'clientes':
-                Cliente::updateOrCreate(
-                    ['dpi' => trim($data['dpi'])],
+                $dpi = trim((string) $data['dpi']);
+                $existia = Cliente::where('dpi', $dpi)->exists();
+                $cliente = Cliente::updateOrCreate(
+                    ['dpi' => $dpi],
                     [
                         'nit' => !empty($data['nit']) ? trim($data['nit']) : null,
                         'nombres' => trim($data['nombres']),
@@ -722,18 +968,24 @@ class MigracionService
                         'fecha_nacimiento' => !empty($data['fecha_nacimiento']) ? trim($data['fecha_nacimiento']) : '1990-01-01',
                         'genero' => !empty($data['genero']) ? trim($data['genero']) : 'otro',
                         'estado' => 'activo',
+                        'tipo_cliente' => 'regular',
+                        'eliminado' => false,
+                        'notas' => 'Importado por Migración de Datos Históricos',
                     ]
                 );
+                $this->loteIds[$existia ? 'clientes_updated' : 'clientes_created'][] = (int) $cliente->id;
                 break;
 
             case 'creditos':
-                $doc = trim($data['cliente_documento']);
-                $cliente = Cliente::where('dpi', $doc)->orWhere('nit', $doc)->orWhere('codigo_cliente', $doc)->first();
+                $doc = trim((string) $data['cliente_documento']);
+                $cliente = Cliente::where(function ($q) use ($doc) {
+                    $q->where('dpi', $doc)->orWhere('nit', $doc)->orWhere('codigo_cliente', $doc);
+                })->first();
                 if (!$cliente) {
                     throw new \Exception("Cliente no encontrado con documento: {$doc}");
                 }
 
-                $sucursalCode = trim($data['sucursal_codigo']);
+                $sucursalCode = trim((string) $data['sucursal_codigo']);
                 $sucursal = Sucursal::where('codigo', $sucursalCode)->first();
                 if (!$sucursal) {
                     throw new \Exception("Sucursal no encontrada con código: {$sucursalCode}");
@@ -743,8 +995,13 @@ class MigracionService
                     ? User::where('username', trim($data['analista_username']))->first()
                     : null;
 
-                CreditoPrendario::updateOrCreate(
-                    ['numero_credito' => trim($data['numero_credito'])],
+                $numero = trim((string) $data['numero_credito']);
+                $existia = CreditoPrendario::where('numero_credito', $numero)->exists();
+                $monto = (float) ($data['monto_aprobado'] ?? $data['monto_solicitado'] ?? 0);
+                $estado = $this->mapEstadoCredito($data['estado'] ?? 'vigente');
+
+                $credito = CreditoPrendario::updateOrCreate(
+                    ['numero_credito' => $numero],
                     [
                         'cliente_id' => $cliente->id,
                         'sucursal_id' => $sucursal->id,
@@ -754,55 +1011,81 @@ class MigracionService
                         'fecha_aprobacion' => $data['fecha_aprobacion'] ?? $data['fecha_solicitud'],
                         'fecha_desembolso' => $data['fecha_desembolso'] ?? $data['fecha_solicitud'],
                         'fecha_vencimiento' => $data['fecha_vencimiento'] ?? null,
-                        'monto_solicitado' => $data['monto_solicitado'],
-                        'monto_aprobado' => $data['monto_aprobado'] ?? $data['monto_solicitado'],
-                        'monto_desembolsado' => $data['monto_aprobado'] ?? $data['monto_solicitado'],
-                        'capital_pendiente' => $data['monto_aprobado'] ?? $data['monto_solicitado'],
-                        'tasa_interes' => $data['tasa_interes'] ?? 0,
-                        'plazo_dias' => $data['plazo_dias'] ?? 30,
-                        'estado' => $data['estado'],
+                        'monto_solicitado' => (float) ($data['monto_solicitado'] ?? 0),
+                        'monto_aprobado' => $monto,
+                        'monto_desembolsado' => $monto,
+                        'capital_pendiente' => $monto,
+                        'capital_pagado' => 0,
+                        'valor_tasacion' => (float) ($data['valor_tasacion'] ?? 0),
+                        'tasa_interes' => (float) ($data['tasa_interes'] ?? 0),
+                        'tasa_mora' => (float) ($data['tasa_mora'] ?? 0),
+                        'plazo_dias' => (int) ($data['plazo_dias'] ?? 30),
+                        'numero_cuotas' => 1,
+                        'tipo_interes' => 'mensual',
+                        'metodo_calculo' => 'flat',
+                        'estado' => $estado,
+                        'numero_contrato' => $numero,
                         'observaciones' => $data['observaciones'] ?? null,
+                        'calificacion' => 'A',
+                        'forma_desembolso' => 'efectivo',
+                        'permite_refrendo' => true,
                         'afecta_interes_mensual' => true,
                         'permite_pago_capital_diferente' => true,
                         'requiere_renovacion' => false,
                     ]
                 );
+                $this->loteIds[$existia ? 'creditos_updated' : 'creditos_created'][] = (int) $credito->id;
                 break;
 
             case 'prendas':
-                $numCredito = trim($data['numero_credito']);
+                $numCredito = trim((string) $data['numero_credito']);
                 $credito = CreditoPrendario::where('numero_credito', $numCredito)->first();
                 if (!$credito) {
                     throw new \Exception("Crédito no encontrado con número: {$numCredito}");
                 }
 
-                Prenda::create([
+                $valorTasacion = (float) ($data['valor_tasacion'] ?? 0);
+                $valorPrestamo = 0.0;
+                if (!empty($data['valor_prestamo'])) {
+                    $valorPrestamo = (float) $data['valor_prestamo'];
+                } elseif (!empty($data['observaciones']) && preg_match('/prestamo=([0-9.]+)/i', (string) $data['observaciones'], $m)) {
+                    $valorPrestamo = (float) $m[1];
+                }
+
+                $prenda = Prenda::create([
                     'credito_prendario_id' => $credito->id,
-                    'descripcion' => $data['descripcion'],
-                    'categoria' => $data['categoria'] ?? 'General',
-                    'marca' => $data['marca'] ?? null,
-                    'modelo' => $data['modelo'] ?? null,
-                    'serie' => $data['serie'] ?? null,
-                    'estado_conservacion' => $data['estado_conservacion'] ?? 'Bueno',
-                    'valor_tasacion' => $data['valor_tasacion'] ?? 0,
-                    'observaciones' => $data['observaciones'] ?? null,
-                    'estado' => 'custodia'
+                    'categoria_producto_id' => $this->resolverCategoriaProducto($data['categoria'] ?? null),
+                    'sucursal_id' => $credito->sucursal_id,
+                    'tipo_ingreso' => 'empeño',
+                    'codigo_prenda' => $this->generarCodigoPrenda($numCredito),
+                    'descripcion' => mb_substr(trim((string) ($data['descripcion'] ?? 'PRENDA MIG')), 0, 500),
+                    'marca' => !empty($data['marca']) ? trim($data['marca']) : null,
+                    'modelo' => !empty($data['modelo']) ? trim($data['modelo']) : null,
+                    'serie' => !empty($data['serie']) ? trim($data['serie']) : null,
+                    'condicion' => $this->mapCondicion($data['estado_conservacion'] ?? null),
+                    'valor_estimado_cliente' => $valorTasacion,
+                    'valor_tasacion' => $valorTasacion,
+                    'valor_prestamo' => $valorPrestamo,
+                    'estado' => 'en_custodia',
+                    'fecha_ingreso' => now()->toDateString(),
+                    'observaciones' => $data['observaciones'] ?? 'Migración histórica',
                 ]);
+                $this->loteIds['prendas_created'][] = (int) $prenda->id;
                 break;
 
             case 'pagos':
-                $numCredito = trim($data['numero_credito']);
+                $numCredito = trim((string) $data['numero_credito']);
                 $credito = CreditoPrendario::where('numero_credito', $numCredito)->first();
                 if (!$credito) {
                     throw new \Exception("Crédito no encontrado para el pago: {$numCredito}");
                 }
 
-                CreditoMovimiento::create([
+                $mov = CreditoMovimiento::create([
                     'credito_prendario_id' => $credito->id,
                     'usuario_id' => $userId,
                     'sucursal_id' => $credito->sucursal_id,
                     'numero_movimiento' => uniqid('MOV_'),
-                    'numero_recibo' => trim($data['numero_recibo']),
+                    'numero_recibo' => trim((string) $data['numero_recibo']),
                     'tipo_movimiento' => 'pago',
                     'fecha_movimiento' => $data['fecha_pago'],
                     'fecha_registro' => now(),
@@ -810,15 +1093,17 @@ class MigracionService
                     'capital' => $data['capital'] ?? 0,
                     'interes' => $data['interes'] ?? 0,
                     'mora' => $data['mora'] ?? 0,
-                    'observaciones' => $data['observaciones'] ?? 'Migración histórica de pago'
+                    'forma_pago' => $data['forma_pago'] ?? 'efectivo',
+                    'estado' => 'activo',
+                    'observaciones' => $data['observaciones'] ?? 'Migración histórica de pago',
                 ]);
+                $this->loteIds['pagos_created'][] = (int) $mov->id;
 
-                // Actualizar saldos en el crédito
-                $capitalAbonado = floatval($data['capital'] ?? 0);
+                $capitalAbonado = (float) ($data['capital'] ?? 0);
                 if ($capitalAbonado > 0) {
-                    $credito->capital_pendiente = max(0, $credito->capital_pendiente - $capitalAbonado);
-                    $credito->capital_pagado = ($credito->capital_pagado ?? 0) + $capitalAbonado;
-                    if ($credito->capital_pendiente == 0) {
+                    $credito->capital_pendiente = max(0, (float) $credito->capital_pendiente - $capitalAbonado);
+                    $credito->capital_pagado = ((float) ($credito->capital_pagado ?? 0)) + $capitalAbonado;
+                    if ((float) $credito->capital_pendiente == 0.0) {
                         $credito->estado = 'pagado';
                     }
                     $credito->save();
@@ -826,18 +1111,22 @@ class MigracionService
                 break;
 
             case 'compras':
-                $sucursalCode = trim($data['sucursal_codigo']);
+                $sucursalCode = trim((string) $data['sucursal_codigo']);
                 $sucursal = Sucursal::where('codigo', $sucursalCode)->first();
                 if (!$sucursal) {
                     throw new \Exception("Sucursal no encontrada: {$sucursalCode}");
                 }
 
-                $doc = trim($data['cliente_documento'] ?? '');
-                $cliente = $doc !== '' ? Cliente::where('dpi', $doc)->orWhere('nit', $doc)->first() : null;
+                $doc = trim((string) ($data['cliente_documento'] ?? ''));
+                $cliente = $doc !== ''
+                    ? Cliente::where(function ($q) use ($doc) {
+                        $q->where('dpi', $doc)->orWhere('nit', $doc);
+                    })->first()
+                    : null;
 
-                Compra::create([
-                    'codigo_compra' => trim($data['codigo_compra']),
-                    'cliente_id' => $cliente ? $cliente->id : null,
+                $compra = Compra::create([
+                    'codigo_compra' => trim((string) $data['codigo_compra']),
+                    'cliente_id' => $cliente?->id,
                     'sucursal_id' => $sucursal->id,
                     'usuario_id' => $userId,
                     'cliente_nombre' => $data['cliente_nombre'],
@@ -854,21 +1143,26 @@ class MigracionService
                     'estado' => 'completada',
                     'observaciones' => $data['observaciones'] ?? null,
                 ]);
+                $this->loteIds['compras_created'][] = (int) $compra->id;
                 break;
 
             case 'ventas':
-                $sucursalCode = trim($data['sucursal_codigo']);
+                $sucursalCode = trim((string) $data['sucursal_codigo']);
                 $sucursal = Sucursal::where('codigo', $sucursalCode)->first();
                 if (!$sucursal) {
                     throw new \Exception("Sucursal no encontrada: {$sucursalCode}");
                 }
 
-                $doc = trim($data['cliente_documento'] ?? '');
-                $cliente = $doc !== '' ? Cliente::where('dpi', $doc)->orWhere('nit', $doc)->first() : null;
+                $doc = trim((string) ($data['cliente_documento'] ?? ''));
+                $cliente = $doc !== ''
+                    ? Cliente::where(function ($q) use ($doc) {
+                        $q->where('dpi', $doc)->orWhere('nit', $doc);
+                    })->first()
+                    : null;
 
-                Venta::create([
-                    'numero_factura' => trim($data['numero_factura']),
-                    'cliente_id' => $cliente ? $cliente->id : null,
+                $venta = Venta::create([
+                    'numero_factura' => trim((string) $data['numero_factura']),
+                    'cliente_id' => $cliente?->id,
                     'sucursal_id' => $sucursal->id,
                     'usuario_id' => $userId,
                     'fecha_venta' => $data['fecha_venta'],
@@ -877,8 +1171,9 @@ class MigracionService
                     'total_pagado' => $data['total_final'],
                     'tipo_venta' => 'contado',
                     'estado' => 'completada',
-                    'observaciones' => $data['observaciones'] ?? 'Migración histórica de venta'
+                    'observaciones' => $data['observaciones'] ?? 'Migración histórica de venta',
                 ]);
+                $this->loteIds['ventas_created'][] = (int) $venta->id;
                 break;
 
             case 'ctb_nomenclatura':
@@ -904,7 +1199,7 @@ class MigracionService
                 break;
 
             case 'ctb_diario':
-                $numComprobante = trim($data['numero_comprobante']);
+                $numComprobante = trim((string) $data['numero_comprobante']);
                 $diario = CtbDiario::firstOrCreate(
                     ['numero_comprobante' => $numComprobante],
                     [
@@ -916,7 +1211,7 @@ class MigracionService
                     ]
                 );
 
-                $cuentaCode = trim($data['codigo_cuenta']);
+                $cuentaCode = trim((string) $data['codigo_cuenta']);
                 $cuenta = CtbNomenclatura::where('codigo_cuenta', $cuentaCode)->first();
                 if (!$cuenta) {
                     throw new \Exception("Cuenta contable no encontrada con código: {$cuentaCode}");

@@ -124,10 +124,17 @@ class MigracionController extends Controller
                 $request->user()->id
             );
 
+            $cuadre = $log->resumen['cuadre'] ?? null;
+            $msg = 'Importación completada con éxito';
+            if (is_array($cuadre) && array_key_exists('cuadra', $cuadre) && !$cuadre['cuadra']) {
+                $msg .= ' (advertencia: saldos del lote no cuadran; puedes revertir el lote)';
+            }
+
             return response()->json([
                 'success' => true,
-                'message' => 'Importación completada con éxito',
-                'log' => $log
+                'message' => $msg,
+                'log' => $log,
+                'cuadre' => $cuadre,
             ]);
 
         } catch (\Exception $e) {
@@ -135,6 +142,30 @@ class MigracionController extends Controller
                 'success' => false,
                 'message' => 'Error en la importación: ' . $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Revertir un lote de migración completado (deshace clientes/créditos/prendas del lote).
+     */
+    public function revertir(Request $request, int $id): JsonResponse
+    {
+        $this->checkSuperAdmin($request->user());
+
+        try {
+            $log = MigracionDatosLog::findOrFail($id);
+            $log = $this->migracionService->revertirLote($log);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Lote revertido. Los registros creados por esa migración fueron eliminados.',
+                'log' => $log,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
         }
     }
 }

@@ -618,6 +618,7 @@ Route::prefix('v1')->group(function () {
              Route::get('/plantilla/{modelo}', [\App\Http\Controllers\MigracionController::class, 'downloadTemplate']);
              Route::post('/upload', [\App\Http\Controllers\MigracionController::class, 'upload']);
              Route::post('/execute', [\App\Http\Controllers\MigracionController::class, 'execute']);
+             Route::post('/{id}/revertir', [\App\Http\Controllers\MigracionController::class, 'revertir']);
         });
 });
 
