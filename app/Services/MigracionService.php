@@ -18,6 +18,7 @@ use App\Models\CategoriaProducto;
 use App\Models\MigracionDatosLog;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Carbon\Carbon;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -676,15 +677,25 @@ class MigracionService
 
             if (!empty($errors)) {
                 DB::rollBack();
+                $muestra = array_slice($errors, 0, 8);
+                $unicos = array_values(array_unique(array_map(function ($e) {
+                    // Quitar prefijo de fila para agrupar causa raíz
+                    return preg_replace('/^\[.*?\]\s*Fila\s*\d+:\s*/u', '', $e) ?? $e;
+                }, $errors)));
                 $log->update([
                     'estado' => 'error',
                     'fecha_fin' => now(),
                     'errores' => array_slice($errors, 0, 100),
                     'total_filas' => $totalRows,
                     'filas_con_error' => count($errors),
-                    'observaciones' => 'Rollback automático: la importación no se aplicó.',
+                    'observaciones' => 'Rollback automático: la importación no se aplicó. Causas: '
+                        . implode(' | ', array_slice($unicos, 0, 5)),
                 ]);
-                throw new \Exception('La importación falló con ' . count($errors) . ' errores. Se revirtieron todos los cambios.');
+                throw new \Exception(
+                    'La importación falló con ' . count($errors) . ' errores. Se revirtieron todos los cambios. '
+                    . 'Causas frecuentes: ' . implode(' · ', array_slice($unicos, 0, 3))
+                    . ' | Ejemplos: ' . implode(' || ', $muestra)
+                );
             }
 
             $cuadre = $this->cuadreLote();
@@ -845,6 +856,47 @@ class MigracionService
         }
     }
 
+    /**
+     * Resuelve sucursal por código. Si no existe (ej. DEMO-001 en producción),
+     * usa la del usuario o la primera sucursal activa.
+     */
+    protected function resolverSucursal(string $codigo, int $userId): Sucursal
+    {
+        $codigo = trim($codigo);
+        $sucursal = Sucursal::where('codigo', $codigo)->first();
+        if ($sucursal) {
+            return $sucursal;
+        }
+
+        // Case-insensitive
+        $sucursal = Sucursal::whereRaw('LOWER(codigo) = ?', [mb_strtolower($codigo)])->first();
+        if ($sucursal) {
+            return $sucursal;
+        }
+
+        $user = User::find($userId);
+        if ($user && $user->sucursal_id) {
+            $sucursal = Sucursal::find($user->sucursal_id);
+            if ($sucursal) {
+                Log::warning("Migración: sucursal '{$codigo}' no existe; usando sucursal del usuario {$sucursal->codigo}");
+                return $sucursal;
+            }
+        }
+
+        $sucursal = Sucursal::query()
+            ->when(Schema::hasColumn('sucursales', 'activa'), fn ($q) => $q->where('activa', true))
+            ->orderBy('id')
+            ->first()
+            ?? Sucursal::orderBy('id')->first();
+
+        if (!$sucursal) {
+            throw new \Exception("Sucursal no encontrada con código: {$codigo}. Crea una sucursal o pon su código real en la plantilla (columna sucursal_codigo).");
+        }
+
+        Log::warning("Migración: sucursal '{$codigo}' no existe; usando fallback {$sucursal->codigo} (id {$sucursal->id})");
+        return $sucursal;
+    }
+
     protected function resolverCategoriaProducto(?string $nombreOCodigo): int
     {
         $raw = trim((string) $nombreOCodigo);
@@ -864,14 +916,22 @@ class MigracionService
         })->first();
 
         if (!$cat) {
-            // Mapa amigable
-            $map = [
-                'joyería' => 'CAT-001', 'joyeria' => 'CAT-001', 'alhajas' => 'CAT-001',
-                'electrónica' => 'CAT-002', 'electronica' => 'CAT-002', 'varios' => 'CAT-002',
-                'vehículos' => 'CAT-005', 'vehiculos' => 'CAT-005', 'auto' => 'CAT-005', 'moto' => 'CAT-005',
-            ];
+            // Normalizar acentos / mojibake
             $key = mb_strtolower($raw);
-            $codigo = $map[$key] ?? null;
+            $keyAscii = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $key) ?: $key;
+            $keyAscii = preg_replace('/[^a-z]/', '', mb_strtolower($keyAscii)) ?? $keyAscii;
+            $map = [
+                'joyeria' => 'CAT-001', 'alhajas' => 'CAT-001',
+                'electronica' => 'CAT-002', 'varios' => 'CAT-002',
+                'vehiculos' => 'CAT-005', 'auto' => 'CAT-005', 'moto' => 'CAT-005',
+                'herramientas' => 'CAT-003',
+                'electrodomesticos' => 'CAT-004',
+            ];
+            // También claves con tilde por si el runtime las conserva
+            $mapUtf = [
+                'joyería' => 'CAT-001', 'electrónica' => 'CAT-002', 'vehículos' => 'CAT-005',
+            ];
+            $codigo = $map[$keyAscii] ?? $mapUtf[$key] ?? null;
             if ($codigo) {
                 $cat = CategoriaProducto::where('codigo', $codigo)->first();
             }
@@ -1071,11 +1131,7 @@ class MigracionService
                     throw new \Exception("Cliente no encontrado con documento: {$doc}");
                 }
 
-                $sucursalCode = trim((string) $data['sucursal_codigo']);
-                $sucursal = Sucursal::where('codigo', $sucursalCode)->first();
-                if (!$sucursal) {
-                    throw new \Exception("Sucursal no encontrada con código: {$sucursalCode}");
-                }
+                $sucursal = $this->resolverSucursal((string) ($data['sucursal_codigo'] ?? ''), $userId);
 
                 $analista = !empty($data['analista_username'])
                     ? User::where('username', trim($data['analista_username']))->first()
@@ -1197,11 +1253,7 @@ class MigracionService
                 break;
 
             case 'compras':
-                $sucursalCode = trim((string) $data['sucursal_codigo']);
-                $sucursal = Sucursal::where('codigo', $sucursalCode)->first();
-                if (!$sucursal) {
-                    throw new \Exception("Sucursal no encontrada: {$sucursalCode}");
-                }
+                $sucursal = $this->resolverSucursal((string) ($data['sucursal_codigo'] ?? ''), $userId);
 
                 $doc = trim((string) ($data['cliente_documento'] ?? ''));
                 $cliente = $doc !== ''
@@ -1233,11 +1285,7 @@ class MigracionService
                 break;
 
             case 'ventas':
-                $sucursalCode = trim((string) $data['sucursal_codigo']);
-                $sucursal = Sucursal::where('codigo', $sucursalCode)->first();
-                if (!$sucursal) {
-                    throw new \Exception("Sucursal no encontrada: {$sucursalCode}");
-                }
+                $sucursal = $this->resolverSucursal((string) ($data['sucursal_codigo'] ?? ''), $userId);
 
                 $doc = trim((string) ($data['cliente_documento'] ?? ''));
                 $cliente = $doc !== ''

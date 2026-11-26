@@ -144,10 +144,17 @@ class MigracionController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            $logError = MigracionDatosLog::where('usuario_id', $request->user()->id)
+                ->where('estado', 'error')
+                ->orderByDesc('id')
+                ->first();
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error en la importación: ' . $e->getMessage()
-            ], 500);
+                'message' => 'Error en la importación: ' . $e->getMessage(),
+                'errores_muestra' => $logError?->errores ?? [],
+                'observaciones' => $logError?->observaciones,
+            ], 422);
         }
     }
 
