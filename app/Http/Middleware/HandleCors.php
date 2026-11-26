@@ -47,12 +47,14 @@ class HandleCors
         $allowOriginHeader = $origin ?: '*';
 
         $corsHeaders = 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Client-ID, X-Sucursal-Activa';
+        $exposeHeaders = 'Content-Disposition, Content-Type, Content-Length';
 
         if ($isAllowed && $request->isMethod('OPTIONS')) {
             return response('', 204)
                 ->header('Access-Control-Allow-Origin', $allowOriginHeader)
                 ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH')
                 ->header('Access-Control-Allow-Headers', $corsHeaders)
+                ->header('Access-Control-Expose-Headers', $exposeHeaders)
                 ->header('Access-Control-Allow-Credentials', 'true')
                 ->header('Access-Control-Max-Age', '86400');
         }
@@ -65,6 +67,7 @@ class HandleCors
                 $response->headers->set('Access-Control-Allow-Origin', $allowOriginHeader);
                 $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
                 $response->headers->set('Access-Control-Allow-Headers', $corsHeaders);
+                $response->headers->set('Access-Control-Expose-Headers', $exposeHeaders);
                 $response->headers->set('Access-Control-Allow-Credentials', 'true');
                 $response->headers->set('Access-Control-Max-Age', '86400');
                 return $response;
@@ -74,6 +77,7 @@ class HandleCors
                 ->header('Access-Control-Allow-Origin', $allowOriginHeader)
                 ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH')
                 ->header('Access-Control-Allow-Headers', $corsHeaders)
+                ->header('Access-Control-Expose-Headers', $exposeHeaders)
                 ->header('Access-Control-Allow-Credentials', 'true')
                 ->header('Access-Control-Max-Age', '86400');
         }

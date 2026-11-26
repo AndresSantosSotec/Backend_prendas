@@ -211,7 +211,7 @@ class MigracionController extends Controller
                 'success' => true,
                 'message' => 'Copia de seguridad creada. Descárgala ahora.',
                 'data' => $info,
-                'download_url' => url('/api/v1/migraciones/respaldos/' . urlencode($info['filename']) . '/descargar'),
+                'download_url' => url('/api/v1/migraciones/respaldos/descargar?filename=' . rawurlencode($info['filename'])),
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -235,11 +235,19 @@ class MigracionController extends Controller
     }
 
     /**
-     * Descargar un archivo .sql de respaldo.
+     * Descargar un archivo .sql de respaldo (?filename=...).
      */
-    public function descargarRespaldo(Request $request, string $filename)
+    public function descargarRespaldo(Request $request)
     {
         $this->checkSuperAdmin($request->user());
+
+        $filename = (string) $request->query('filename', '');
+        if ($filename === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Falta el parámetro filename.',
+            ], 422);
+        }
 
         try {
             return $this->mantenimientoService->descargarRespaldo($filename);

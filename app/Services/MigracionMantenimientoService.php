@@ -5,7 +5,6 @@ namespace App\Services;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Respaldo completo de BD + purga transaccional (conserva users y catálogos).
@@ -157,21 +156,25 @@ class MigracionMantenimientoService
 
     /**
      * Descarga un respaldo existente por nombre de archivo (solo dentro de backups/).
+     *
+     * @return \Symfony\Component\HttpFoundation\BinaryFileResponse
      */
-    public function descargarRespaldo(string $filename): StreamedResponse
+    public function descargarRespaldo(string $filename)
     {
-        $filename = basename($filename);
+        $filename = basename(rawurldecode($filename));
+        // Solo .sql y sin path traversal
+        if (!preg_match('/^[\w.\-]+\.sql$/i', $filename)) {
+            throw new \RuntimeException('Nombre de respaldo inválido.');
+        }
+
         $path = storage_path('app/backups/' . $filename);
         if (!is_file($path)) {
             throw new \RuntimeException('Respaldo no encontrado.');
         }
 
-        return response()->streamDownload(function () use ($path) {
-            $stream = fopen($path, 'rb');
-            fpassthru($stream);
-            fclose($stream);
-        }, $filename, [
-            'Content-Type' => 'application/sql',
+        return response()->download($path, $filename, [
+            'Content-Type' => 'application/octet-stream',
+            'Cache-Control' => 'no-store, private',
         ]);
     }
 
