@@ -615,6 +615,9 @@ class MigracionService
         Cliente::$auditarDeshabilitado = true;
         Prenda::$auditarDeshabilitado = true;
 
+        // Asegurar sucursal/categorías mínimas antes de importar (CrediPrendas limpia)
+        $this->asegurarCatalogosMigracion($userId);
+
         DB::beginTransaction();
 
         try {
@@ -857,21 +860,73 @@ class MigracionService
     }
 
     /**
-     * Resuelve sucursal por código. Si no existe (ej. DEMO-001 en producción),
-     * usa la del usuario o la primera sucursal activa.
+     * Garantiza que exista al menos una sucursal y categorías básicas para la migración.
+     */
+    protected function asegurarCatalogosMigracion(int $userId): void
+    {
+        // Crear DEMO-001 (o primera del usuario) si no hay sucursales
+        if (Sucursal::count() === 0) {
+            $this->resolverSucursal('DEMO-001', $userId);
+        }
+
+        $basicas = [
+            ['codigo' => 'CAT-001', 'nombre' => 'Joyería'],
+            ['codigo' => 'CAT-002', 'nombre' => 'Electrónica'],
+            ['codigo' => 'CAT-003', 'nombre' => 'Herramientas'],
+            ['codigo' => 'CAT-004', 'nombre' => 'Electrodomésticos'],
+            ['codigo' => 'CAT-005', 'nombre' => 'Vehículos'],
+            ['codigo' => 'CAT-012', 'nombre' => 'Otros'],
+        ];
+
+        if (CategoriaProducto::count() === 0) {
+            foreach ($basicas as $c) {
+                CategoriaProducto::firstOrCreate(
+                    ['codigo' => $c['codigo']],
+                    [
+                        'nombre' => $c['nombre'],
+                        'descripcion' => 'Creada automáticamente por Migración',
+                        'activa' => true,
+                    ]
+                );
+            }
+            Log::warning('Migración: se crearon categorías de producto básicas (catálogo vacío).');
+        }
+    }
+
+    /**
+     * Resuelve sucursal por código.
+     * Orden: exacta → case-insensitive → restaurar soft-deleted → sucursal del usuario
+     * → primera activa → CREAR automáticamente el código de la plantilla.
      */
     protected function resolverSucursal(string $codigo, int $userId): Sucursal
     {
         $codigo = trim($codigo);
+        if ($codigo === '') {
+            $codigo = 'MIG-001';
+        }
+        // Limitar a 20 chars (columna codigo)
+        $codigo = mb_substr($codigo, 0, 20);
+
         $sucursal = Sucursal::where('codigo', $codigo)->first();
         if ($sucursal) {
             return $sucursal;
         }
 
-        // Case-insensitive
         $sucursal = Sucursal::whereRaw('LOWER(codigo) = ?', [mb_strtolower($codigo)])->first();
         if ($sucursal) {
             return $sucursal;
+        }
+
+        // Soft-deleted con el mismo código → restaurar
+        $trashed = Sucursal::withTrashed()->where('codigo', $codigo)->first();
+        if ($trashed) {
+            $trashed->restore();
+            if (Schema::hasColumn('sucursales', 'activa')) {
+                $trashed->activa = true;
+                $trashed->save();
+            }
+            Log::warning("Migración: sucursal '{$codigo}' estaba eliminada; restaurada.");
+            return $trashed->fresh();
         }
 
         $user = User::find($userId);
@@ -889,11 +944,29 @@ class MigracionService
             ->first()
             ?? Sucursal::orderBy('id')->first();
 
-        if (!$sucursal) {
-            throw new \Exception("Sucursal no encontrada con código: {$codigo}. Crea una sucursal o pon su código real en la plantilla (columna sucursal_codigo).");
+        if ($sucursal) {
+            Log::warning("Migración: sucursal '{$codigo}' no existe; usando fallback {$sucursal->codigo} (id {$sucursal->id})");
+            return $sucursal;
         }
 
-        Log::warning("Migración: sucursal '{$codigo}' no existe; usando fallback {$sucursal->codigo} (id {$sucursal->id})");
+        // No hay ninguna sucursal en la BD → crear la del Excel (ej. DEMO-001)
+        Sucursal::$auditarDeshabilitado = true;
+        try {
+            $sucursal = Sucursal::create([
+                'codigo' => $codigo,
+                'nombre' => 'Sucursal Migración ' . $codigo,
+                'direccion' => 'Creada automáticamente por Migración de Datos',
+                'ciudad' => 'Guatemala',
+                'departamento' => 'Guatemala',
+                'pais' => 'Guatemala',
+                'activa' => true,
+                'descripcion' => 'Alta automática durante importación histórica',
+            ]);
+        } finally {
+            Sucursal::$auditarDeshabilitado = false;
+        }
+
+        Log::warning("Migración: se creó sucursal automática '{$codigo}' (id {$sucursal->id}) porque no había sucursales.");
         return $sucursal;
     }
 
